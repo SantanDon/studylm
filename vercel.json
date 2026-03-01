@@ -58,8 +58,8 @@
       "maxDuration": 10
     }
   },
-  "buildCommand": "echo 'Static deployment - no build needed'",
+  "buildCommand": "npm run build",
   "devCommand": "vite",
-  "installCommand": "echo 'No install needed'",
+  "installCommand": "npm ci --omit=dev --prefer-offline",
   "framework": "vite"
 }
