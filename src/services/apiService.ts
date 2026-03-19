@@ -36,6 +36,16 @@ export const ApiService = {
     return response.json();
   },
 
+  async createNotebook(title: string, description: string | undefined, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description })
+    });
+    if (!response.ok) throw new Error('Failed to create notebook');
+    return response.json();
+  },
+
   async fetchNotes(notebookId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/notes`, {
       headers: { 'Authorization': `Bearer ${token}` }

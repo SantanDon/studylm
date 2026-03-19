@@ -1,11 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthState } from "@/hooks/useAuthState";
 import { useGuest } from "@/hooks/useGuest";
+import { useAuth } from "@/hooks/useAuth";
 import { localNotebookStore } from "@/integrations/local/localNotebookStore";
 import { useSyncTrigger } from "@/hooks/useSyncTrigger";
+import { ApiService } from "@/services/apiService";
 
 export const useNotebooks = () => {
   const { user, isSignedIn: isAuthenticated } = useAuthState();
+  const { session } = useAuth();
   const { isGuest, guestId, incrementUsage } = useGuest();
   const queryClient = useQueryClient();
   const { triggerSync } = useSyncTrigger();
@@ -13,13 +16,14 @@ export const useNotebooks = () => {
   // Get the effective user ID (guest or authenticated)
   const effectiveUserId = user?.id || guestId;
 
+  // ─── READ ──────────────────────────────────────────────────────────────────
   const {
     data: notebooks = [],
     isLoading,
     error,
     isError,
   } = useQuery({
-    queryKey: ["notebooks", effectiveUserId],
+    queryKey: ["notebooks", effectiveUserId, isAuthenticated],
     queryFn: async () => {
       if (!effectiveUserId) {
         console.log("No user or guest found, returning empty notebooks array");
@@ -28,13 +32,19 @@ export const useNotebooks = () => {
 
       console.log("Fetching notebooks for:", isGuest ? "guest" : "user", effectiveUserId);
 
-      // Get notebooks from the local store
-      const notebooksData = await localNotebookStore.getNotebooks(effectiveUserId);
-
-      console.log("Fetched notebooks:", notebooksData?.length || 0);
-      return notebooksData || [];
+      if (isAuthenticated && session?.access_token) {
+        console.log("useNotebooks: Fetching from backend API...");
+        return await ApiService.fetchNotebooks(session.access_token);
+      } else {
+        // Get notebooks from the local store
+        console.log("useNotebooks: Fetching from local storage...");
+        const notebooksData = await localNotebookStore.getNotebooks(effectiveUserId);
+        return notebooksData || [];
+      }
     },
     enabled: !!effectiveUserId,
+    // Add polling so notebooks created by agents appear automatically
+    refetchInterval: isAuthenticated ? 10000 : false,
     retry: (failureCount: number, err: unknown) => {
       // Don't retry on auth errors
       const msg =
@@ -49,6 +59,7 @@ export const useNotebooks = () => {
     },
   });
 
+  // ─── CREATE ────────────────────────────────────────────────────────────────
   const createNotebook = useMutation({
     mutationFn: async (notebookData: {
       title: string;
@@ -62,13 +73,22 @@ export const useNotebooks = () => {
         throw new Error("Unable to create notebook. Please refresh and try again.");
       }
 
-      const data = await localNotebookStore.createNotebook(
-        {
-          title: notebookData.title,
-          description: notebookData.description,
-        },
-        effectiveUserId,
-      );
+      let data;
+      if (isAuthenticated && session?.access_token) {
+        data = await ApiService.createNotebook(
+          notebookData.title,
+          notebookData.description,
+          session.access_token
+        );
+      } else {
+        data = await localNotebookStore.createNotebook(
+          {
+            title: notebookData.title,
+            description: notebookData.description,
+          },
+          effectiveUserId,
+        );
+      }
 
       console.log("Notebook created successfully:", data);
       
@@ -83,7 +103,7 @@ export const useNotebooks = () => {
       console.log("Mutation success, invalidating queries");
       queryClient.invalidateQueries({ queryKey: ["notebooks", effectiveUserId] });
       
-      // Trigger background sync
+      // Trigger background sync (even if API, allows EverMemOS sync)
       if (data) {
         triggerSync('notebook', data.id, data, 'create').catch(err => {
           console.error("Failed to trigger sync after creation:", err);
