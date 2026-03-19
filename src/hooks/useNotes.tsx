@@ -25,30 +25,34 @@ export const useNotes = (notebookId?: string) => {
   const effectiveUserId = user?.id || guestId;
   const queryClient = useQueryClient();
 
+  const isAuthenticated = !!session?.access_token;
+
+  // ─── READ ──────────────────────────────────────────────────────────────────
   const { data: notes, isLoading } = useQuery({
-    queryKey: ["notes", notebookId, !!session?.access_token],
+    queryKey: ["notes", notebookId, isAuthenticated],
     queryFn: async () => {
       if (!notebookId) return [];
 
       let notes: Note[];
-      
-      if (session?.access_token) {
-        console.log("useNotes: Fetching from cloud...");
-        notes = await ApiService.fetchNotes(notebookId, session.access_token);
+
+      if (isAuthenticated) {
+        console.log("useNotes: Fetching from backend API...");
+        notes = await ApiService.fetchNotes(notebookId, session!.access_token);
       } else {
         console.log("useNotes: Fetching from local storage...");
         notes = await localStorageService.getNotes(notebookId) as Note[];
       }
 
-      // Sort by updated date (newest first)
       return notes.sort(
-        (a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+        (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
       );
     },
     enabled: !!notebookId && !!effectiveUserId,
+    // Refresh often so agent-created notes appear quickly
+    refetchInterval: isAuthenticated ? 10000 : false,
   });
 
+  // ─── CREATE ────────────────────────────────────────────────────────────────
   const createNoteMutation = useMutation({
     mutationFn: async ({
       title,
@@ -63,22 +67,26 @@ export const useNotes = (notebookId?: string) => {
     }) => {
       if (!notebookId) throw new Error("Notebook ID is required");
 
-      // Create note in local storage
-      const newNote = await localStorageService.createNote({
-        notebook_id: notebookId,
-        title,
-        content,
-        source_type,
-        extracted_text,
-      });
-
-      return newNote;
+      if (isAuthenticated) {
+        // Write to backend — visible to agents and across devices
+        const fullContent = title ? `# ${title}\n\n${content}` : content;
+        return ApiService.createNote(notebookId, fullContent, session!.access_token);
+      } else {
+        return localStorageService.createNote({
+          notebook_id: notebookId,
+          title,
+          content,
+          source_type,
+          extracted_text,
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notes", notebookId] });
     },
   });
 
+  // ─── UPDATE ────────────────────────────────────────────────────────────────
   const updateNoteMutation = useMutation({
     mutationFn: async ({
       id,
@@ -89,59 +97,48 @@ export const useNotes = (notebookId?: string) => {
       title: string;
       content: string;
     }) => {
-      // Update note in local storage
-      const updatedNote = await localStorageService.updateNote(id, {
-        title,
-        content,
-      });
-
-      if (!updatedNote) {
-        throw new Error("Note not found");
+      if (isAuthenticated) {
+        const fullContent = title ? `# ${title}\n\n${content}` : content;
+        return ApiService.updateNote(notebookId!, id, fullContent, session!.access_token);
+      } else {
+        const updatedNote = await localStorageService.updateNote(id, { title, content });
+        if (!updatedNote) throw new Error("Note not found");
+        return updatedNote;
       }
-
-      return updatedNote;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notes", notebookId] });
     },
   });
 
+  // ─── DELETE ────────────────────────────────────────────────────────────────
   const deleteNoteMutation = useMutation({
     mutationFn: async (id: string) => {
-      // Delete note from local storage
-      const deleteSuccess = await localStorageService.deleteNote(id);
-
-      if (!deleteSuccess) {
-        throw new Error("Note not found");
+      if (isAuthenticated) {
+        return ApiService.deleteNote(notebookId!, id, session!.access_token);
+      } else {
+        const deleteSuccess = await localStorageService.deleteNote(id);
+        if (!deleteSuccess) throw new Error("Note not found");
+        return { id, notebookId };
       }
-      
-      return { id, notebookId };
     },
     onMutate: async (noteId) => {
-      // Cancel any outgoing refetches
       await queryClient.cancelQueries({ queryKey: ["notes", notebookId] });
-
-      // Snapshot the previous value
       const previousNotes = queryClient.getQueryData<Note[]>(["notes", notebookId]);
-
-      // Optimistically update to remove the note
       if (previousNotes) {
         queryClient.setQueryData<Note[]>(
           ["notes", notebookId],
           previousNotes.filter((note) => note.id !== noteId)
         );
       }
-
       return { previousNotes };
     },
-    onError: (err, noteId, context) => {
-      // Rollback on error
+    onError: (_err, _noteId, context) => {
       if (context?.previousNotes) {
         queryClient.setQueryData(["notes", notebookId], context.previousNotes);
       }
     },
     onSettled: () => {
-      // Always refetch after error or success
       queryClient.invalidateQueries({ queryKey: ["notes", notebookId] });
     },
   });
