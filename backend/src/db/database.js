@@ -32,12 +32,22 @@ let database;
 export async function getDatabase() {
   if (!database) {
     try {
+      console.log(`📂 Opening database at: ${DB_PATH}`);
       const { default: Database } = await import('better-sqlite3');
       database = new Database(DB_PATH);
       database.pragma('foreign_keys = ON');
-      database.pragma('journal_mode = WAL');
+      
+      // Disable WAL on Vercel because it requires more filesystem permissions/shm
+      if (isVercel) {
+        database.pragma('journal_mode = DELETE'); 
+        console.log('🔇 WAL mode disabled for Vercel');
+      } else {
+        database.pragma('journal_mode = WAL');
+      }
+      
+      console.log('✅ Database connection established');
     } catch (error) {
-      console.error('❌ Database load failure:', error.message);
+      console.error('❌ Database load failure:', error);
       throw error;
     }
   }
