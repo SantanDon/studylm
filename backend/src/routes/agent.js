@@ -12,7 +12,8 @@ const router = express.Router();
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadDir = path.join(process.cwd(), 'uploads', 'agent');
+    const baseDir = process.env.VERCEL ? '/tmp' : process.cwd();
+    const uploadDir = path.join(baseDir, 'uploads', 'agent');
     // Standard ESM-style sync directory creation
     if (!fsSync.existsSync(uploadDir)) {
       fsSync.mkdirSync(uploadDir, { recursive: true });

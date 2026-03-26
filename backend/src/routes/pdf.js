@@ -7,9 +7,11 @@ import pdfParse from 'pdf-parse';
 const router = express.Router();
 
 // Configure multer for file uploads
+const getUploadDir = () => process.env.VERCEL ? '/tmp/uploads' : 'uploads/';
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/');
+    cb(null, getUploadDir());
   },
   filename: function (req, file, cb) {
     cb(null, Date.now() + path.extname(file.originalname));
@@ -32,10 +34,11 @@ const upload = multer({
 
 // Ensure uploads directory exists
 const ensureUploadsDir = async () => {
+  const dir = getUploadDir();
   try {
-    await fs.access('uploads');
+    await fs.access(dir);
   } catch {
-    await fs.mkdir('uploads', { recursive: true });
+    await fs.mkdir(dir, { recursive: true });
   }
 };
 
