@@ -104,10 +104,17 @@ export const useNotebookGeneration = () => {
       // Get the source content for the generation context
       // Try to match by file_path OR url (for youtube/website sources)
       let sources: any[] = [];
-      if (session?.access_token) {
-        sources = await ApiService.fetchSources(notebookId, session.access_token);
-      } else {
-        sources = (await localStorageService.getSources(notebookId)) as any[];
+      try {
+        if (session?.access_token) {
+          const res = await ApiService.fetchSources(notebookId, session.access_token);
+          sources = Array.isArray(res) ? res : [];
+        } else {
+          const res = await localStorageService.getSources(notebookId);
+          sources = Array.isArray(res) ? res : [];
+        }
+      } catch (err) {
+        console.warn("Failed to fetch sources for generation:", err);
+        sources = [];
       }
       
       const source = sources.find((s) => s.file_path === filePath) ||
