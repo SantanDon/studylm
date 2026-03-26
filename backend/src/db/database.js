@@ -6,12 +6,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Standardized DB path
-const DB_PATH = join(__dirname, '..', '..', 'data', 'insights.db');
+// On Vercel, we must use /tmp because the default project directory is read-only
+const isVercel = process.env.VERCEL === '1' || !!process.env.VERCEL;
+const DB_PATH = isVercel 
+  ? '/tmp/insights.db' 
+  : (process.env.DB_PATH || join(__dirname, '..', '..', 'data', 'insights.db'));
 
-// Ensure data directory exists
-const dataDir = join(__dirname, '..', '..', 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// Ensure data directory exists (skipped on Vercel as /tmp always exists)
+if (!isVercel) {
+  const dataDir = dirname(DB_PATH);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+} else {
+  console.log('🌐 Vercel environment detected. Using ephemeral database at /tmp/insights.db');
 }
 
 // Global db instance
