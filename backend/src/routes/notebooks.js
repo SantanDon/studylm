@@ -36,7 +36,7 @@ router.get("/", (req, res) => {
  * POST /api/notebooks
  * Create a new notebook
  */
-router.post("/", (req, res) => {
+router.post("/", (req, res, next) => {
   try {
     const { title, description, id: providedId } = req.body;
     if (!title) {
@@ -49,8 +49,7 @@ router.post("/", (req, res) => {
     const notebook = dbHelpers.getNotebookById(id, req.user.userId);
     res.status(201).json(notebook);
   } catch (error) {
-    console.error("Create notebook error:", error);
-    res.status(500).json({ error: "Failed to create notebook" });
+    next(error);
   }
 });
 

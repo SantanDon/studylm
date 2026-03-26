@@ -39,7 +39,7 @@ export function errorHandler(err, req, res, _next) {
     error: {
       code,
       message,
-      ...(err.details && { details: err.details })
+      details: statusCode >= 500 ? { originalMessage: err.message, stack: err.stack } : err.details
     }
   });
 }
