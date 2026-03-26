@@ -31,6 +31,11 @@ db.exec(`
     account_type TEXT DEFAULT 'human',
     webhook_url TEXT,
     owner_id TEXT,
+    is_verified INTEGER DEFAULT 0,
+    verification_token TEXT,
+    token_expires_at DATETIME,
+    email_consent INTEGER DEFAULT 0,
+    email_consent_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL
@@ -57,6 +62,55 @@ try {
   // Ignore error if column already exists
 }
 
+// Add recovery_key_hash for cross-device passphrase recovery
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN recovery_key_hash TEXT`);
+} catch (e) {
+  // Ignore error if column already exists
+}
+
+// Add columns for Email Verification and Consent
+const newColumns = [
+  "is_verified INTEGER DEFAULT 0",
+  "verification_token TEXT",
+  "token_expires_at DATETIME",
+  "email_consent INTEGER DEFAULT 0",
+  "email_consent_at DATETIME"
+];
+
+for (const col of newColumns) {
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN ${col}`);
+  } catch (e) {
+    // Ignore error if column already exists
+  }
+}
+
+
+// Create recovery_tokens table for one-time passphrase reset
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recovery_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    key_hash TEXT NOT NULL,
+    prefix TEXT NOT NULL,
+    last_used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
+
 // Deduplicate display_names before enforcing uniqueness
 try {
   const duplicates = db.prepare(`
@@ -81,6 +135,29 @@ try {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_display_name ON users(display_name)`);
 } catch (e) {
   console.error('[Migration] Error deduplicating display names:', e.message);
+}
+
+// Add file_path and file_size columns to sources table (migration for existing DBs)
+try {
+  db.exec(`ALTER TABLE sources ADD COLUMN file_path TEXT`);
+  console.log('[Migration] Added file_path column to sources');
+} catch (e) {
+  // Ignore if already exists
+}
+
+try {
+  db.exec(`ALTER TABLE sources ADD COLUMN file_size INTEGER`);
+  console.log('[Migration] Added file_size column to sources');
+} catch (e) {
+  // Ignore if already exists
+}
+
+// Add processing_status column to sources table (migration for existing DBs)
+try {
+  db.exec(`ALTER TABLE sources ADD COLUMN processing_status TEXT DEFAULT 'pending'`);
+  console.log('[Migration] Added processing_status column to sources');
+} catch (e) {
+  // Ignore if already exists
 }
 
 // Create user_preferences table
@@ -130,6 +207,45 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
+
+// Migrations for existing notebooks table
+try {
+  db.exec(`ALTER TABLE notebooks ADD COLUMN example_questions TEXT`);
+  console.log('[Migration] Added example_questions column to notebooks');
+} catch (e) {
+  // Ignore error if column already exists
+}
+
+try {
+  db.exec(`ALTER TABLE notebooks ADD COLUMN generation_status TEXT DEFAULT 'pending'`);
+  console.log('[Migration] Added generation_status column to notebooks');
+} catch (e) {
+  // Ignore error if column already exists
+}
+
+try {
+  db.exec(`ALTER TABLE notebooks ADD COLUMN icon TEXT`);
+  console.log('[Migration] Added icon column to notebooks');
+} catch (e) {
+  // Ignore error if column already exists
+}
+
+// Create agent_uploads table for CLI agents providing unencrypted files
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agent_uploads (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    notebook_id TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
   );
 `);
 

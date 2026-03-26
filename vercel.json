@@ -1,17 +1,8 @@
 {
   "rewrites": [
-
     {
-      "source": "/api/proxy",
-      "destination": "/api/proxy.js"
-    },
-    {
-      "source": "/api/youtube-transcript",
-      "destination": "/api/youtube-transcript.js"
-    },
-    {
-      "source": "/api",
-      "destination": "/api/index.js"
+      "source": "/api/(.*)",
+      "destination": "api/index.js"
     },
     {
       "source": "/((?!api/).*)",
@@ -36,7 +27,5 @@
         }
       ]
     }
-  ],
-  "outputDirectory": "dist",
-  "framework": "vite"
+  ]
 }

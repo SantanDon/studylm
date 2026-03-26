@@ -21,19 +21,22 @@ export const CitationBadge = ({
   const [showTooltip, setShowTooltip] = useState(false);
 
   return (
-    <span className="relative inline-block">
+    <span className="relative inline-flex items-baseline px-0.5">
       <button
         className={`
-          inline-flex items-center justify-center
-          min-w-[1.25rem] h-5 px-1.5 mx-0.5
-          text-xs font-medium rounded-full
-          transition-all duration-200
+          flex items-center justify-center
+          w-4 h-4 text-[10px] font-bold rounded-full
+          transition-all duration-200 cursor-pointer
+          transform translate-y-[-0.3rem]
           ${isHovered 
-            ? 'bg-purple-600 text-white scale-110' 
-            : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+            ? 'bg-blue-600 text-white shadow-sm scale-110' 
+            : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-200'
           }
         `}
-        onClick={onClick}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
         onMouseEnter={() => {
           setShowTooltip(true);
           onMouseEnter();

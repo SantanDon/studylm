@@ -5,6 +5,9 @@ import { extractYoutubeTranscript } from "@/lib/extraction/youtubeExtractor";
 import { useDocumentProcessing } from "@/hooks/useDocumentProcessing";
 import { useNotebookGeneration } from "@/hooks/useNotebookGeneration";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
+import { ApiService } from "@/services/apiService";
+import { v4 as uuidv4 } from "uuid";
 
 export const useYoutubeProcessing = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -12,6 +15,7 @@ export const useYoutubeProcessing = () => {
   const { processDocumentAsync } = useDocumentProcessing();
   const { generateNotebookContentAsync } = useNotebookGeneration();
   const queryClient = useQueryClient();
+  const { session } = useAuth();
 
   const addYoutubeVideoAsSource = async (
     url: string,
@@ -36,16 +40,21 @@ export const useYoutubeProcessing = () => {
       const result = await extractYoutubeTranscript(url);
 
       // Check if this is the first source in the notebook
-      const existingSources = localStorageService.getSources(notebookId);
+      let existingSources: any[] = [];
+      if (session?.access_token) {
+        existingSources = await ApiService.fetchSources(notebookId, session.access_token);
+      } else {
+        existingSources = (await localStorageService.getSources(notebookId)) as any[];
+      }
       const isFirstSource = existingSources.length === 0;
 
       console.log(`📺 YouTube: isFirstSource=${isFirstSource}, existingSources=${existingSources.length}`);
 
-      const sourceData = {
-        notebook_id: notebookId,
+      const sourceId = uuidv4();
+      const sourcePayload = {
         title: result.title,
         summary: result.description,
-        type: "youtube" as const,
+        type: "youtube",
         content: result.content,
         url: result.url,
         processing_status: "processing",
@@ -58,12 +67,27 @@ export const useYoutubeProcessing = () => {
         }
       };
 
-      // Save the source to local storage
-      const savedSource = localStorageService.createSource(sourceData);
+      // Save the source to API or local storage
+      let savedSource: any;
+      if (session?.access_token) {
+        savedSource = await ApiService.createSource(notebookId, sourcePayload, session.access_token);
+      } else {
+        savedSource = localStorageService.createSource({
+          notebook_id: notebookId,
+          ...sourcePayload,
+          type: "youtube" as const
+        });
+      }
       
       // Invalidate sources query to refresh UI
       queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
-      
+
+      // Cache the content in localStorage for the document processor
+      localStorage.setItem(`file_${result.url}`, JSON.stringify({
+        content: result.content,
+        metadata: sourcePayload.metadata
+      }));
+
       // Process the document
       try {
         await processDocumentAsync({
@@ -72,9 +96,11 @@ export const useYoutubeProcessing = () => {
           sourceType: "youtube"
         });
         
-        localStorageService.updateSource(savedSource.id, {
-          processing_status: "completed"
-        });
+        if (session?.access_token) {
+          await ApiService.updateSource(notebookId, savedSource.id, { processing_status: "completed" }, session.access_token);
+        } else {
+          localStorageService.updateSource(savedSource.id, { processing_status: "completed" });
+        }
 
         // Invalidate again after processing complete
         queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
@@ -84,9 +110,11 @@ export const useYoutubeProcessing = () => {
           console.log("🚀 Triggering notebook generation for YouTube source...");
           try {
             // Mark notebook as generating
-            localStorageService.updateNotebook(notebookId, {
-              generation_status: "processing",
-            });
+            if (!session?.access_token) {
+              localStorageService.updateNotebook(notebookId, {
+                generation_status: "processing",
+              });
+            }
             queryClient.invalidateQueries({ queryKey: ["notebooks"] });
 
             await generateNotebookContentAsync({
@@ -99,9 +127,11 @@ export const useYoutubeProcessing = () => {
           } catch (genError) {
             console.error("Failed to generate notebook content:", genError);
             // Still mark as completed
-            localStorageService.updateNotebook(notebookId, {
-              generation_status: "completed",
-            });
+            if (!session?.access_token) {
+              localStorageService.updateNotebook(notebookId, {
+                generation_status: "completed",
+              });
+            }
           }
           queryClient.invalidateQueries({ queryKey: ["notebooks"] });
         }
@@ -115,9 +145,11 @@ export const useYoutubeProcessing = () => {
       } catch (processingError) {
         console.error("Error processing YouTube content:", processingError);
         
-        localStorageService.updateSource(savedSource.id, {
-          processing_status: "failed"
-        });
+        if (session?.access_token) {
+          await ApiService.updateSource(notebookId, savedSource.id, { processing_status: "failed" }, session.access_token);
+        } else {
+          localStorageService.updateSource(savedSource.id, { processing_status: "failed" });
+        }
         throw processingError;
       }
     } catch (error) {

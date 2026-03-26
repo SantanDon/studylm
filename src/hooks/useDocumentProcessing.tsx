@@ -1,20 +1,26 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { localStorageService } from "@/services/localStorageService";
 import { useToast } from "@/hooks/use-toast";
 import { processDocument as processDocumentWithEmbeddings } from "@/lib/extraction/documentProcessor";
+import { ApiService } from "@/services/apiService";
+import { useAuth } from "@/hooks/useAuth";
 
 export const useDocumentProcessing = () => {
   const { toast } = useToast();
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
 
   const processDocument = useMutation({
     mutationFn: async ({
       sourceId,
       filePath,
       sourceType,
+      notebookId,
     }: {
       sourceId: string;
       filePath: string;
       sourceType: string;
+      notebookId?: string;
     }) => {
       console.log("🚀 Ultra-fast document processing for:", {
         sourceId,
@@ -22,43 +28,73 @@ export const useDocumentProcessing = () => {
         sourceType,
       });
 
-      // Get the source to process by ID
-      const source = localStorageService.getSourceById(sourceId);
+      // Helper function to update source status
+      const updateSourceData = async (updates: Record<string, unknown>) => {
+        try {
+          if (session?.access_token && notebookId) {
+            await ApiService.updateSource(notebookId, sourceId, updates, session.access_token);
+          } else {
+            localStorageService.updateSource(sourceId, updates);
+          }
+        } catch (err) {
+          console.error("Failed to update source status:", err);
+        }
+      };
 
-      if (!source) {
-        console.error("Source not found:", sourceId);
-        throw new Error(`Source not found: ${sourceId}`);
+      let content = "";
+      let metadata: Record<string, unknown> = {};
+
+      // 1. Try to get source from local storage first (legacy/guest users)
+      const localSource = localStorageService.getSourceById(sourceId);
+      
+      if (localSource) {
+        content = localSource.content || "";
+        metadata = localSource.metadata || {};
+      }
+      
+      // 2. If no local source, try to get it from the temporary file cache saved by useFileUpload
+      if (!content) {
+        try {
+          const cachedFile = localStorage.getItem(`file_${filePath}`);
+          if (cachedFile) {
+            const fileData = JSON.parse(cachedFile);
+            content = fileData.content || "";
+            metadata = fileData.metadata || {};
+            console.log("Retrieved content from local file cache");
+          }
+        } catch (e) {
+          console.error("Failed to parse cached file data", e);
+        }
+      }
+
+      if (!content) {
+        console.error("Source content not found for:", sourceId);
+        throw new Error(`Source content not found: ${sourceId}`);
       }
 
       // Update status to processing
-      localStorageService.updateSource(sourceId, {
-        processing_status: "processing",
-      });
+      await updateSourceData({ processing_status: "processing" });
 
       try {
         // Check if source has content
-        if (!source.content || source.content.trim().length === 0) {
+        if (content.trim().length === 0) {
           console.warn("⚠️ Source has no content, skipping processing");
-          localStorageService.updateSource(sourceId, {
-            processing_status: "completed",
-          });
+          await updateSourceData({ processing_status: "completed" });
           return { success: true, sourceId, filePath, sourceType };
         }
 
         // Check if the content contains extraction error messages
-        const hasExtractionError = source.content.includes("extraction failed") || 
-                                 source.content.includes("Unable to extract text") ||
-                                 source.content.includes("PDF contains no extractable text") ||
-                                 source.content.includes("extraction/OCR failed") ||
-                                 source.content.includes("encrypted or password-protected") ||
-                                 source.content.includes("corrupted or in an unsupported format");
+        const hasExtractionError = content.includes("extraction failed") || 
+                                 content.includes("Unable to extract text") ||
+                                 content.includes("PDF contains no extractable text") ||
+                                 content.includes("extraction/OCR failed") ||
+                                 content.includes("encrypted or password-protected") ||
+                                 content.includes("corrupted or in an unsupported format");
 
         if (hasExtractionError) {
           console.warn("⚠️ Source contains extraction error, skipping document processing");
           // Don't process error content - just mark as completed
-          localStorageService.updateSource(sourceId, {
-            processing_status: "completed",
-          });
+          await updateSourceData({ processing_status: "completed" });
           return { success: true, sourceId, filePath, sourceType };
         }
 
@@ -69,7 +105,7 @@ export const useDocumentProcessing = () => {
         // Process document with parallel chunking and embedding generation
         const result = await processDocumentWithEmbeddings(
           sourceId,
-          source.content,
+          content,
           {
             generateEmbeddings: true,
             chunkSize: 1000,
@@ -83,11 +119,11 @@ export const useDocumentProcessing = () => {
         });
 
         // Update source with processed data including chunks
-        localStorageService.updateSource(sourceId, {
+        await updateSourceData({
           processing_status: "completed",
-          content: source.content,
+          content: content,
           metadata: {
-            ...(source.metadata || {}),
+            ...metadata,
             chunks: result.chunks,
             documentEmbedding: result.embeddings,
             processedAt: new Date().toISOString(),
@@ -106,18 +142,14 @@ export const useDocumentProcessing = () => {
         console.error("Document processing error:", error);
 
         // Mark as completed even on error (graceful degradation)
-        localStorageService.updateSource(sourceId, {
-          processing_status: "completed",
-        });
+        await updateSourceData({ processing_status: "completed" });
 
         return { success: true, sourceId, filePath, sourceType };
       }
     },
     onSuccess: (data) => {
       console.log("Document processing completed successfully:", data);
-
-      // Invalidate queries to refresh the UI
-      // This would be implemented to refresh source data
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
     onError: (error) => {
       console.error("Failed to initiate document processing:", error);

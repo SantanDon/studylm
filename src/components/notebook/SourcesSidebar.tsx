@@ -187,7 +187,7 @@ const SourcesSidebar = ({
 
   const confirmDelete = () => {
     if (selectedSource) {
-      deleteSource(selectedSource.id);
+      deleteSource({ notebookId: notebookId || '', sourceId: selectedSource.id });
       setShowDeleteDialog(false);
       setSelectedSource(null);
     }

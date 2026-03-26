@@ -13,27 +13,35 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle, Copy, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, CheckCircle, Copy, Eye, EyeOff, Download } from 'lucide-react';
 import { generateKeyFromPassphrase, exportSalt } from '@/lib/encryption/keyDerivation';
 import { generateRecoveryKey, formatRecoveryKey, storeRecoveryKeyHash, hashRecoveryKey } from '@/lib/recovery/recoveryKey';
 import { useEncryptionStore } from '@/stores/encryptionStore';
 import { UserStorage, setCurrentUserId } from '@/lib/encryption/userStorage';
 import { encrypt } from '@/lib/encryption/encryption';
+import { ApiService } from '@/services/apiService';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function AccountCreation() {
   const [step, setStep] = useState<'passphrase' | 'recovery' | 'confirm'>('passphrase');
+  const [displayName, setDisplayName] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [confirmPassphrase, setConfirmPassphrase] = useState('');
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [recoveryKey, setRecoveryKey] = useState('');
   const [recoveryConfirmed, setRecoveryConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [authData, setAuthData] = useState<{ user: any; accessToken: string; refreshToken: string; userId: string; key: CryptoKey; salt: ArrayBuffer } | null>(null);
   
   const { toast } = useToast();
   const navigate = useNavigate();
   const { setMasterKey } = useEncryptionStore();
+  const { signIn } = useAuth();
 
-  const validatePassphrase = (): string | null => {
+  const validateInput = (): string | null => {
+    if (!displayName || displayName.length < 3) {
+      return 'Display Name must be at least 3 characters';
+    }
     if (passphrase.length < 8) {
       return 'Passphrase must be at least 8 characters';
     }
@@ -44,7 +52,7 @@ export default function AccountCreation() {
   };
 
   const handleCreateAccount = async () => {
-    const error = validatePassphrase();
+    const error = validateInput();
     if (error) {
       toast({
         title: 'Invalid Passphrase',
@@ -56,15 +64,23 @@ export default function AccountCreation() {
 
     setLoading(true);
     try {
-      // Generate encryption key
-      const { key, salt } = await generateKeyFromPassphrase(passphrase);
-      
-      // Generate recovery key
+      // Generate recovery key and hash
       const newRecoveryKey = generateRecoveryKey();
       setRecoveryKey(newRecoveryKey);
+      const hash = await hashRecoveryKey(newRecoveryKey);
+
+      // Register with the backend API
+      const apiResponse = await ApiService.signup({ 
+        displayName, 
+        passphrase, 
+        recovery_key_hash: hash 
+      });
       
-      // Create user ID
-      const userId = crypto.randomUUID();
+      const { user, accessToken, refreshToken } = apiResponse;
+      const userId = user.id;
+
+      // Generate local encryption key
+      const { key, salt } = await generateKeyFromPassphrase(passphrase);
       
       // Create user-namespaced storage
       const storage = new UserStorage(userId);
@@ -79,15 +95,11 @@ export default function AccountCreation() {
       const testData = await encrypt('test', key);
       storage.set('encryption_test', JSON.stringify(testData));
       
-      // Store recovery key hash with user namespace
-      const hash = await hashRecoveryKey(newRecoveryKey);
+      // Store recovery key hash with user namespace (legacy local tracking)
       storeRecoveryKeyHash(userId, hash);
       
-      // Set current user as global pointer
-      setCurrentUserId(userId);
-      
-      // Set encryption key in store
-      setMasterKey(key, salt, userId);
+      // Store auth data to be applied after recovery key confirmation
+      setAuthData({ user, accessToken, refreshToken, userId, key, salt });
       
       // Move to recovery key display
       setStep('recovery');
@@ -110,6 +122,22 @@ export default function AccountCreation() {
     });
   };
 
+  const handleDownloadRecoveryKey = () => {
+    const blob = new Blob([
+      `StudyPodLM Recovery Key\n\n` +
+      `Display Name: ${displayName}\n` +
+      `Recovery Key: ${formatRecoveryKey(recoveryKey)}\n\n` +
+      `Keep this safe! You'll need it to recover your account if you forget your passphrase.\n` +
+      `Go to the login screen -> "Forgot your passphrase or need to recover?"`
+    ], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `studylm-recovery-${displayName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleConfirmRecovery = () => {
     if (!recoveryConfirmed) {
       toast({
@@ -118,6 +146,18 @@ export default function AccountCreation() {
         variant: 'destructive',
       });
       return;
+    }
+    
+    // Apply auth context ONLY after recovery key is saved
+    if (authData) {
+      signIn(authData.user, {
+        access_token: authData.accessToken,
+        refresh_token: authData.refreshToken,
+        expires_at: Date.now() + 60 * 60 * 1000,
+        user: authData.user
+      });
+      setCurrentUserId(authData.userId);
+      setMasterKey(authData.key, authData.salt, authData.userId);
     }
     
     // Navigate to dashboard
@@ -144,6 +184,18 @@ export default function AccountCreation() {
               Your passphrase encrypts all your data. Without it or your recovery key, your data cannot be accessed.
             </AlertDescription>
           </Alert>
+
+          <div className="space-y-2">
+            <Label htmlFor="displayName">Display Name</Label>
+            <Input
+              id="displayName"
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="e.g. SantanDon"
+              minLength={3}
+            />
+          </div>
 
           <div className="space-y-2">
             <Label htmlFor="passphrase">Passphrase</Label>
@@ -182,7 +234,7 @@ export default function AccountCreation() {
 
           <Button
             onClick={handleCreateAccount}
-            disabled={loading || !passphrase || !confirmPassphrase}
+            disabled={loading || !passphrase || !confirmPassphrase || !displayName}
             className="w-full"
           >
             {loading ? 'Creating Account...' : 'Create Account'}
@@ -214,15 +266,26 @@ export default function AccountCreation() {
             <div className="p-4 bg-muted rounded-md font-mono text-sm break-all">
               {formatRecoveryKey(recoveryKey)}
             </div>
+          <div className="flex gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={copyRecoveryKey}
-              className="w-full"
+              className="flex-1"
             >
               <Copy className="h-4 w-4 mr-2" />
-              Copy Recovery Key
+              Copy Key
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadRecoveryKey}
+              className="flex-1"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download
+            </Button>
+          </div>
           </div>
 
           <div className="flex items-center space-x-2">

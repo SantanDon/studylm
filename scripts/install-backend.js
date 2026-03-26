@@ -1,7 +1,7 @@
 import { execSync } from 'child_process';
 
-if (process.env.VERCEL) {
-  console.log('Skipping backend installation on Vercel');
+if (process.env.VERCEL || process.env.CI) {
+  console.log('Skipping backend installation on Vercel/CI environment');
   process.exit(0);
 }
 

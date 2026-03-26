@@ -5,6 +5,9 @@ import { extractMultipleWebContents, validateWebContent, sanitizeWebContent } fr
 import { useDocumentProcessing } from "@/hooks/useDocumentProcessing";
 import { useNotebookGeneration } from "@/hooks/useNotebookGeneration";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
+import { ApiService } from "@/services/apiService";
+import { v4 as uuidv4 } from "uuid";
 
 export const useWebsiteProcessing = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -12,6 +15,7 @@ export const useWebsiteProcessing = () => {
   const { processDocumentAsync } = useDocumentProcessing();
   const { generateNotebookContentAsync } = useNotebookGeneration();
   const queryClient = useQueryClient();
+  const { session } = useAuth();
 
   const addWebsitesAsSources = async (
     urls: string[],
@@ -60,7 +64,12 @@ export const useWebsiteProcessing = () => {
       }
 
       // Check if this is the first source in the notebook BEFORE adding
-      const existingSources = localStorageService.getSources(notebookId);
+      let existingSources: any[] = [];
+      if (session?.access_token) {
+        existingSources = await ApiService.fetchSources(notebookId, session.access_token);
+      } else {
+        existingSources = (await localStorageService.getSources(notebookId)) as any[];
+      }
       const isFirstSource = existingSources.length === 0;
 
       console.log(`🌐 Website: isFirstSource=${isFirstSource}, existingSources=${existingSources.length}`);
@@ -107,19 +116,15 @@ export const useWebsiteProcessing = () => {
         }
 
         // Create a source for the web content
-        const sourceId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+        const sourceId = uuidv4();
         
-        const sourceData = {
-          id: sourceId,
-          notebook_id: notebookId,
+        const sourcePayload = {
           title: webContent.title,
           summary: webContent.description,
-          type: "website" as const,
+          type: "website",
           content: sanitizedContent,
           url: webContent.url,
           processing_status: "processing", // Will be updated after document processing
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
           metadata: {
             validation: validation, // Store validation results
             sourceType: "web-content",
@@ -131,12 +136,27 @@ export const useWebsiteProcessing = () => {
           }
         };
 
-        // Save the source to local storage
-        const savedSource = localStorageService.createSource(sourceData);
+        // Save the source to API or local storage
+        let savedSource: any;
+        if (session?.access_token) {
+          savedSource = await ApiService.createSource(notebookId, sourcePayload, session.access_token);
+        } else {
+          savedSource = localStorageService.createSource({
+            notebook_id: notebookId,
+            ...sourcePayload,
+            type: "website" as const
+          });
+        }
         
         // Invalidate sources query to refresh UI
         queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
-        
+
+        // Cache the content in localStorage for the document processor
+        localStorage.setItem(`file_${webContent.url}`, JSON.stringify({
+          content: sanitizedContent,
+          metadata: sourcePayload.metadata
+        }));
+
         // Process the document to generate embeddings and chunks
         try {
           await processDocumentAsync({
@@ -146,18 +166,22 @@ export const useWebsiteProcessing = () => {
           });
           
           // Update source status to completed
-          localStorageService.updateSource(savedSource.id, {
-            processing_status: "completed"
-          });
+          if (session?.access_token) {
+            await ApiService.updateSource(notebookId, savedSource.id, { processing_status: "completed" }, session.access_token);
+          } else {
+            localStorageService.updateSource(savedSource.id, { processing_status: "completed" });
+          }
           
           processedSources.push(savedSource);
         } catch (processingError) {
           console.error(`Error processing web content from ${webContent.url}:`, processingError);
           
           // Update source status to error
-          localStorageService.updateSource(savedSource.id, {
-            processing_status: "failed"
-          });
+          if (session?.access_token) {
+            await ApiService.updateSource(notebookId, savedSource.id, { processing_status: "failed" }, session.access_token);
+          } else {
+            localStorageService.updateSource(savedSource.id, { processing_status: "failed" });
+          }
         }
       }
 
@@ -169,9 +193,11 @@ export const useWebsiteProcessing = () => {
         console.log("🚀 Triggering notebook generation for website source...");
         try {
           // Mark notebook as generating
-          localStorageService.updateNotebook(notebookId, {
-            generation_status: "processing",
-          });
+          if (!session?.access_token) {
+            localStorageService.updateNotebook(notebookId, {
+              generation_status: "processing",
+            });
+          }
           queryClient.invalidateQueries({ queryKey: ["notebooks"] });
 
           await generateNotebookContentAsync({
@@ -184,9 +210,11 @@ export const useWebsiteProcessing = () => {
         } catch (genError) {
           console.error("Failed to generate notebook content:", genError);
           // Still mark as completed
-          localStorageService.updateNotebook(notebookId, {
-            generation_status: "completed",
-          });
+          if (!session?.access_token) {
+            localStorageService.updateNotebook(notebookId, {
+              generation_status: "completed",
+            });
+          }
         }
         queryClient.invalidateQueries({ queryKey: ["notebooks"] });
       }

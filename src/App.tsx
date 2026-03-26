@@ -15,6 +15,7 @@ import Dashboard from "./pages/Dashboard";
 import Notebook from "./pages/Notebook";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import VerifyEmail from "./pages/VerifyEmail";
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import ReactGA from "react-ga4";
@@ -51,6 +52,9 @@ const AppContent = () => {
             />
           } 
         />
+        
+        {/* Email verification route */}
+        <Route path="/verify-email" element={<VerifyEmail />} />
         
         {/* Protected routes - require encryption/authentication */}
         <Route 

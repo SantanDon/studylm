@@ -1,42 +1,111 @@
 # Agent Onboarding Protocol
 
-This document serves as the official technical manual for external agents (AI instances, background scripts, or autonomous research bots) to collaborate within StudyPod.
+This document is the official technical manual for external agents (AI instances, background scripts, or autonomous research bots) to collaborate within StudyPodLM.
 
-## 1. Identity & Connectivity
-External agents must be "owned" by a human user to enable shared project visibility.
+---
 
-### Registration Pattern (2-Step Autonomous)
-To maintain security, an agent must first authenticate as its human owner (or a dedicated service account) to register.
+## Prerequisites
 
-**Step 1: Human Authentication**
-- **Endpoint**: `POST /api/auth/signin` on port 3001 (`http://localhost:3001/api/auth/signin`)
-- **Body**: `{ "displayName": "Human_Owner", "passphrase": "owner_passphrase" }`
-- **Note**: Use the returned `accessToken` for Step 2.
+> **A human user must authenticate first.** The 6-digit pairing code is generated from the StudyPodLM web UI by a logged-in human user. Agents cannot self-register without a human sponsor.
 
-**Step 2: Agent Registration**
-- **Endpoint**: `POST /api/auth/register` on port 3001
-- **Body**:
-  ```json
-  {
-    "display_name": "AI_Research_Bot_v1",
-    "passphrase": "agent_secure_passphrase",
-    "account_type": "agent"
-  }
-  ```
+---
 
-## 2. Research Synchronization (Notes)
-Agents can contribute research findings directly into a shared notebook.
-- **Endpoint**: `POST /api/notebooks/:id/notes`
-- **Linkage**: Use the `notebook_id` shared with you by the human owner.
-- **Visuals**: Your notes will automatically be tagged with an **"AGENT"** badge in the human user's Studio dashboard.
+## 1. Pairing (Get Your API Key)
 
-## 3. Discursive Layer (Chat)
-Agents and humans communicate through a shared chat thread within the notebook.
-- **Endpoint**: `POST /api/chat/messages`
-- **Role**: Always use `role: "assistant"` for messages authored by the agent.
-- **Goal**: Summarize research findings, answer human questions, and suggest next steps.
+**Step 1 — Human generates pairing code:**
+- Log into StudyPodLM web app
+- Open **Profile Menu** → **Agent Pairing**
+- Click **Generate Pairing Code** (6-digit PIN, expires in 5 minutes)
 
-## 4. Starter Kit
-Ready-to-use scripts for agents are located in:
-- `backend/scripts/syncAgent.js` (Node.js)
-- `backend/scripts/sync_agent.py` (Python)
+**Step 2 — Agent exchanges PIN for API key:**
+```bash
+node backend/scripts/kilo_pair.js <YOUR-6-DIGIT-PIN>
+```
+The script saves a persistent API key (`spm_...`) to `.env.agent`.
+
+---
+
+## 2. Authentication
+
+Include your API key in all requests:
+
+```
+Authorization: Bearer spm_your_key_here
+```
+
+**Verify your identity:**
+```bash
+curl -H "Authorization: Bearer spm_your_key_here" \
+  http://localhost:3001/api/auth/me
+```
+Returns: `{ id, displayName, account_type, email, createdAt }`
+
+---
+
+## 3. Core Capabilities
+
+### Discover Notebooks
+```
+GET /api/notebooks
+```
+
+### Read Notebook Context (AI-optimized)
+```
+GET /api/notebooks/:id/context
+```
+Returns structured snapshot: notebook metadata, sources with content previews, all notes.
+
+### Post Research Notes
+```
+POST /api/notebooks/:id/notes
+Body: { "content": "Your insight here" }
+```
+Notes from agents are automatically tagged with an **AGENT** badge and synced to EverMemOS memory.
+
+### Upload Files
+```
+POST /api/agent/upload
+Content-Type: multipart/form-data
+```
+Raw files (PDFs, images) are queued for local encryption when the human opens the notebook.
+
+### Chat with Notebook
+```
+POST /api/notebooks/:id/chat
+Body: { "message": "What are the key themes?", "saveAsNote": true }
+```
+
+### Search Memories
+```
+POST /api/notebooks/:id/memory/search
+Body: { "query": "machine learning trends" }
+```
+
+---
+
+## 4. Troubleshooting
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `401 Unauthorized` | Expired or missing API key | Re-pair with a fresh 6-digit code |
+| `404 Notebook not found` | Wrong notebook ID or no access | Call `GET /api/notebooks` to list accessible notebooks |
+| `CORS error` | Frontend origin not allowed | Set `CORS_ORIGIN` env var on server |
+| Pairing code rejected | Code expired (>5 min) | Generate a new code from the UI |
+
+### Manual Human Auth (for testing)
+If you need a human JWT for the pairing flow outside the UI:
+```bash
+curl -X POST http://localhost:3001/api/auth/signin \
+  -H "Content-Type: application/json" \
+  -d '{"displayName":"testuser","passphrase":"your_passphrase"}'
+```
+
+---
+
+## 5. Starter Kit
+
+| Script | Purpose |
+|--------|---------|
+| `backend/scripts/kilo_pair.js` | Official pairing utility |
+| `backend/scripts/syncAgent.js` | Base template for autonomous research bots |
+| `agent_demo_kit/pair_and_test.js` | All-in-one: pair + list notebooks + post test note |

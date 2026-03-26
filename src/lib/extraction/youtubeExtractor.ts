@@ -81,52 +81,38 @@ export async function extractYoutubeTranscript(url: string): Promise<YoutubeTran
     const keywords = metadata.keywords || [];
 
     console.log(`📝 Extracted Title: ${title}`);
-    console.log(`📝 Extracted Description: ${description.substring(0, 100)}...`);
     console.log(`📝 Extracted Author: ${author}`);
-    console.log(`📝 Extracted Keywords: ${keywords.length > 0 ? keywords.slice(0, 5).join(', ') + '...' : 'None'}`);
+    console.log(`📝 Transcript items: ${transcriptData.length}`);
 
-    // Process transcript
-    let content = "";
+    // Calculate duration
     let duration = 0;
-
-    if (!Array.isArray(transcriptData) || transcriptData.length === 0) {
-       console.warn(`[YouTube Extractor] No transcript tracks available. Falling back to metadata only.`);
-       content = "No transcript available for this video due to region blocks or missing captions. Please rely strictly on the provided Title, Description, and Keywords metadata above to infer the content of the video.";
-    } else {
-      // The library returns an array of objects: { text: string, duration: number, offset: number }
-      for (const item of transcriptData) {
-          content += item.text + " ";
-      }
-      
+    if (Array.isArray(transcriptData) && transcriptData.length > 0) {
       const lastItem = transcriptData[transcriptData.length - 1];
-      // offset and duration are in ms
       duration = (lastItem.offset + lastItem.duration) / 1000;
     }
 
-    console.log(`✅ Successfully extracted transcript: ${content.length} characters, ${Math.round(duration)}s duration`);
+    // Prefer the backend's pre-built structured content (AI-optimized, chapter-aware)
+    // Fall back to building locally if backend doesn't provide it
+    let content: string;
+    if (payload.structuredContent) {
+      content = payload.structuredContent;
+      console.log(`✅ Using backend structured content (${content.length} chars)`);
+    } else if (!Array.isArray(transcriptData) || transcriptData.length === 0) {
+      console.warn(`[YouTube Extractor] No transcript available. Falling back to metadata only.`);
+      content = `# ${title}\n**Channel:** ${author}\n**Keywords:** ${keywords.join(', ') || 'None'}\n\n**Description:** ${description || 'No description available.'}\n\n> No transcript available for this video.`;
+    } else {
+      // Legacy fallback: build the old metadata header
+      const rawTranscript = transcriptData.map((t: {text: string}) => t.text).join(' ');
+      content = `# ${title}\n**Channel:** ${author}\n**Keywords:** ${keywords.join(', ') || 'None'}\n\n${description ? `**Description:** ${description}\n\n` : ''}## Transcript\n${rawTranscript.trim()}`;
+    }
 
-    // Prepend metadata to the final content to give the LLM structural context of the video before reading the transcript
-    const metadataHeader = `
-VIDEO METADATA
-==============
-Title: ${title}
-Channel/Author: ${author}
-Keywords/Tags: ${keywords.length > 0 ? keywords.join(', ') : 'None provided'}
-
-VIDEO DESCRIPTION
-=================
-${description || 'No description provided.'}
-
-VIDEO TRANSCRIPT
-================
-${content.trim()}
-    `.trim();
+    console.log(`✅ Successfully extracted: ${content.length} characters, ${Math.round(duration)}s duration`);
 
     return {
       url: normalizedUrl,
       title,
       description,
-      content: metadataHeader,
+      content,
       metadata: {
         duration: Math.round(duration),
         videoId,

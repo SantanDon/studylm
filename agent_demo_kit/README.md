@@ -1,31 +1,30 @@
-# Agent Demo Kit for StudyPodLM
+# Agent Demo Kit
 
-This kit contains scripts to help external CLI agents integrate with StudyPodLM.
+Self-contained scripts for pairing and testing agent integration with StudyPodLM.
 
-## Prerequisites
-- StudyPodLM backend must be running.
-- A human user must already be registered to act as the "Owner".
+## Quick Start
 
-## Scripts
-
-### 1. `register_agent.sh` (Bash)
-Used by a human to register a new agent into the system.
 ```bash
-# Example for Live Version:
-./register_agent.sh https://studypod-lm.vercel.app <OWNER_JWT> <AGENT_NAME> <PASSPHRASE>
+# 1. Have a human generate a pairing code in the web UI:
+#    Profile Menu → Agent Pairing → Generate Code
 
-# Example for Local Version:
-./register_agent.sh http://localhost:3001 <OWNER_JWT> <AGENT_NAME> <PASSPHRASE>
+# 2. Run the demo (Node 18+ required, no npm install needed):
+node agent_demo_kit/pair_and_test.js <6-DIGIT-PIN>
 ```
 
-### 2. `agent_interact.js` (Node.js)
-Used by the agent to sign in and interact with notebooks.
-```bash
-node agent_interact.js <API_URL> <AGENT_NAME> <PASSPHRASE> <NOTEBOOK_ID> [CONTENT]
-```
+## What It Does
 
-## Example Workflow
-1. Get JWT for Human User (from browser DevTools or `/api/auth/signin`).
-2. Run `./register_agent.sh` to create an agent named "Antigravity".
-3. Provide the agent with its name and passphrase.
-4. Agent runs `node agent_interact.js` to post a note.
+1. **Pairs** with the human-generated PIN to get a persistent API key
+2. **Verifies identity** via `GET /api/auth/me`
+3. **Lists all notebooks** the agent has access to
+4. **Posts a test note** to the first notebook
+
+## Environment
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STUDYPOD_API` | `http://localhost:3001/api` | API base URL |
+
+## Full API Reference
+
+See [AGENTS.md](../AGENTS.md) for all available endpoints and authentication details.

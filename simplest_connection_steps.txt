@@ -1,0 +1,106 @@
+# StudyPodLM Agent Connection: Simplest Steps for Non-Developers
+
+## 🔑 Prerequisites
+1. You must have a StudyPodLM account and be able to log in via the web UI
+2. You must have Node.js installed (visit nodejs.org to download if needed)
+
+## 📋 Connection Process (Takes ~2 Minutes Total)
+
+### Step 1: Get Your Pairing Code (30 seconds)
+- Log into StudyPodLM at https://studypod-lm.vercel.app/ (or your local instance)
+- Click your profile picture/icon in the top-right
+- Select "Agent Pairing" from the menu
+- Click "Generate Pairing Code"
+- Copy the 6-digit code that appears (e.g., "123456")
+
+### Step 2: Set Up the Agent (90 seconds)
+1. Open your computer's terminal/command prompt
+2. Run these commands one by one:
+   ```
+   mkdir studypod-agent
+   cd studypod-agent
+   npm init -y
+   npm install axios
+   ```
+3. Create a file named `agent.js` with this exact content:
+   ```javascript
+   const axios = require('axios');
+   const fs = require('fs');
+   
+   // REPLACE THIS LINE WITH YOUR 6-DIGIT CODE FROM STEP 1
+   const PAIRING_CODE = 'YOUR_CODE_HERE'; 
+   
+   // Optional: Customize agent name
+   const AGENT_LABEL = 'My StudyPod Agent';
+   const API_BASE = 'http://localhost:3001/api'; 
+   
+   async function connectAgent() {
+     try {
+       console.log(`🔗 Pairing with code [${PAIRING_CODE}]...`);
+       
+       const response = await axios.post(`${API_BASE}/auth/pair/complete`, {
+         code: PAIRING_CODE,
+         label: AGENT_LABEL
+       });
+       
+       const { key } = response.data;
+       console.log('✅ Pairing successful!');
+       console.log(`🔑 Your API Key: ${key.substring(0,10)}...`);
+       
+       // Save configuration for future use
+       fs.writeFileSync('.env.agent', `STUDYPOD_API_KEY=${key}\nSTUDYPOD_API_URL=${API_BASE}\n`);
+       console.log('💾 Configuration saved');
+       
+       // Verify connection works
+       const notebooks = await axios.get(`${API_BASE}/notebooks`, {
+         headers: { 'Authorization': `Bearer ${key}` }
+       });
+       
+       console.log(`📚 Found ${notebooks.data.length} notebooks`);
+       console.log('🎉 Agent is ready to collaborate!');
+       
+     } catch (error) {
+       console.error('❌ Connection failed:', error.response?.data?.error || error.message);
+     }
+   }
+   
+   connectAgent();
+   ```
+4. Replace `YOUR_CODE_HERE` in the code with your actual 6-digit pairing code
+5. Save the file
+
+### Step 3: Launch and Use the Agent
+- In your terminal, run: `node agent.js`
+- You should see success messages showing your notebooks
+- The agent is now connected and ready to help!
+
+## 🤝 What the Agent Can Do For You
+Once connected, the agent can:
+- 📖 Read and summarize your notebook sources (PDFs, websites, videos)
+- 📝 Add helpful notes and insights to your notebooks (marked with "AGENT" badge)
+- ❓ Answer questions about your study materials
+- 💡 Generate study questions, outlines, or explanations
+- 🔗 Find connections between different sources in your notebook
+
+## 🔒 Your Security and Control
+- You remain in full control: Agent only accesses what you authorize
+- All agent actions are logged and show an "AGENT" badge for transparency
+- You can revoke access anytime: Profile Menu → API Keys → Delete key
+- Agent notes respect your encryption and privacy settings
+- No access to your password or other notebooks without explicit permission
+
+## 💡 Tips for Best Results
+- Start with one notebook to test the agent's capabilities
+- Be specific in your requests: "Summarize this PDF in 3 bullet points"
+- Review agent-added notes periodically for accuracy and relevance
+- Combine strengths: Use agent for research/summarization, you for critical thinking
+- Iterate: Adjust your requests based on what works best
+
+## 🚀 Ideal Future Experience
+In the future, StudyPodLM aims to provide:
+1. One-click "Connect Agent" button in notebook UI
+2. Secure connection package download (zero setup needed)
+3. Automatic launch (double-click or single command)
+4. Pre-configured permissions for specific notebooks
+
+Until that ideal experience arrives, this 2-minute manual process is the simplest way for non-developers to enable agent collaboration in StudyPodLM.

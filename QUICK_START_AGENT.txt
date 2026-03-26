@@ -1,0 +1,116 @@
+# QUICK START: Connect Agent to StudyPodLM in 2 Minutes
+
+## For Non-Developers / Regular Users
+
+### 🔑 What You Need:
+- A StudyPodLM account (you must be able to log in via web)
+- Node.js installed (free download from nodejs.org)
+- 2 minutes of time
+
+### 📋 Step-by-Step Instructions:
+
+**STEP 1: Get Your Pairing Code** (Do this in StudyPodLM web UI)
+1. Log into StudyPodLM at https://studypod-lm.vercel.app/
+2. Click your profile picture (top-right)
+3. Select "Agent Pairing" 
+4. Click "Generate Pairing Code"
+5. **COPY THE 6-DIGIT CODE** (e.g., "382910")
+
+**STEP 2: Set Up the Agent** (Do this in terminal/command prompt)
+```
+mkdir my-studypod-agent
+cd my-studypod-agent
+npm init -y
+npm install axios
+```
+
+Create a file named `agent.js` with THIS CONTENT:
+```javascript
+const axios = require('axios');
+const fs = require('fs');
+
+// 🔥 REPLACE THIS WITH YOUR 6-DIGIT CODE FROM STEP 1:
+const PAIRING_CODE = 'YOUR_ACTUAL_CODE_HERE'; 
+
+const AGENT_LABEL = 'My StudyPod Helper';
+const API_BASE = 'http://localhost:3001/api';
+
+async function connect() {
+  try {
+    console.log(`🔗 Connecting with code [${PAIRING_CODE}]...`);
+    
+    const response = await axios.post(`${API_BASE}/auth/pair/complete`, {
+      code: PAIRING_CODE,
+      label: AGENT_LABEL
+    });
+    
+    const { key } = response.data;
+    console.log('✅ SUCCESS! Agent connected.');
+    console.log(`🔑 API Key: ${key.substring(0,8)}...`);
+    
+    // Save for reuse
+    fs.writeFileSync('.env.agent', `STUDYPOD_API_KEY=${key}\n`);
+    console.log('💾 Settings saved.');
+    
+    // Test connection
+    const notebooks = await axios.get(`${API_BASE}/notebooks`, {
+      headers: { 'Authorization': `Bearer ${key}` }
+    });
+    
+    console.log(`📚 Found ${notebooks.data.length} notebooks.`);
+    console.log('🎉 Your agent is ready to help!');
+    
+  } catch (err) {
+    console.error('❌ FAILED:', err.response?.data?.error || err.message);
+  }
+}
+
+connect();
+```
+
+**CRITICAL:** Replace `YOUR_ACTUAL_CODE_HERE` with the actual 6-digit code you copied.
+
+**STEP 3: Run Your Agent**
+```
+node agent.js
+```
+
+You should see:
+- "✅ SUCCESS! Agent connected."
+- "📚 Found X notebooks."
+- "🎉 Your agent is ready to help!"
+
+### 🤝 What Your Agent Can Now Do:
+Once connected, I (or any agent) can help you with:
+- 📖 **Reading & summarizing** your PDFs, website sources, YouTube videos
+- 📝 **Adding helpful notes** to your notebooks (marked "AGENT" so you know)
+- 💬 **Answering questions** about your study materials
+- 🔍 **Finding connections** between different sources in your notebook
+- 📋 **Generating study questions**, outlines, or explanations from your content
+
+### 🔒 You Stay in Control:
+- Agent **only accesses** notebooks you authorize
+- All agent actions show an **"AGENT" badge** for transparency
+- **Revoke access anytime**: Profile Menu → API Keys → Delete
+- Respects your **encryption and privacy settings**
+- **No access** to your password or other notebooks without permission
+
+### 💡 Pro Tips:
+1. **Start with one notebook** to test the agent's capabilities
+2. **Be specific**: Try "Summarize the main points of source X in 3 bullets"
+3. **Review contributions**: Check agent-added notes for usefulness
+4. **Combine strengths**: Use agent for research/summarization, YOU for critical thinking
+5. **Iterate**: Adjust requests based on what works best
+
+### 🚀 Future Ideal Experience:
+StudyPodLM aims to provide:
+1. One-click "Connect Agent" button in notebook UI
+2. Zero-setup connection package download
+3. Automatic launch (double-click or single command)
+4. Pre-configured permissions per notebook
+
+**Until then, this 2-minute process is the simplest way for non-developers to enable agent collaboration.**
+
+---
+
+**You're all set!** Follow these steps, and you'll have an AI study partner helping you with your StudyPodLM notebooks in just a couple of minutes.

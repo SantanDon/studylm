@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useNotebooks } from '@/hooks/useNotebooks';
 import { useSources } from '@/hooks/useSources';
 import { useIsDesktop } from '@/hooks/useViewport';
+import { useAgentIngestion } from '@/hooks/useAgentIngestion';
 import NotebookHeader from '@/components/notebook/NotebookHeader';
 import SourcesSidebar from '@/components/notebook/SourcesSidebar';
 import ChatArea from '@/components/notebook/ChatArea';
@@ -18,6 +19,7 @@ const Notebook = () => {
   const { sources } = useSources(notebookId);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const isDesktop = useIsDesktop();
+  const { isIngesting, ingestionStatus } = useAgentIngestion(notebookId);
 
   const notebook = notebooks?.find(n => n.id === notebookId);
   const hasSource = sources && sources.length > 0;
@@ -47,6 +49,14 @@ const Notebook = () => {
       
       {/* Global podcast generation indicator */}
       <PodcastGenerationIndicator />
+      
+      {/* Agent Ingestion indicator */}
+      {isIngesting && (
+         <div className="bg-primary/10 text-primary py-2 px-4 flex items-center justify-center text-sm font-medium border-b border-primary/20 z-50">
+           <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin mr-2"></div>
+           {ingestionStatus || 'Processing files from Agent Dropbox...'}
+         </div>
+      )}
       
       {isDesktop ? (
         // Desktop layout (3-column)

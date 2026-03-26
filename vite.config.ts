@@ -9,8 +9,15 @@ import { corsProxyPlugin } from "./vite-plugin-cors-proxy";
 export default defineConfig(({ mode }) => ({
   server: {
     host: "127.0.0.1",
-    port: 8080,
+    port: 5173,
     strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3001',
+        changeOrigin: true,
+        secure: false,
+      }
+    },
     // Cross-Origin Isolation headers for SharedArrayBuffer (required for Web Workers with ONNX)
     // Using 'credentialless' instead of 'require-corp' to allow loading external resources (ONNX models)
     headers: {

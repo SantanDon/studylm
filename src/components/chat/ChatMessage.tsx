@@ -51,7 +51,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return (
       <div className="flex justify-start">
         <div className="w-full">
-          <div className="prose prose-gray max-w-none text-gray-800">
+          <div className="max-w-none text-gray-800">
             <MarkdownRenderer
               content={message.message.content}
               className=""

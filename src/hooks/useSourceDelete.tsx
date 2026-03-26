@@ -1,61 +1,41 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { localStorageService } from "@/services/localStorageService";
-import { useAuthState } from "@/hooks/useAuthState";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { ApiService } from "@/services/apiService";
 
 export const useSourceDelete = () => {
   const queryClient = useQueryClient();
-  const { user } = useAuthState();
+  const { session } = useAuth();
   const { toast } = useToast();
 
   const deleteSource = useMutation({
-    mutationFn: async (sourceId: string) => {
+    mutationFn: async ({ notebookId, sourceId }: { notebookId: string, sourceId: string }) => {
       console.log("Starting source deletion process for:", sourceId);
 
       try {
-        // First, get the source details including file information
-        const source = localStorageService.getSourceById(sourceId);
+        let source;
+        try { source = localStorageService.getSourceById(sourceId); } catch (e) { /* ignore */ }
 
-        if (!source) {
-          console.error("Source not found");
-          throw new Error("Failed to find source");
-        }
-
-        console.log(
-          "Found source to delete:",
-          source.title,
-          "with file_path:",
-          source.file_path,
-        );
-
-        // Delete the file from storage if it exists
-        if (source.file_path) {
-          console.log("Deleting file from storage:", source.file_path);
-
-          // In a local implementation, we don't need to actually delete files
-          // Just log that we would delete them
-          console.log(
-            "File would be deleted from local storage in a real implementation",
-          );
-          console.log(
-            "File deleted successfully from local storage (simulated)",
-          );
+        if (session?.access_token) {
+          console.log("Deleting source from cloud...");
+          await ApiService.deleteSource(notebookId, sourceId, session.access_token);
         } else {
-          console.log(
-            "No file to delete from storage (URL-based source or no file_path)",
-          );
+          if (!source) {
+            console.error("Source not found locally");
+            throw new Error("Failed to find source");
+          }
+          // Delete the source record from local storage
+          const deleteSuccess = localStorageService.deleteSource(sourceId);
+
+          if (!deleteSuccess) {
+            console.error("Error deleting source from local storage");
+            throw new Error("Failed to delete source");
+          }
         }
 
-        // Delete the source record from local storage
-        const deleteSuccess = localStorageService.deleteSource(sourceId);
-
-        if (!deleteSuccess) {
-          console.error("Error deleting source from local storage");
-          throw new Error("Failed to delete source");
-        }
-
-        console.log("Source deleted successfully from local storage");
-        return source;
+        console.log("Source deleted successfully");
+        return source || { title: "Source" };
       } catch (error) {
         console.error("Error in source deletion process:", error);
         throw error;

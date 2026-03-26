@@ -14,11 +14,11 @@ import { AccountSelector } from './AccountSelector';
 import { MigrationFlow } from './MigrationFlow';
 import { useEncryptionStore } from '@/stores/encryptionStore';
 import { Button } from '@/components/ui/button';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { listAllUserIds, getCurrentUserId } from '@/lib/encryption/userStorage';
 import { CloudLogin } from '../auth/CloudLogin';
 
-type FlowState = 'loading' | 'select-account' | 'create-account' | 'authenticate' | 'recovery-setup' | 'recovery-access' | 'migrate' | 'unlocked' | 'cloud-login';
+type FlowState = 'loading' | 'select-account' | 'create-account' | 'authenticate' | 'recovery-setup' | 'recovery-access' | 'migrate' | 'unlocked' | 'cloud-login' | 'cloud-signup';
 
 interface EncryptionFlowProps {
   onUnlocked?: () => void;
@@ -30,17 +30,21 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const { isUnlocked } = useEncryptionStore();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     // Check if encryption is already set up
     const checkEncryptionSetup = () => {
       const userIds = listAllUserIds();
       const currentUserId = getCurrentUserId();
+      const params = new URLSearchParams(location.search);
+      const mode = params.get('mode');
 
       console.log('EncryptionFlow: Checking setup', { 
         isUnlocked, 
         userIdsCount: userIds.length,
         currentUserId,
+        mode,
         userIds 
       });
 
@@ -48,6 +52,12 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
         console.log('EncryptionFlow: User is unlocked, calling onUnlocked');
         setFlowState('unlocked');
         onUnlocked?.();
+      } else if (mode === 'recover') {
+        setFlowState('recovery-access');
+      } else if (mode === 'create') {
+        setFlowState('create-account');
+      } else if (mode === 'authenticate') {
+        setFlowState('authenticate');
       } else if (userIds.length === 0) {
         // No accounts - show account creation
         console.log('EncryptionFlow: No accounts found, showing account creation');
@@ -65,7 +75,7 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
     };
 
     checkEncryptionSetup();
-  }, [isUnlocked, onUnlocked]);
+  }, [isUnlocked, onUnlocked, location.search]);
 
   const handleAccountSelected = (userId: string) => {
     if (userId === 'new') {
@@ -187,6 +197,15 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
           <CloudLogin
             onSuccess={handleAuthenticationSuccess}
             onCancel={() => setFlowState('authenticate')}
+            initialIsSignUp={false}
+          />
+        )}
+
+        {flowState === 'cloud-signup' && (
+          <CloudLogin
+            onSuccess={handleAuthenticationSuccess}
+            onCancel={() => setFlowState('create-account')}
+            initialIsSignUp={true}
           />
         )}
 
@@ -203,14 +222,25 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
             >
               Continue as Guest
             </Button>
-            {flowState === 'authenticate' && (
-              <Button
-                variant="link"
-                onClick={() => setFlowState('cloud-login')}
-                className="w-full mt-2 text-blue-500"
-              >
-                Sign in to Cloud (Agents / Sync)
-              </Button>
+            {(flowState === 'authenticate' || flowState === 'create-account') && (
+              <div className="flex flex-col gap-1 mt-4">
+                <Button
+                  variant="link"
+                  onClick={() => setFlowState('cloud-login')}
+                  className="w-full text-blue-500"
+                >
+                  Already have an account? Sign in to Cloud
+                </Button>
+                {flowState === 'create-account' && (
+                  <Button
+                    variant="link"
+                    onClick={() => setFlowState('cloud-signup')}
+                    className="w-full text-blue-500 -mt-2"
+                  >
+                    Want to sync across devices? Sign up for Cloud
+                  </Button>
+                )}
+              </div>
             )}
             <p className="text-xs text-muted-foreground mt-2">
               Limited features • Data stored locally only

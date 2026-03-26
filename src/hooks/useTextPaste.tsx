@@ -4,12 +4,16 @@ import { localStorageService } from "@/services/localStorageService";
 import { validateDocumentContent } from "@/lib/extraction/contentValidator";
 import { useNotebookGeneration } from "@/hooks/useNotebookGeneration";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
+import { ApiService } from "@/services/apiService";
+import { v4 as uuidv4 } from "uuid";
 
 export const useTextPaste = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
   const { generateNotebookContentAsync } = useNotebookGeneration();
   const queryClient = useQueryClient();
+  const { session } = useAuth();
 
   const pasteTextAsSource = async (
     text: string,
@@ -47,32 +51,45 @@ export const useTextPaste = () => {
       }
 
       // Check if this is the first source in the notebook BEFORE adding
-      const existingSources = localStorageService.getSources(notebookId);
+      let existingSources: any[] = [];
+      if (session?.access_token) {
+        existingSources = await ApiService.fetchSources(notebookId, session.access_token);
+      } else {
+        existingSources = (await localStorageService.getSources(notebookId)) as any[];
+      }
       const isFirstSource = existingSources.length === 0;
 
       console.log(`📝 Text: isFirstSource=${isFirstSource}, existingSources=${existingSources.length}`);
 
       // Create a source object for the pasted text
-      const sourceId = Date.now().toString(36) + Math.random().toString(36).substr(2);
-      const sourceData = {
-        id: sourceId,
-        notebook_id: notebookId,
+      const sourceId = uuidv4();
+      const sourcePayload = {
         title: title,
-        type: "text" as const,
+        type: "text",
         content: text,
         processing_status: "completed", // No processing needed for plain text
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
         metadata: {
           validation: validation, // Store validation results
           sourceType: "pasted-text",
-          wordCount: text.split(/\s+/).filter(word => word.length > 0).length,
+          wordCount: text.split(/\s+/).filter((word: string) => word.length > 0).length,
           charCount: text.length,
         }
       };
 
-      // Save the source to local storage
-      const savedSource = localStorageService.createSource(sourceData);
+      // Save the source via API or local storage
+      let savedSource: any;
+      if (session?.access_token) {
+        savedSource = await ApiService.createSource(notebookId, sourcePayload, session.access_token);
+      } else {
+        savedSource = localStorageService.createSource({
+          id: sourceId,
+          notebook_id: notebookId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          ...sourcePayload,
+          type: "text"
+        });
+      }
       
       // Invalidate sources query to refresh UI
       queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
@@ -82,9 +99,11 @@ export const useTextPaste = () => {
         console.log("🚀 Triggering notebook generation for text source...");
         try {
           // Mark notebook as generating
-          localStorageService.updateNotebook(notebookId, {
-            generation_status: "processing",
-          });
+          if (!session?.access_token) {
+            localStorageService.updateNotebook(notebookId, {
+              generation_status: "processing",
+            });
+          }
           queryClient.invalidateQueries({ queryKey: ["notebooks"] });
 
           await generateNotebookContentAsync({
@@ -97,9 +116,11 @@ export const useTextPaste = () => {
         } catch (genError) {
           console.error("Failed to generate notebook content:", genError);
           // Still mark as completed
-          localStorageService.updateNotebook(notebookId, {
-            generation_status: "completed",
-          });
+          if (!session?.access_token) {
+            localStorageService.updateNotebook(notebookId, {
+              generation_status: "completed",
+            });
+          }
         }
         queryClient.invalidateQueries({ queryKey: ["notebooks"] });
       }

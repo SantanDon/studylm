@@ -38,6 +38,7 @@ const ChatArea = ({
   const [showAiLoading, setShowAiLoading] = useState(false);
   const [clickedQuestions, setClickedQuestions] = useState<Set<string>>(new Set());
   const [showAddSourcesDialog, setShowAddSourcesDialog] = useState(false);
+  const [chatMode, setChatMode] = useState<'study' | 'agent'>('study');
   
   const { isGuest, incrementUsage, showAuthPrompt } = useGuest();
   const { canSendMessage, messagesRemaining } = useNotebookLimits(notebookId);
@@ -59,8 +60,8 @@ const ChatArea = ({
   
   const sourceCount = sources?.length || 0;
 
-  // Check if at least one source has been successfully processed
-  const hasProcessedSource = sources?.some(source => source.processing_status === 'completed') || false;
+  // Check if at least one source has finished processing (either successfully or failed)
+  const hasProcessedSource = sources?.some(source => source.processing_status === 'completed' || source.processing_status === 'failed') || false;
 
   // Chat should be disabled if there are no processed sources
   const isChatDisabled = !hasProcessedSource;
@@ -178,8 +179,17 @@ const ChatArea = ({
   // Show refresh button if there are any messages (including system messages)
   const shouldShowRefreshButton = messages.length > 0;
 
+  // Agent-specific collaboration prompts
+  const agentPrompts = [
+    "Summarize all sources for me",
+    "What key concepts am I missing?",
+    "Review my notes and find gaps"
+  ];
+
   // Get example questions from the notebook, filtering out clicked ones
-  const exampleQuestions = notebook?.example_questions?.filter(q => !clickedQuestions.has(q)) || [];
+  const exampleQuestions = chatMode === 'agent' 
+    ? agentPrompts.filter(q => !clickedQuestions.has(q))
+    : (notebook?.example_questions?.filter(q => !clickedQuestions.has(q)) || []);
 
   // Update placeholder text based on processing status
   const getPlaceholderText = () => {
@@ -192,17 +202,39 @@ const ChatArea = ({
     }
     // Show remaining messages for guests
     if (isGuest) {
-      return `Start typing... (${messagesRemaining} messages remaining)`;
+      return chatMode === 'agent' 
+        ? `Collaborate with Agent... (${messagesRemaining} msgs)`
+        : `Start typing... (${messagesRemaining} msgs)`;
     }
-    return "Start typing...";
+    return chatMode === 'agent' ? "Ask your agent to analyze this notebook..." : "Start typing...";
   };
   return <div className="flex-1 flex flex-col h-full overflow-hidden">
       {hasSource ? <div className="flex-1 flex flex-col h-full overflow-hidden">
-          {/* Chat Header */}
+        {/* Chat Header */}
           <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0 bg-white dark:bg-background">
             <div className="max-w-4xl mx-auto flex items-center justify-between">
-              <h2 className="text-lg font-medium text-gray-900 dark:text-foreground">Chat</h2>
-              {shouldShowRefreshButton && <Button variant="ghost" size="sm" onClick={handleRefreshChat} disabled={isDeletingChatHistory || isChatDisabled} className="flex items-center space-x-2">
+              <div className="flex items-center space-x-4">
+                <h2 className="text-lg font-medium text-gray-900 dark:text-foreground">
+                  {chatMode === 'agent' ? 'Agent Collaboration' : 'Study Chat'}
+                </h2>
+                <div className="flex bg-muted p-1 rounded-md">
+                  <button 
+                    onClick={() => setChatMode('study')}
+                    className={`px-3 py-1 text-sm rounded-sm transition-colors ${chatMode === 'study' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    Study
+                  </button>
+                  <button 
+                    onClick={() => setChatMode('agent')}
+                    className={`px-3 py-1 text-sm rounded-sm transition-colors flex items-center space-x-1 ${chatMode === 'agent' ? 'bg-primary/10 text-primary shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    <i className="fi fi-rr-robot text-xs"></i>
+                    <span>Agent</span>
+                  </button>
+                </div>
+              </div>
+              
+              {shouldShowRefreshButton && <Button variant="ghost" size="sm" onClick={handleRefreshChat} disabled={isDeletingChatHistory || isChatDisabled} className="hidden sm:flex items-center space-x-2">
                   <i className={`fi fi-rr-refresh h-4 w-4 ${isDeletingChatHistory ? 'animate-spin' : ''}`}></i>
                   <span>{isDeletingChatHistory ? 'Clearing...' : 'Clear Chat'}</span>
                 </Button>}

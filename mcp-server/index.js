@@ -232,6 +232,18 @@ const TOOLS = [
       properties: { notebook_id: { type: 'string' } },
       required: ['notebook_id']
     }
+  },
+  {
+    name: 'pair',
+    description: 'Authorize this agent using a 6-digit pairing code from the StudyPod UI. Returns a permanent API key.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'The 6-digit numeric PIN' },
+        label: { type: 'string', description: 'Friendly name for this agent' }
+      },
+      required: ['code']
+    }
   }
 ];
 
@@ -313,6 +325,26 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
     case 'list_chat_history':
       return { content: text(await api(`/api/notebooks/${args.notebook_id}/messages`)) };
+
+    case 'pair': {
+      const res = await fetch(`${API_URL}/api/auth/pair/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: args.code, label: args.label || 'MCP Agent' })
+      });
+      const data = await res.json();
+      if (data.key) {
+        sessionToken = data.key;
+        return { 
+          content: text({ 
+            success: true, 
+            key: data.key, 
+            message: 'Pairing successful! This key has been set for the current session. To persist it, update your environment variables with STUDYPODLM_API_KEY.' 
+          }) 
+        };
+      }
+      return { content: text({ error: data.error || 'Pairing failed' }) };
+    }
 
     default:
       return { content: [{ type: 'text', text: `Unknown tool: ${name}` }] };

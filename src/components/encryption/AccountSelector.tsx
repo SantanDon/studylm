@@ -1,27 +1,28 @@
-/**
- * Account Selector Component
- * 
- * Allows users to discover, identify, and switch between multiple encrypted accounts
- * on the same device. Users can test passphrases to identify which account is theirs.
- */
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { Users, Lock, Plus, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Users, Lock, Plus, Eye, EyeOff, Trash2, Loader2 } from 'lucide-react';
 import { listAllUserIds, getUserMetadata, UserStorage, deleteUser } from '@/lib/encryption/userStorage';
 import { deriveMasterKey } from '@/lib/encryption/keyDerivation';
 import { decrypt } from '@/lib/encryption/encryption';
 import { base64ToArrayBuffer } from '@/lib/encryption/utils';
+import { useAuth } from '@/hooks/useAuth';
+import { ApiService } from '@/services/apiService';
+import { useNavigate } from 'react-router-dom';
 
 interface AccountInfo {
   userId: string;
   hasEncryption: boolean;
   createdAt?: string;
   isLocked: boolean;
+}
+
+interface AccountSelectorProps {
+  onAccountSelected: (userId: string) => void;
 }
 
 interface AccountSelectorProps {
@@ -35,7 +36,16 @@ export function AccountSelector({ onAccountSelected }: AccountSelectorProps) {
   const [testPassphrase, setTestPassphrase] = useState('');
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  
+  // API Sign-in states
+  const [displayName, setDisplayName] = useState('');
+  const [apiPassphrase, setApiPassphrase] = useState('');
+  const [showApiPassphrase, setShowApiPassphrase] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  
   const { toast } = useToast();
+  const { signIn } = useAuth();
+  const navigate = useNavigate();
 
   const loadAccounts = () => {
     const userIds = listAllUserIds();
@@ -117,7 +127,8 @@ export function AccountSelector({ onAccountSelected }: AccountSelectorProps) {
     setTestPassphrase('');
   };
 
-  const handleDeleteAccount = (userId: string) => {
+  const handleDeleteAccount = (userId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (window.confirm("Are you sure you want to remove this account? All encrypted data linked to it on this device will be permanently lost.")) {
       deleteUser(userId);
       toast({
@@ -125,6 +136,45 @@ export function AccountSelector({ onAccountSelected }: AccountSelectorProps) {
         description: 'The account and its data have been securely erased from this device.',
       });
       loadAccounts();
+    }
+  };
+
+  const handleApiSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!displayName || !apiPassphrase) {
+      toast({
+        title: 'Sign In Failed',
+        description: 'Please enter both Display Name and Passphrase.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setIsSigningIn(true);
+    try {
+      const res = await ApiService.signin({ displayName, passphrase: apiPassphrase });
+      const user = res.user;
+      const session = {
+        access_token: res.accessToken,
+        refresh_token: res.refreshToken,
+        expires_at: Date.now() + 60 * 60 * 1000,
+        user: user,
+      };
+      signIn(user, session);
+      toast({
+        title: "Welcome back!",
+        description: `Successfully signed in as ${user.displayName || user.email}`,
+      });
+      navigate("/", { replace: true });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Invalid display name or passphrase';
+      toast({
+        title: 'Sign In Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
@@ -142,10 +192,71 @@ export function AccountSelector({ onAccountSelected }: AccountSelectorProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <form onSubmit={handleApiSignIn} className="space-y-4 pb-4">
+          <div className="space-y-2">
+            <Label htmlFor="api_displayName">Display Name</Label>
+            <Input
+              id="api_displayName"
+              placeholder="e.g. SantanDon"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              disabled={isSigningIn}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="api_passphrase">Passphrase</Label>
+            <div className="relative">
+              <Input
+                id="api_passphrase"
+                type={showApiPassphrase ? 'text' : 'password'}
+                placeholder="Enter your passphrase"
+                value={apiPassphrase}
+                onChange={(e) => setApiPassphrase(e.target.value)}
+                disabled={isSigningIn}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiPassphrase(!showApiPassphrase)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                tabIndex={-1}
+              >
+                {showApiPassphrase ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <Button type="submit" className="w-full" disabled={isSigningIn || !displayName || !apiPassphrase}>
+            {isSigningIn ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Signing in...
+              </>
+            ) : (
+              'Sign In'
+            )}
+          </Button>
+          <div className="text-center pt-2">
+             <Button variant="link" size="sm" type="button" onClick={() => navigate('/auth?mode=recover')}>
+                Forgot your passphrase or need to recover?
+             </Button>
+          </div>
+        </form>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">
+              Or local device accounts
+            </span>
+          </div>
+        </div>
+
         {accounts.length === 0 && (
           <Alert>
             <AlertDescription>
-              No accounts found on this device. Create a new account to get started.
+              No local accounts found. You can create a new cloud/local account below.
             </AlertDescription>
           </Alert>
         )}
@@ -162,9 +273,9 @@ export function AccountSelector({ onAccountSelected }: AccountSelectorProps) {
                   <Button 
                     variant="ghost" 
                     size="icon" 
-                    className="h-6 w-6 ml-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => handleDeleteAccount(account.userId)}
-                    title="Remove Account"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => handleDeleteAccount(account.userId, e)}
+                    title="Remove account from device"
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>

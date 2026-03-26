@@ -9,11 +9,21 @@ import { LocalUser, LocalSession } from "@/services/localStorageService";
 import { localStorageService } from "@/services/localStorageService";
 import { useEncryptionStore } from "@/stores/encryptionStore";
 import { safeGetItem, safeParseJSON } from "@/lib/utils/contextUtils";
+import { migrateLocalToCloud } from "@/lib/sync/localToCloudMigration";
 
 
 interface AuthProviderProps {
   children: ReactNode;
 }
+
+// Custom hook for easy access to auth context
+const useAuth = () => {
+  const context = React.useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<LocalUser | null>(null);
@@ -58,6 +68,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const signInWithCloud = (userData: { id: string; email?: string; displayName?: string; account_type?: string; createdAt: string }, sessionData: { accessToken: string; refreshToken: string }) => {
     console.log("AuthContext: Cloud sign in successful", userData.displayName);
     const { setUnlockedOnly } = useEncryptionStore.getState();
+    const guestId = localStorage.getItem("guest_id");
+    
     try {
       const mappedUser: LocalUser = {
         id: userData.id,
@@ -78,6 +90,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       localStorageService.setCurrentUser(mappedUser);
       setUnlockedOnly(userData.id);
       updateAuthState(mappedUser, mappedSession);
+
+      // Trigger migration of Guest data to Cloud backend asynchronously
+      if (guestId) {
+        migrateLocalToCloud(guestId, sessionData.accessToken).catch(err => {
+          console.error("Local-to-Cloud migration failed:", err);
+        });
+      }
     } catch (err) {
       console.error("AuthContext: Cloud sign in mapping error:", err);
       setError("Cloud sign in failed");
@@ -180,3 +199,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
+
+// Export the custom hook for use in components
+export { useAuth };

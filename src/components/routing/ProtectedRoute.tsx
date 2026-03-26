@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { useEncryptionStore } from '@/stores/encryptionStore';
+import { useAuth } from '@/hooks/useAuth';
 import { EncryptionFlow } from '@/components/encryption/EncryptionFlow';
 import { listAllUserIds } from '@/lib/encryption/userStorage';
 
@@ -17,14 +18,18 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { isUnlocked } = useEncryptionStore();
+  const { session } = useAuth();
+  
+  const isFullyUnlocked = isUnlocked || !!session?.access_token;
+
   // Only show the encryption flow by default if the user is not unlocked AND has existing profiles
   const [showEncryption, setShowEncryption] = useState(() => {
     const userIds = listAllUserIds();
-    return !isUnlocked && userIds.length > 0;
+    return !isFullyUnlocked && userIds.length > 0;
   });
 
   // If not unlocked and encryption flow is visible, show EncryptionFlow
-  if (!isUnlocked && showEncryption) {
+  if (!isFullyUnlocked && showEncryption) {
     return (
       <EncryptionFlow 
         onUnlocked={() => setShowEncryption(false)} 

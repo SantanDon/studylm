@@ -4,10 +4,13 @@ import { useAuthState } from "@/hooks/useAuthState";
 import { useGuest } from "@/hooks/useGuest";
 import { useToast } from "@/hooks/use-toast";
 import { useSyncTrigger } from "@/hooks/useSyncTrigger";
+import { useAuth } from "@/hooks/useAuth";
+import { ApiService } from "@/services/apiService";
 
 export const useNotebookDelete = () => {
   const queryClient = useQueryClient();
   const { user } = useAuthState();
+  const { session } = useAuth();
   const { guestId } = useGuest();
   const { toast } = useToast();
   const effectiveUserId = user?.id || guestId;
@@ -18,59 +21,48 @@ export const useNotebookDelete = () => {
       console.log("Starting notebook deletion process for:", notebookId);
 
       try {
-        // First, get the notebook details for better error reporting
+        // Try to get notebook details for logging (may not exist in local storage for cloud users)
         const notebook = localStorageService.getNotebook(notebookId);
 
-        if (!notebook) {
-          console.error("Notebook not found");
+        if (!notebook && !session?.access_token) {
+          console.error("Notebook not found locally");
           throw new Error("Notebook not found");
         }
 
-        console.log("Found notebook to delete:", notebook.title);
-
-        // Get all sources for this notebook to delete their files
-        const sources = localStorageService.getSources(notebookId);
-
-        if (!sources) {
-          console.error("Failed to fetch sources for cleanup");
-          throw new Error("Failed to fetch sources for cleanup");
-        }
-
-        console.log(`Found ${sources.length} sources to clean up`);
-
-        // Delete all files from storage for sources that have file_path
-        const filesToDelete = sources
-          .filter((source) => source.file_path)
-          .map((source) => source.file_path);
-
-        if (filesToDelete.length > 0) {
-          console.log("Deleting files from storage:", filesToDelete);
-
-          // In a local implementation, we don't need to actually delete files
-          // Just log that we would delete them
-          console.log(
-            "Files would be deleted from local storage in a real implementation",
-          );
-
-          console.log(
-            "All files deleted successfully from local storage (simulated)",
-          );
+        if (notebook) {
+          console.log("Found notebook to delete locally:", notebook.title);
         } else {
-          console.log(
-            "No files to delete from storage (URL-based sources or no file_paths)",
-          );
+          console.log("Deleting cloud notebook:", notebookId);
         }
 
-        // Delete the notebook from local storage
-        const deleteSuccess = localStorageService.deleteNotebook(notebookId);
-
-        if (!deleteSuccess) {
-          console.error("Error deleting notebook");
-          throw new Error("Failed to delete notebook");
+        if (!session?.access_token) {
+          // Get all sources for this notebook to delete their files locally
+          const sources = localStorageService.getSources(notebookId);
+          if (sources) {
+            console.log(`Found ${sources.length} local sources to clean up`);
+            // Local file cleanup logic
+            const filesToDelete = sources.filter((source) => source.file_path).map((source) => source.file_path);
+            if (filesToDelete.length > 0) {
+               console.log("Files would be deleted from local storage in a real implementation");
+            }
+          }
         }
 
-        console.log("Notebook deleted successfully from local storage");
-        return notebook;
+        if (session?.access_token) {
+          console.log("Deleting notebook from cloud...");
+          await ApiService.deleteNotebook(notebookId, session.access_token);
+        } else {
+          // Delete the notebook from local storage
+          const deleteSuccess = localStorageService.deleteNotebook(notebookId);
+
+          if (!deleteSuccess) {
+            console.error("Error deleting notebook");
+            throw new Error("Failed to delete notebook");
+          }
+        }
+
+        console.log("Notebook deleted successfully");
+        return { id: notebookId };
       } catch (error) {
         console.error("Error in deletion process:", error);
         throw error;
@@ -86,7 +78,7 @@ export const useNotebookDelete = () => {
 
       toast({
         title: "Notebook deleted",
-        description: `"${deletedNotebook?.title || "Notebook"}" and all its sources have been successfully deleted.`,
+        description: `The notebook and all its sources have been successfully deleted.`,
       });
       
       // Trigger background sync

@@ -65,12 +65,16 @@ cd studylm
 npm install
 npm run postinstall # Set up backend dependencies
 
-# Start the Engine
-npm run dev         # Frontend (Vite)
-npm start --prefix backend # backend API
+# Start the Engine (Frontend + Backend concurrently)
+npm run dev
 ```
 
-### 2. Connect Your CLI Agents
+### 2. Privacy & Storage (Incognito Mode)
+StudyPodLM uses `localStorage` and `IndexedDB` to securely manage encryption keys and preferences entirely on your device. 
+- **Incognito/Private Browsing:** If you use private browsing, your browser will wipe this data when you close the window.
+- **Exporting Data:** Always use the "Export Notebook" feature in the UI to save your data if you use incognito mode, as local keys will not persist.
+
+### 3. Connect Your CLI Agents
 New agents (Qwen, OpenCode, Gemini, etc.) can join your study session in seconds:
 1. **Register Agent:** Run `./agent_demo_kit/register_agent.sh`
 2. **Post Insights:** Use `node ./agent_demo_kit/agent_interact.js` to post a note to your dashboard.

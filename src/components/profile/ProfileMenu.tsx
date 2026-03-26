@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { localStorageService } from '@/services/localStorageService';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEncryptionStore } from '@/stores/encryptionStore';
+import { DeveloperSettings } from '@/components/settings/DeveloperSettings';
 
 // Add proper accessibility descriptions for dialogs
 const DIALOG_DESCRIPTIONS = {
@@ -41,6 +42,7 @@ export function ProfileMenu() {
   const queryClient = useQueryClient();
   const { clearMasterKey } = useEncryptionStore();
   const [showSettings, setShowSettings] = useState(false);
+  const [showAgentPairing, setShowAgentPairing] = useState(false);
   const [showDataManagement, setShowDataManagement] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [showVisualEffects, setShowVisualEffects] = useState(false);
@@ -55,8 +57,10 @@ export function ProfileMenu() {
   const displayEmail = isSignedIn 
     ? (user?.email || `Signed in (${authMethod === 'encryption' ? 'PIN/Passphrase' : 'Email'})`)
     : 'Not signed in';
+  
+  const isEmailVerified = user?.is_verified !== 0; // if undefined, assume verified (local mode)
 
-  console.log('ProfileMenu render:', { isSignedIn, user, authMethod, displayEmail });
+  console.log('ProfileMenu render:', { isSignedIn, user, authMethod, displayEmail, isEmailVerified });
 
   const handleSignOut = async () => {
     try {
@@ -215,8 +219,11 @@ export function ProfileMenu() {
         <DropdownMenuContent className="w-56" align="end" forceMount>
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col space-y-1">
-              <p className="text-sm font-medium leading-none">
+              <p className="text-sm font-medium leading-none flex items-center gap-2">
                 {displayName}
+                {isSignedIn && !isEmailVerified && (
+                   <span className="bg-destructive/10 text-destructive text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm">Unverified</span>
+                )}
               </p>
               <p className="text-xs leading-none text-muted-foreground">
                 {displayEmail}
@@ -229,6 +236,12 @@ export function ProfileMenu() {
           <DropdownMenuItem onClick={() => setShowSettings(true)}>
             <i className="fi fi-rr-settings mr-2 h-4 w-4"></i>
             <span>Settings</span>
+          </DropdownMenuItem>
+
+          {/* Agent Pairing */}
+          <DropdownMenuItem onClick={() => setShowAgentPairing(true)}>
+            <i className="fi fi-rr-smartphone mr-2 h-4 w-4 text-blue-500"></i>
+            <span className="font-medium text-blue-600 dark:text-blue-400">Agent Pairing</span>
           </DropdownMenuItem>
 
           {/* Theme Submenu */}
@@ -384,6 +397,21 @@ export function ProfileMenu() {
                 <strong>Storage Used:</strong> {getStorageSize()} KB
               </div>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Agent Pairing Dialog */}
+      <Dialog open={showAgentPairing} onOpenChange={setShowAgentPairing}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Agent Pairing & Developer Tools</DialogTitle>
+            <DialogDescription>
+              Connect autonomous agents and manage API access.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <DeveloperSettings />
           </div>
         </DialogContent>
       </Dialog>

@@ -11,7 +11,8 @@ import { SyncStatus } from './SyncStatus';
 import { SelectiveSync } from './SelectiveSync';
 import { DataExport } from './DataExport';
 import { SecurityLogs } from './SecurityLogs';
-import { Shield, Cloud, Download, ScrollText } from 'lucide-react';
+import { DeveloperSettings } from '../settings/DeveloperSettings';
+import { Shield, Cloud, Download, ScrollText, Code2 } from 'lucide-react';
 
 export function EncryptionSettings() {
   const [activeTab, setActiveTab] = useState('sync');
@@ -19,14 +20,14 @@ export function EncryptionSettings() {
   return (
     <div className="container mx-auto py-8 px-4 max-w-4xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Privacy & Security</h1>
+        <h1 className="text-3xl font-bold mb-2">Settings</h1>
         <p className="text-muted-foreground">
-          Manage your encryption, sync settings, and security preferences
+          Manage your account, encryption, and agent connections.
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="sync" className="flex items-center gap-2">
             <Cloud className="w-4 h-4" />
             <span className="hidden sm:inline">Sync</span>
@@ -42,6 +43,10 @@ export function EncryptionSettings() {
           <TabsTrigger value="logs" className="flex items-center gap-2">
             <ScrollText className="w-4 h-4" />
             <span className="hidden sm:inline">Logs</span>
+          </TabsTrigger>
+          <TabsTrigger value="developer" className="flex items-center gap-2">
+            <Code2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Developer</span>
           </TabsTrigger>
         </TabsList>
 
@@ -99,6 +104,10 @@ export function EncryptionSettings() {
               <SecurityLogs />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="developer" className="space-y-6">
+          <DeveloperSettings />
         </TabsContent>
       </Tabs>
 

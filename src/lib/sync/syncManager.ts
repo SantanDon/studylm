@@ -32,7 +32,10 @@ class SyncManager implements ISyncManager {
 
   constructor() {
     this.queue = new SyncQueue();
-    this.cloudClient = new CloudClient({ baseUrl: 'http://localhost:3001' });
+    // In production (Vercel), we use relative paths or provide VITE_API_URL
+    const apiBase = import.meta.env.VITE_API_URL || '';
+    const cleanApiBase = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : apiBase;
+    this.cloudClient = new CloudClient({ baseUrl: cleanApiBase || window.location.origin });
   }
 
   /**

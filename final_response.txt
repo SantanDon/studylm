@@ -1,0 +1,58 @@
+# Easiest Way for Agent to Connect to StudyPodLM (For Non-Developers)
+
+## TL;DR: The Simplest Possible Flow
+
+**Until a one-click UI solution exists, here's the easiest method available today:**
+
+1. **Get Pairing Code** (30 seconds)
+   - Log into StudyPodLM via web UI
+   - Go to Profile Menu → Agent Pairing → "Generate Pairing Code"
+   - Copy the 6-digit code shown
+
+2. **Run Simple Script** (2 minutes setup)
+   - Create folder: `mkdir studypod-agent && cd studypod-agent`
+   - Initialize: `npm init -y`
+   - Install dependency: `npm install axios`
+   - Create `agent.js` with the provided template code
+   - Replace `YOUR_CODE_HERE` with your 6-digit pairing code
+   - Run: `node agent.js`
+
+3. **Start Collaborating**
+   - Agent will show your notebooks and confirm connection
+   - Agent can now:
+     - Read your notebook content
+     - Add insights as notes (visible in your dashboard)
+     - Help summarize sources, generate questions, explain concepts
+     - All actions appear with "AGENT" badge for transparency
+
+## What You Get
+
+Once connected, the agent becomes a collaborative study partner that can:
+- 📝 **Enhance your notes**: Summarize PDFs, create outlines, generate study questions
+- 🔍 **Research assistance**: Find connections in your materials, suggest related topics
+- 💬 **Interactive learning**: Engage in Q&A about your content, clarify difficult concepts
+- 📊 **Study optimization**: Analyze your habits, suggest improvements to your workflow
+
+## Security & Control
+
+- You maintain full control: Agent only accesses notebooks you authorize
+- All agent actions are logged and attributable ("AGENT" badge)
+- You can revoke access anytime via Profile Menu → API Keys
+- Agent notes sync to EverMemOS for persistence but respect your privacy settings
+- No access to your credentials or other notebooks without explicit permission
+
+## Ideal Future State (What Should Exist)
+
+For true simplicity, StudyPodLM should provide:
+1. One-click "Connect Agent" button in notebook UI
+2. Secure connection package download (pre-configured scripts)
+3. Zero-command launch (double-click or single terminal command)
+4. Automatic notebook scoping and permission setting
+
+Until then, the 2-minute manual process above is the most straightforward method available for non-developers to enable agent collaboration in StudyPodLM.
+
+---
+
+**Files Created:**
+- `critique.txt`: Detailed analysis of StudyPodLM strengths/improvements
+- `agent_connection_guide.txt`: Complete guide for agent connection (this summary is based on this file)

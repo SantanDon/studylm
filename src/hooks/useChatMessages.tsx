@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useAuthState } from "@/hooks/useAuthState";
+import { useAuth } from "@/hooks/useAuth";
 import { useGuest } from "@/hooks/useGuest";
 import { EnhancedChatMessage } from "@/types/message";
 import { useToast } from "@/hooks/use-toast";
@@ -8,12 +9,14 @@ import {
   localStorageService,
   LocalUser,
 } from "@/services/localStorageService";
+import { ApiService } from "@/services/apiService";
 import { generateAIResponse } from "@/services/chatAiService";
 import { validateCitations, validateAIResponse } from "@/lib/extraction/contentValidator";
 
 export const useChatMessages = (notebookId?: string) => {
   const { user } = useAuthState();
   const { guestId } = useGuest();
+  const { session } = useAuth();
   const effectiveUserId = user?.id || guestId;
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -27,28 +30,50 @@ export const useChatMessages = (notebookId?: string) => {
     queryFn: async () => {
       if (!notebookId) return [];
 
-      const storedMessages = localStorageService.getChatMessages(notebookId);
-      const expandedMessages: EnhancedChatMessage[] = [];
+      let expandedMessages: EnhancedChatMessage[] = [];
 
-      storedMessages.forEach((item) => {
-        if (item.message && typeof item.message === "string" && item.message.trim()) {
-          expandedMessages.push({
-            id: `${item.id}-user`,
-            notebook_id: item.notebook_id,
-            message: { type: "human", content: item.message },
-            created_at: item.created_at,
+      try {
+        if (session?.access_token) {
+          // Cloud account - fetch from backend API
+          const dbMessages = await ApiService.getChatMessages(notebookId, session.access_token);
+          
+          expandedMessages = dbMessages.map((msg: { id: string; notebook_id: string; role: string; content: string; created_at: string; sources?: string }) => ({
+            id: msg.id,
+            notebook_id: msg.notebook_id,
+            message: { 
+              type: msg.role === 'user' ? 'human' : 'ai', 
+              content: msg.content 
+            },
+            created_at: msg.created_at,
+            // Add sources if we implement citation support in backend later
+            sources: msg.sources ? JSON.parse(msg.sources) : undefined
+          }));
+        } else {
+          // Guest account - fetch from localStorage
+          const storedMessages = localStorageService.getChatMessages(notebookId);
+          storedMessages.forEach((item) => {
+            if (item.message && typeof item.message === "string" && item.message.trim()) {
+              expandedMessages.push({
+                id: `${item.id}-user`,
+                notebook_id: item.notebook_id,
+                message: { type: "human", content: item.message },
+                created_at: item.created_at,
+              });
+            }
+
+            if (item.response && item.response.trim()) {
+              expandedMessages.push({
+                id: `${item.id}-ai`,
+                notebook_id: item.notebook_id,
+                message: { type: "ai", content: item.response },
+                created_at: item.created_at,
+              });
+            }
           });
         }
-
-        if (item.response && item.response.trim()) {
-          expandedMessages.push({
-            id: `${item.id}-ai`,
-            notebook_id: item.notebook_id,
-            message: { type: "ai", content: item.response },
-            created_at: item.created_at,
-          });
-        }
-      });
+      } catch (err) {
+        console.error("Error fetching chat messages:", err);
+      }
 
       return expandedMessages;
     },
@@ -67,9 +92,21 @@ export const useChatMessages = (notebookId?: string) => {
       notebookId: string;
       role: "user" | "assistant";
       content: string;
+      saveAsNote?: boolean;
     }) => {
       if (!effectiveUserId) throw new Error("User not authenticated");
 
+      if (session?.access_token) {
+        // Cloud account - send via backend generic API
+        const result = await ApiService.sendChatMessage(
+          messageData.notebookId, 
+          { message: messageData.content, saveAsNote: messageData.saveAsNote }, 
+          session.access_token
+        );
+        return { response: result.answer, notebookId: messageData.notebookId };
+      }
+
+      // Guest account - local processing
       let aiResponse = await generateAIResponse(
         messageData.content,
         user as unknown as LocalUser,

@@ -71,23 +71,43 @@ export const useSources = (notebookId?: string) => {
     }) => {
       if (!effectiveUserId) throw new Error("User not authenticated");
 
-      // Create source in local storage
-      const newSource = await localStorageService.createSource({
-        notebook_id: sourceData.notebookId,
-        // If title is an error message, use the file name instead
-        title: sourceData.title && !sourceData.title.includes("extraction failed") 
-          && !sourceData.title.includes("Unable to extract text") 
-          && !sourceData.title.includes("PDF contains no extractable text")
-          ? sourceData.title
-          : (sourceData.file_path ? sourceData.file_path.split('/').pop()?.replace(/\.[^/.]+$/, "") || "Document" : "New Source"),
-        type: sourceData.type,
-        content: sourceData.content,
-        url: sourceData.url,
-        file_path: sourceData.file_path,
-        file_size: sourceData.file_size,
-        processing_status: sourceData.processing_status,
-        metadata: (sourceData.metadata as Record<string, unknown>) || {},
-      });
+      const title = sourceData.title && !sourceData.title.includes("extraction failed") 
+        && !sourceData.title.includes("Unable to extract text") 
+        && !sourceData.title.includes("PDF contains no extractable text")
+        ? sourceData.title
+        : (sourceData.file_path ? sourceData.file_path.split('/').pop()?.replace(/\.[^/.]+$/, "") || "Document" : "New Source");
+
+      let newSource: Source;
+
+      if (session?.access_token) {
+        // Create source in postgres db via ApiService
+        const newId = crypto.randomUUID();
+        const apiPayload = {
+          id: newId,
+          title,
+          type: sourceData.type,
+          content: sourceData.content,
+          url: sourceData.url,
+          file_path: sourceData.file_path,
+          file_size: sourceData.file_size,
+          processing_status: sourceData.processing_status,
+          metadata: sourceData.metadata || {},
+        };
+        newSource = await ApiService.createSource(sourceData.notebookId, apiPayload, session.access_token) as Source;
+      } else {
+        // Create source in local storage
+        newSource = await localStorageService.createSource({
+          notebook_id: sourceData.notebookId,
+          title,
+          type: sourceData.type,
+          content: sourceData.content,
+          url: sourceData.url,
+          file_path: sourceData.file_path,
+          file_size: sourceData.file_size,
+          processing_status: sourceData.processing_status,
+          metadata: (sourceData.metadata as Record<string, unknown>) || {},
+        }) as Source;
+      }
 
       return newSource;
     },
@@ -170,13 +190,23 @@ export const useSources = (notebookId?: string) => {
         title?: string;
         file_path?: string;
         processing_status?: string;
+        content?: string;
+        metadata?: unknown;
       };
     }) => {
-      // Update source in local storage
-      const updatedSource = await localStorageService.updateSource(
-        sourceId,
-        updates,
-      );
+      let updatedSource: Source | null;
+
+      if (session?.access_token) {
+        if (!notebookId) throw new Error("notebookId required for API updates");
+        const res = await ApiService.updateSource(notebookId, sourceId, updates as Record<string, unknown>, session.access_token);
+        updatedSource = res as Source;
+      } else {
+        // Update source in local storage
+        updatedSource = await localStorageService.updateSource(
+          sourceId,
+          updates as Partial<LocalSource>,
+        ) as Source | null;
+      }
 
       if (!updatedSource) {
         throw new Error("Source not found");

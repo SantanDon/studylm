@@ -62,7 +62,7 @@ export function useAddSourcesHandlers(
           updateSource({ sourceId, updates: { file_path: filePath, processing_status: "processing" } });
 
           try {
-            await processDocumentAsync({ sourceId, filePath, sourceType: fileType });
+            await processDocumentAsync({ sourceId, filePath, sourceType: fileType, notebookId });
 
             if (notebookId && fileType) {
               await generateNotebookContentAsync({ notebookId, filePath, sourceType: fileType });

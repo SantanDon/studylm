@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { localStorageService } from "@/services/localStorageService";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { ApiService } from "@/services/apiService";
 
 /**
  * Generate source-type specific fallback questions
@@ -69,6 +71,7 @@ function getSourceTypeQuestions(sourceType: string, title?: string): string[] {
 export const useNotebookGeneration = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { session } = useAuth();
 
   const generateNotebookContent = useMutation({
     mutationFn: async ({
@@ -92,13 +95,21 @@ export const useNotebookGeneration = () => {
       }
 
       // Mark notebook as generating so UI can reflect status
-      localStorageService.updateNotebook(notebookId, {
-        generation_status: "processing",
-      });
+      if (!session?.access_token) {
+        localStorageService.updateNotebook(notebookId, {
+          generation_status: "processing",
+        });
+      }
 
       // Get the source content for the generation context
       // Try to match by file_path OR url (for youtube/website sources)
-      const sources = localStorageService.getSources(notebookId);
+      let sources: any[] = [];
+      if (session?.access_token) {
+        sources = await ApiService.fetchSources(notebookId, session.access_token);
+      } else {
+        sources = (await localStorageService.getSources(notebookId)) as any[];
+      }
+      
       const source = sources.find((s) => s.file_path === filePath) ||
                      sources.find((s) => s.url === filePath) ||
                      sources[0]; // Fallback to first source if no match
@@ -238,13 +249,27 @@ FORMAT: Just the questions, nothing else.`,
         console.error("Generation error (using fallback):", error);
       }
 
-      // Update the notebook in local storage with example questions
-      const updatedNotebook = localStorageService.updateNotebook(notebookId, {
-        title,
-        description,
-        example_questions: exampleQuestions || [],
-        generation_status: 'completed',
-      });
+      // Update the notebook with title/description
+      let updatedNotebook: any;
+      if (session?.access_token) {
+        updatedNotebook = await ApiService.updateNotebook(
+          notebookId, 
+          { 
+            title, 
+            description,
+            example_questions: exampleQuestions || [],
+            generation_status: 'completed'
+          }, 
+          session.access_token
+        );
+      } else {
+        updatedNotebook = localStorageService.updateNotebook(notebookId, {
+          title,
+          description,
+          example_questions: exampleQuestions || [],
+          generation_status: 'completed',
+        });
+      }
 
       if (!updatedNotebook) {
         throw new Error(`Failed to update notebook with ID ${notebookId}`);

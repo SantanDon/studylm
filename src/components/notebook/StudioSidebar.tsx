@@ -91,6 +91,9 @@ const StudioSidebar = ({
     );
   }
 
+  const humanNotes = notes?.filter(n => !n.author_id || n.author_id === currentUserId) || [];
+  const agentNotes = notes?.filter(n => n.author_id && n.author_id !== currentUserId) || [];
+
   return <div className="w-full bg-gray-50 dark:bg-background border-l border-gray-200 dark:border-border flex flex-col h-full overflow-hidden">
       <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0">
         <h2 className="text-lg font-medium text-foreground">Studio</h2>
@@ -262,42 +265,95 @@ const StudioSidebar = ({
 
         {/* Saved Notes Area */}
         <div className="mt-6 border-t border-gray-200 dark:border-border pt-4">
-          <h3 className="font-medium text-foreground mb-3">Saved Notes</h3>
-          {isLoading ? <div className="text-center py-8">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium text-foreground">Notes & Findings</h3>
+          </div>
+
+          {isLoading ? (
+            <div className="text-center py-8">
               <p className="text-sm text-muted-foreground">Loading notes...</p>
-            </div> : notes && notes.length > 0 ? <div className="space-y-3">
-              {notes.map(note => <GlareCard key={note.id} className="p-3 border border-border cursor-pointer group" onClick={() => handleEditNote(note)}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-1">
-                        {note.source_type === 'ai_response' ? <i className="fi fi-rr-robot text-blue-600"></i> : <i className="fi fi-rr-user text-muted-foreground"></i>}
-                        <span className="text-xs text-muted-foreground uppercase flex items-center gap-1">
-                          {note.source_type === 'ai_response' ? 'AI Response' : (note.author_name || 'Note')}
-                          {note.author_id && note.author_id !== currentUserId && <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded">Agent</span>}
-                        </span>
-                      </div>
-                      <h4 className="font-medium text-foreground truncate">{note.title}</h4>
-                      <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                        {getPreviewText(note)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {new Date(note.updated_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    {note.source_type === 'user' && <Button variant="ghost" size="sm" className="ml-2">
-                        <i className="fi fi-rr-edit"></i>
-                      </Button>}
+            </div>
+          ) : notes && notes.length > 0 ? (
+            <div className="space-y-6">
+              {/* Agent Notes Section */}
+              {agentNotes.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-blue-600 font-medium px-1">
+                    <i className="fi fi-rr-robot"></i>
+                    <h4>Agent Findings</h4>
                   </div>
-                </GlareCard>)}
-            </div> : <div className="text-center py-8">
+                  {agentNotes.map(note => (
+                    <GlareCard key={note.id} className="p-3 border border-blue-200 dark:border-blue-900 bg-blue-50/30 dark:bg-blue-950/10 cursor-pointer group" onClick={() => handleEditNote(note)}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2 mb-1">
+                            <span className="text-xs text-blue-600 uppercase flex items-center gap-1">
+                              Agent Note
+                            </span>
+                          </div>
+                          <h4 className="font-medium text-foreground truncate">{note.title}</h4>
+                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                            {getPreviewText(note)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {new Date(note.updated_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    </GlareCard>
+                  ))}
+                </div>
+              )}
+
+              {/* Human Notes Section */}
+              {humanNotes.length > 0 && (
+                <div className="space-y-3">
+                  {agentNotes.length > 0 && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground font-medium px-1 pt-2">
+                      <i className="fi fi-rr-user"></i>
+                      <h4>Your Notes</h4>
+                    </div>
+                  )}
+                  {humanNotes.map(note => (
+                    <GlareCard key={note.id} className="p-3 border border-border cursor-pointer group" onClick={() => handleEditNote(note)}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2 mb-1">
+                            {note.source_type === 'ai_response' ? <i className="fi fi-rr-robot text-blue-600"></i> : <i className="fi fi-rr-document text-muted-foreground"></i>}
+                            <span className="text-xs text-muted-foreground uppercase flex items-center gap-1">
+                              {note.source_type === 'ai_response' ? 'Saved from Chat' : 'Manual Note'}
+                            </span>
+                          </div>
+                          <h4 className="font-medium text-foreground truncate">{note.title}</h4>
+                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                            {getPreviewText(note)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {new Date(note.updated_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        {note.source_type === 'user' && (
+                          <Button variant="ghost" size="sm" className="ml-2">
+                            <i className="fi fi-rr-edit"></i>
+                          </Button>
+                        )}
+                      </div>
+                    </GlareCard>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8">
               <div className="w-16 h-16 bg-muted rounded-lg mx-auto mb-4 flex items-center justify-center">
                 <span className="text-muted-foreground text-2xl">📄</span>
               </div>
-              <h3 className="text-lg font-medium text-foreground mb-2">Saved notes will appear here</h3>
+              <h3 className="text-lg font-medium text-foreground mb-2">Workspace is empty</h3>
               <p className="text-sm text-muted-foreground">
-                Save a chat message to create a new note, or click Add note above.
+                When you or your AI agent save insights, they will appear here.
               </p>
-            </div>}
+            </div>
+          )}
         </div>
         </div>
       </ScrollArea>

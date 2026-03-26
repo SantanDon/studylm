@@ -4,10 +4,13 @@ import { useToast } from "@/hooks/use-toast";
 import { extractContent, getFileCategory } from "@/lib/extraction/documentExtractor";
 import { validateDocumentContent } from "@/lib/extraction/contentValidator";
 import { enhancedPDFExtraction } from "@/lib/extraction/pdfExtractor";
+import { useAuth } from "@/hooks/useAuth";
+import { ApiService } from "@/services/apiService";
 
 export const useFileUpload = () => {
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
+  const { session } = useAuth();
 
   const uploadFile = async (
     file: File,
@@ -20,8 +23,9 @@ export const useFileUpload = () => {
       // Get file extension
       const fileExtension = file.name.split(".").pop() || "bin";
 
-      // Create file path: sources/{notebook_id}/{source_id}.{extension}
-      const filePath = `${notebookId}/${sourceId}.${fileExtension}`;
+      // Create file path using a persistent blob URL for this session
+      const blobUrl = URL.createObjectURL(file);
+      const filePath = blobUrl;
 
       console.log("📤 Uploading file to:", filePath);
 
@@ -32,121 +36,74 @@ export const useFileUpload = () => {
 
       try {
         console.log(`🔍 Starting extraction for: ${file.name} (${file.type})`);
-        const extractionResult = await extractContent(file);
-        content = extractionResult.content;
-        metadata = extractionResult.metadata;
-        chunks = extractionResult.chunks || [];
+        
+        let serverExtractionSuccess = false;
 
-        // Check if the content is actually an error message from the server
-        if (content &&
-            (content.toLowerCase().includes("server error") ||
-             content.toLowerCase().includes("pdf processing error") ||
-             content.toLowerCase().includes("network connectivity issues") ||
-             content.toLowerCase().includes("unable to extract text from"))) {
-          console.warn("Server returned error message instead of processed content");
-
-          // Try PDF to text conversion as fallback for PDF files
-          if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-            console.log("🔄 Attempting client-side PDF to text conversion as fallback...");
-            try {
-              const pdfResult = await enhancedPDFExtraction(file);
-              if (pdfResult.success && pdfResult.content && pdfResult.content.trim().length > 0) {
-                console.log(`✅ Client-side PDF to text conversion successful: ${pdfResult.content.length} chars extracted from ${pdfResult.metadata.extractedPages} pages`);
-                content = pdfResult.content;
+        // 1. If it's a PDF and user is authenticated, try server-side first
+        if ((file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) && session?.access_token) {
+          console.log("🔄 Attempting server-side PDF extraction...");
+          try {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
+            const response = await fetch(`${backendUrl}/api/pdf/process-pdf`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${session.access_token}` },
+              body: formData
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              if (result.success && result.content && result.content.trim().length > 0) {
+                console.log(`✅ Server-side PDF extraction successful: ${result.content.length} chars`);
+                content = result.content;
+                chunks = result.chunks || [];
                 metadata = {
                   ...metadata,
-                  extractionMethod: "enhanced-pdf-extraction",
-                  totalPages: pdfResult.metadata.totalPages,
-                  extractedPages: pdfResult.metadata.extractedPages,
-                  pdfTitle: pdfResult.metadata.title,
-                  pdfAuthor: pdfResult.metadata.author
+                  extractionMethod: "server-pdf-parse",
+                  pageCount: result.metadata?.pageCount || 0,
+                  wordCount: result.metadata?.wordCount || 0
                 };
-                chunks = [];
-              } else {
-                console.warn("PDF to text conversion failed or returned no content:", pdfResult.error);
-                toast({
-                  title: "PDF Conversion Failed",
-                  description: `Failed to extract text from ${file.name}. ${pdfResult.error || 'The PDF may be encrypted, password-protected, or contain only images.'}`,
-                  variant: "destructive",
-                });
-                throw new Error("PDF extraction failed and fallback also failed");
+                serverExtractionSuccess = true;
               }
-            } catch (pdfConversionError) {
-              console.error("PDF to text conversion also failed:", pdfConversionError);
-              toast({
-                title: "PDF Processing Error",
-                description: `Could not process ${file.name} as a PDF. The file may be password-protected, encrypted, or corrupted.`,
-                variant: "destructive",
-              });
-              throw pdfConversionError; // Re-throw the conversion error
+            } else {
+              console.warn(`Server-side extraction returned ${response.status}`);
             }
-          } else {
-            // For non-PDF files, show the original error
+          } catch (serverErr) {
+            console.error("Server-side PDF extraction failed:", serverErr);
+          }
+        }
+
+        // 2. If server extraction wasn't attempted or failed, try client-side
+        if (!serverExtractionSuccess) {
+          console.log("🔄 Attempting client-side extraction...");
+          const extractionResult = await extractContent(file);
+          content = extractionResult.content || "";
+          metadata = extractionResult.metadata || {};
+          chunks = extractionResult.chunks || [];
+
+          // Check if the content is actually an error message from the client extractor
+          if (content && (
+              content.toLowerCase().includes("server error") ||
+              content.toLowerCase().includes("pdf processing error") ||
+              content.toLowerCase().includes("failed") ||
+              content.toLowerCase().includes("unable to extract text from"))) {
+            
             toast({
               title: "Extraction Error",
-              description: `Failed to extract content from ${file.name}. The file may be corrupted or in an unsupported format.`,
+              description: `Failed to extract content from ${file.name}. The file may be password-protected, encrypted, or corrupted.`,
               variant: "destructive",
             });
-            throw new Error("Content extraction returned an error instead of valid content");
+            throw new Error(content);
+          } else {
+            console.log(`✅ Extracted ${content.length} chars using ${metadata.extractionMethod}`);
+            console.log(`📦 Created ${chunks.length} chunks for better search`);
           }
-        } else {
-          console.log(
-            `✅ Extracted ${content.length} chars using ${metadata.extractionMethod}`,
-          );
-          console.log(`📦 Created ${chunks.length} chunks for better search`);
-          console.log(`📝 Content preview: ${content.substring(0, 200)}...`);
-          console.log(`🔢 First chunk: ${chunks[0]?.substring(0, 100)}...`);
         }
       } catch (extractionError) {
         console.error("⚠️ Content extraction failed:", extractionError);
-        console.error("⚠️ Error details:", extractionError);
-
-        // Try PDF to text conversion as fallback for PDF files
-        if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-          console.log("🔄 Attempting PDF to text conversion as fallback...");
-          try {
-            const pdfResult = await enhancedPDFExtraction(file);
-            if (pdfResult.success && pdfResult.content && pdfResult.content.trim().length > 0) {
-              console.log(`✅ PDF to text conversion successful: ${pdfResult.content.length} chars extracted from ${pdfResult.metadata.extractedPages} pages`);
-              content = pdfResult.content;
-              metadata = {
-                ...metadata,
-                extractionMethod: "enhanced-pdf-extraction",
-                totalPages: pdfResult.metadata.totalPages,
-                extractedPages: pdfResult.metadata.extractedPages,
-                pdfTitle: pdfResult.metadata.title,
-                pdfAuthor: pdfResult.metadata.author
-              };
-              // Note: chunks will be empty initially, they'll be created later if needed
-              chunks = [];
-            } else {
-              console.warn("PDF to text conversion failed or returned no content:", pdfResult.error);
-              // Show specific PDF conversion error
-              toast({
-                title: "PDF Conversion Failed",
-                description: `Failed to extract text from ${file.name}. ${pdfResult.error || 'The PDF may be encrypted, password-protected, or contain only images.'}`,
-                variant: "destructive",
-              });
-              throw extractionError; // Re-throw original error
-            }
-          } catch (pdfConversionError) {
-            console.error("PDF to text conversion also failed:", pdfConversionError);
-            toast({
-              title: "PDF Processing Error",
-              description: `Could not process ${file.name} as a PDF. The file may be password-protected, encrypted, or corrupted.`,
-              variant: "destructive",
-            });
-            throw extractionError; // Re-throw original error
-          }
-        } else {
-          // For non-PDF files, show the original error
-          toast({
-            title: "Extraction Error",
-            description: `Failed to extract content from ${file.name}. The file may be corrupted or in an unsupported format.`,
-            variant: "destructive",
-          });
-          throw extractionError; // Re-throw to handle at higher level
-        }
+        throw extractionError;
       }
 
       // Validate extracted content using comprehensive validation
@@ -246,7 +203,8 @@ export const useFileUpload = () => {
       console.log(
         `💾 Updating source ${sourceId} with content and ${chunks.length} chunks`,
       );
-      const updateResult = localStorageService.updateSource(sourceId, {
+      
+      const payload = {
         content: content,
         file_path: filePath,
         metadata: {
@@ -255,17 +213,25 @@ export const useFileUpload = () => {
           fileCategory: getFileCategory(file),
           validation: validation, // Store the validation results
         },
-      });
-      console.log(`✅ Source updated:`, updateResult ? "success" : "failed");
+      };
 
-      // Create blob URL for file access
-      const blobUrl = URL.createObjectURL(file);
+      try {
+        if (session?.access_token) {
+          await ApiService.updateSource(notebookId, sourceId, payload, session.access_token);
+          console.log(`✅ Source updated in cloud: success`);
+        } else {
+          const updateResult = localStorageService.updateSource(sourceId, payload);
+          console.log(`✅ Source updated locally:`, updateResult ? "success" : "failed");
+        }
+      } catch (err) {
+        console.error("Failed to update source post-upload", err);
+      }
 
       console.log("✅ File uploaded successfully with content:", {
         path: filePath,
         contentLength: content.length,
         chunksCount: chunks.length,
-        blobUrl,
+        blobUrl: filePath,
       });
 
       // Verify source was saved correctly
