@@ -151,8 +151,20 @@ router.get("/:id/notes", (req, res) => {
  */
 router.post("/:id/notes", async (req, res) => {
   try {
-    const notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
-    if (!notebook) return res.status(404).json({ error: { code: "NOTEBOOK_NOT_FOUND", message: "Notebook not found" } });
+    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    
+    // VERCEL WORKAROUND: If notebook missing but we have userId (DB reset)
+    if (!notebook) {
+      console.log(`🛠️ Auto-provisioning notebook ${req.params.id} for user ${req.user.userId}...`);
+      try {
+        dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Automatically provisioned after system reset");
+        notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+      } catch (provisionError) {
+        console.error('Failed to auto-provision notebook:', provisionError);
+      }
+    }
+
+    if (!notebook) return res.status(404).json({ error: { code: "NOTEBOOK_NOT_FOUND", message: "Notebook not found and could not be recovered" } });
 
     const { content, authorId } = req.body;
     if (!content) {
@@ -258,8 +270,21 @@ router.post("/:id/memory/search", async (req, res) => {
  */
 router.post("/:id/sources", (req, res) => {
   try {
-    const notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
-    if (!notebook) return res.status(404).json({ error: { code: "NOTEBOOK_NOT_FOUND", message: "Notebook not found" } });
+    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    
+    // VERCEL WORKAROUND: If notebook missing but we have userId (DB reset)
+    // Auto-provision a placeholder so sources can be attached
+    if (!notebook) {
+      console.log(`🛠️ Auto-provisioning notebook ${req.params.id} for user ${req.user.userId}...`);
+      try {
+        dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Automatically provisioned after system reset");
+        notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+      } catch (provisionError) {
+        console.error('Failed to auto-provision notebook:', provisionError);
+      }
+    }
+
+    if (!notebook) return res.status(404).json({ error: { code: "NOTEBOOK_NOT_FOUND", message: "Notebook not found and could not be recovered" } });
 
     const { id: providedId, title, type, content, url, metadata, processing_status, file_path, file_size } = req.body;
     if (!title || !type) {
