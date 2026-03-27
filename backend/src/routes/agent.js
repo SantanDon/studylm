@@ -52,7 +52,7 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
     console.log(`[Agent Upload] User derived as: ${userId}`);
 
     // Verify user owns notebook
-    const notebook = dbHelpers.getNotebookById(notebookId, userId);
+    const notebook = await dbHelpers.getNotebookById(notebookId, userId);
     if (!notebook) {
       console.error(`[Agent Upload] Notebook ${notebookId} not found or unauthorized for user ${userId}`);
       return res.status(404).json({ error: 'Notebook not found' });
@@ -62,20 +62,19 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
     const db = await getDatabase();
     
     console.log(`[Agent Upload] Inserting into agent_uploads table... file: ${req.file.originalname}`);
-    const stmt = db.prepare(`
-      INSERT INTO agent_uploads (id, user_id, notebook_id, file_name, file_size, mime_type, file_path, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-    `);
-    
-    stmt.run(
-      id,
-      userId,
-      notebookId,
-      req.file.originalname,
-      req.file.size,
-      req.file.mimetype,
-      req.file.path
-    );
+    await db.execute({
+      sql: `INSERT INTO agent_uploads (id, user_id, notebook_id, file_name, file_size, mime_type, file_path, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      args: [
+        id,
+        userId,
+        notebookId,
+        req.file.originalname,
+        req.file.size,
+        req.file.mimetype,
+        req.file.path
+      ]
+    });
 
     res.status(201).json({
       success: true,
@@ -108,8 +107,11 @@ router.get('/pending-uploads', authenticateToken, async (req, res) => {
     
     query += ` ORDER BY created_at ASC`;
 
-    const records = db.prepare(query).all(...params);
-    res.json({ success: true, pendingUploads: records });
+    const result = await db.execute({
+      sql: query,
+      args: params
+    });
+    res.json({ success: true, pendingUploads: result.rows });
   } catch (error) {
     console.error('List pending uploads error:', error);
     res.status(500).json({ error: 'Failed to list pending agent uploads' });
@@ -126,7 +128,11 @@ router.delete('/upload/:id', authenticateToken, async (req, res) => {
     const userId = req.user.userId || req.user.id;
     const db = await getDatabase();
 
-    const record = db.prepare(`SELECT * FROM agent_uploads WHERE id = ? AND user_id = ?`).get(id, userId);
+    const result = await db.execute({
+      sql: `SELECT * FROM agent_uploads WHERE id = ? AND user_id = ?`,
+      args: [id, userId]
+    });
+    const record = result.rows[0];
     
     if (!record) {
       return res.status(404).json({ error: 'Upload record not found' });
@@ -140,7 +146,10 @@ router.delete('/upload/:id', authenticateToken, async (req, res) => {
     }
 
     // Delete the database record
-    db.prepare(`DELETE FROM agent_uploads WHERE id = ?`).run(id);
+    await db.execute({
+      sql: `DELETE FROM agent_uploads WHERE id = ?`,
+      args: [id]
+    });
 
     res.json({ success: true, message: 'Agent upload cleaned up successfully' });
   } catch (error) {
@@ -157,9 +166,13 @@ router.get('/download/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId || req.user.id;
-    const db = getDatabase();
+    const db = await getDatabase();
 
-    const record = db.prepare(`SELECT * FROM agent_uploads WHERE id = ? AND user_id = ?`).get(id, userId);
+    const result = await db.execute({
+      sql: `SELECT * FROM agent_uploads WHERE id = ? AND user_id = ?`,
+      args: [id, userId]
+    });
+    const record = result.rows[0];
     
     if (!record) {
       return res.status(404).json({ error: 'Upload record not found' });

@@ -61,7 +61,7 @@ router.post("/register", authenticateToken, async (req, res) => {
     }
 
     // Check if display name is already taken
-    const existingUser = dbHelpers.getUserByDisplayName(display_name);
+    const existingUser = await dbHelpers.getUserByDisplayName(display_name);
     if (existingUser) {
       return res.status(400).json({ error: "Display name is already taken" });
     }
@@ -72,16 +72,16 @@ router.post("/register", authenticateToken, async (req, res) => {
     const passwordHash = await bcrypt.hash(passphrase, 10);
     const ownerId = req.user.userId;
 
-    dbHelpers.createUser(userId, dummyEmail, passwordHash, display_name, account_type, null, ownerId);
+    await dbHelpers.createUser(userId, dummyEmail, passwordHash, display_name, account_type, null, ownerId);
 
     // Create user preferences and stats
-    dbHelpers.createUserPreferences(uuidv4(), userId);
-    dbHelpers.createUserStats(uuidv4(), userId);
+    await dbHelpers.createUserPreferences(uuidv4(), userId);
+    await dbHelpers.createUserStats(uuidv4(), userId);
 
     const accessToken = generateToken(userId, dummyEmail);
     const refreshToken = generateRefreshToken(userId, dummyEmail);
 
-    const user = dbHelpers.getUserById(userId);
+    const user = await dbHelpers.getUserById(userId);
 
     res.status(201).json({
       message: "Agent created successfully",
@@ -129,14 +129,14 @@ router.post("/signup", async (req, res) => {
     }
 
     if (finalDisplayName) {
-      const existingName = dbHelpers.getUserByDisplayName(finalDisplayName);
+      const existingName = await dbHelpers.getUserByDisplayName(finalDisplayName);
       if (existingName) {
         return res.status(400).json({ error: "Display name is already taken" });
       }
     }
 
     // Check if user already exists
-    const existingUser = dbHelpers.getUserByEmail(finalEmail);
+    const existingUser = await dbHelpers.getUserByEmail(finalEmail);
     if (existingUser) {
       return res.status(400).json({ error: "User already exists" });
     }
@@ -151,29 +151,29 @@ router.post("/signup", async (req, res) => {
     const consentVal = emailConsent ? 1 : 0;
     
     // Create user with explicit verified and consent status
-    dbHelpers.createUser(userId, finalEmail, passwordHash, finalDisplayName, 'human', null, null, isVerified, consentVal);
+    await dbHelpers.createUser(userId, finalEmail, passwordHash, finalDisplayName, 'human', null, null, isVerified, consentVal);
 
     if (!isLocalMode) {
       const verificationToken = crypto.randomBytes(32).toString('hex');
       const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
-      dbHelpers.updateUser(userId, { verification_token: verificationToken, token_expires_at: tokenExpiresAt });
+      await dbHelpers.updateUser(userId, { verification_token: verificationToken, token_expires_at: tokenExpiresAt });
       await sendVerificationEmail(finalEmail, verificationToken);
     }
 
     if (recovery_key_hash) {
       if (dbHelpers.storeRecoveryKeyHash) {
-         dbHelpers.storeRecoveryKeyHash(userId, recovery_key_hash);
+         await dbHelpers.storeRecoveryKeyHash(userId, recovery_key_hash);
       }
     }
 
     // Create user preferences and stats
-    dbHelpers.createUserPreferences(uuidv4(), userId);
-    dbHelpers.createUserStats(uuidv4(), userId);
+    await dbHelpers.createUserPreferences(uuidv4(), userId);
+    await dbHelpers.createUserStats(uuidv4(), userId);
 
     // Get user data
-    const user = dbHelpers.getUserById(userId);
-    const preferences = dbHelpers.getUserPreferences(userId);
-    const stats = dbHelpers.getUserStats(userId);
+    const user = await dbHelpers.getUserById(userId);
+    const preferences = await dbHelpers.getUserPreferences(userId);
+    const stats = await dbHelpers.getUserStats(userId);
 
     // If local mode, automatically log them in
     if (isLocalMode) {
@@ -228,7 +228,7 @@ router.post("/signin", async (req, res) => {
     if (email && password) {
       console.log("--> Human auth flow...");
       // Human auth flow
-      user = dbHelpers.getUserByEmail(email);
+      user = await dbHelpers.getUserByEmail(email);
       if (!user) {
         return res.status(401).json({ error: "Invalid email or password" });
       }
@@ -245,7 +245,7 @@ router.post("/signin", async (req, res) => {
     } else if (displayName && passphrase) {
       console.log("--> Agent auth flow... DisplayName:", displayName);
       // Agent auth flow
-      user = dbHelpers.getUserByDisplayName(displayName);
+      user = await dbHelpers.getUserByDisplayName(displayName);
       console.log("--> User found:", user ? user.id : "NO");
       if (!user) {
         return res.status(401).json({ error: "Invalid display name or passphrase" });
@@ -269,8 +269,8 @@ router.post("/signin", async (req, res) => {
 
     console.log("--> Getting preferences and stats...");
     // Get user preferences and stats
-    const preferences = dbHelpers.getUserPreferences(user.id);
-    const stats = dbHelpers.getUserStats(user.id);
+    const preferences = await dbHelpers.getUserPreferences(user.id);
+    const stats = await dbHelpers.getUserStats(user.id);
 
     console.log("--> Sending response...");
     res.json({
@@ -307,7 +307,7 @@ router.post("/refresh", async (req, res) => {
     const decoded = verifyRefreshToken(refreshToken);
 
     // Get user
-    const user = dbHelpers.getUserById(decoded.userId);
+    const user = await dbHelpers.getUserById(decoded.userId);
     if (!user) {
       return res.status(401).json({ error: "User not found" });
     }
@@ -338,7 +338,7 @@ router.get("/verify-email", async (req, res) => {
     const { token } = req.query;
     if (!token) return res.status(400).json({ error: "Verification token is required" });
 
-    const user = dbHelpers.getUserByVerificationToken(token);
+    const user = await dbHelpers.getUserByVerificationToken(token);
     if (!user) {
       return res.status(400).json({ error: "Invalid or already used verification token" });
     }
@@ -348,7 +348,7 @@ router.get("/verify-email", async (req, res) => {
     }
 
     // Mark user as verified, clear the token and expiration
-    dbHelpers.updateUser(user.id, { is_verified: 1, verification_token: null, token_expires_at: null });
+    await dbHelpers.updateUser(user.id, { is_verified: 1, verification_token: null, token_expires_at: null });
 
     res.json({ message: "Email verified successfully. You can now log in." });
   } catch (error) {
@@ -362,7 +362,7 @@ router.post("/resend-verification", async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Email is required" });
 
-    const user = dbHelpers.getUserByEmail(email);
+    const user = await dbHelpers.getUserByEmail(email);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     if (user.is_verified) {
@@ -400,7 +400,7 @@ router.post("/agent-key", authenticateToken, async (req, res) => {
     const keyHash = hashApiKey(rawKey);
     const prefix = rawKey.slice(0, 12) + '...';
     const id = uuidv4();
-    dbHelpers.createApiKey(id, req.user.userId, keyHash, prefix, label);
+    await dbHelpers.createApiKey(id, req.user.userId, keyHash, prefix, label);
     res.status(201).json({
       message: 'API key created — save this now, it will not be shown again.',
       key: rawKey,
@@ -418,9 +418,9 @@ router.post("/agent-key", authenticateToken, async (req, res) => {
  * GET /api/auth/agent-key
  * List all your API keys (hashes never returned).
  */
-router.get("/agent-key", authenticateToken, (req, res) => {
+router.get("/agent-key", authenticateToken, async (req, res) => {
   try {
-    res.json(dbHelpers.listApiKeys(req.user.userId));
+    res.json(await dbHelpers.listApiKeys(req.user.userId));
   } catch (error) {
     res.status(500).json({ error: 'Failed to list API keys' });
   }
@@ -430,9 +430,9 @@ router.get("/agent-key", authenticateToken, (req, res) => {
  * DELETE /api/auth/agent-key/:id
  * Revoke an API key.
  */
-router.delete("/agent-key/:id", authenticateToken, (req, res) => {
+router.delete("/agent-key/:id", authenticateToken, async (req, res) => {
   try {
-    const result = dbHelpers.deleteApiKey(req.params.id, req.user.userId);
+    const result = await dbHelpers.deleteApiKey(req.params.id, req.user.userId);
     if (result.changes === 0) return res.status(404).json({ error: 'Key not found' });
     res.json({ message: 'API key revoked' });
   } catch (error) {
@@ -449,7 +449,7 @@ router.post("/recover", async (req, res) => {
       return res.status(400).json({ error: "Display name and recovery key are required" });
     }
 
-    const user = dbHelpers.getUserByDisplayName(displayName);
+    const user = await dbHelpers.getUserByDisplayName(displayName);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
@@ -459,7 +459,7 @@ router.post("/recover", async (req, res) => {
     
     // We need to fetch the user's recovery_key_hash from the DB directly since getUserByDisplayName might not select it
     const db = dbHelpers.getUserByDisplayName(displayName); // wait, we need a custom query if it's not in the default select
-    const userRow = dbHelpers.getUserByRecoveryKeyHash(providedHash);
+    const userRow = await dbHelpers.getUserByRecoveryKeyHash(providedHash);
     
     if (!userRow || userRow.id !== user.id) {
       return res.status(401).json({ error: "Invalid recovery key" });
@@ -470,7 +470,7 @@ router.post("/recover", async (req, res) => {
     const resetTokenHash = crypto.createHash("sha256").update(rawResetToken).digest("hex");
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
     
-    dbHelpers.createRecoveryToken(uuidv4(), user.id, resetTokenHash, expiresAt);
+    await dbHelpers.createRecoveryToken(uuidv4(), user.id, resetTokenHash, expiresAt);
 
     res.json({ resetToken: rawResetToken });
   } catch (error) {
@@ -488,23 +488,23 @@ router.post("/reset-passphrase", async (req, res) => {
     }
 
     const resetTokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
-    const tokenRecord = dbHelpers.getRecoveryTokenByHash(resetTokenHash);
+    const tokenRecord = await dbHelpers.getRecoveryTokenByHash(resetTokenHash);
     
     if (!tokenRecord) {
       return res.status(401).json({ error: "Invalid or expired reset token" });
     }
 
-    const user = dbHelpers.getUserById(tokenRecord.user_id);
+    const user = await dbHelpers.getUserById(tokenRecord.user_id);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
     // Update password
     const newPasswordHash = await bcrypt.hash(newPassphrase, 10);
-    dbHelpers.updateUser(user.id, { password_hash: newPasswordHash });
+    await dbHelpers.updateUser(user.id, { password_hash: newPasswordHash });
     
     // Mark token used
-    dbHelpers.markRecoveryTokenUsed(tokenRecord.id);
+    await dbHelpers.markRecoveryTokenUsed(tokenRecord.id);
 
     // Make sure we generate real login tokens so the UI can auto-login
     const accessToken = generateToken(user.id, user.email);
@@ -538,7 +538,7 @@ router.post("/pair/initiate", authenticateToken, async (req, res) => {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minute window
     
-    dbHelpers.createPairingCode(code, req.user.userId, expiresAt);
+    await dbHelpers.createPairingCode(code, req.user.userId, expiresAt);
     
     res.json({
       code,
@@ -561,14 +561,14 @@ router.post("/pair/complete", async (req, res) => {
     
     if (!code) return res.status(400).json({ error: "Pairing code required" });
     
-    const record = dbHelpers.getPairingCode(code);
+    const record = await dbHelpers.getPairingCode(code);
     
     if (!record) {
       return res.status(401).json({ error: "Invalid or expired pairing code" });
     }
     
     if (new Date(record.expires_at) < new Date()) {
-      dbHelpers.deletePairingCode(code);
+      await dbHelpers.deletePairingCode(code);
       return res.status(401).json({ error: "Pairing code has expired" });
     }
     
@@ -578,10 +578,10 @@ router.post("/pair/complete", async (req, res) => {
     const prefix = rawKey.slice(0, 12) + '...';
     const id = uuidv4();
     
-    dbHelpers.createApiKey(id, record.user_id, keyHash, prefix, label);
+    await dbHelpers.createApiKey(id, record.user_id, keyHash, prefix, label);
     
     // Clean up code immediately
-    dbHelpers.deletePairingCode(code);
+    await dbHelpers.deletePairingCode(code);
     
     res.status(201).json({
       message: 'Pairing successful!',
@@ -601,9 +601,9 @@ router.post("/pair/complete", async (req, res) => {
  * Returns the authenticated user's profile.
  * Agents use this to verify their identity and account_type after pairing.
  */
-router.get("/me", authenticateToken, (req, res) => {
+router.get("/me", authenticateToken, async (req, res) => {
   try {
-    const user = dbHelpers.getUserById(req.user.userId);
+    const user = await dbHelpers.getUserById(req.user.userId);
     if (!user) {
       return res.status(404).json({ error: { code: "USER_NOT_FOUND", message: "User not found" } });
     }

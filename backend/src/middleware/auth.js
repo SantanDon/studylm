@@ -20,12 +20,12 @@ export async function authenticateToken(req, res, next) {
   if (token.startsWith('spm_')) {
     try {
       const keyHash = hashApiKey(token);
-      const keyRow = dbHelpers.getApiKeyByHash(keyHash);
+      const keyRow = await dbHelpers.getApiKeyByHash(keyHash);
       if (!keyRow) {
         return res.status(401).json({ error: 'Invalid API key' });
       }
-      dbHelpers.touchApiKey(keyRow.id);
-      const user = dbHelpers.getUserById(keyRow.user_id);
+      await dbHelpers.touchApiKey(keyRow.id);
+      const user = await dbHelpers.getUserById(keyRow.user_id);
       if (!user) {
         return res.status(401).json({ error: 'User not found' });
       }
@@ -41,16 +41,15 @@ export async function authenticateToken(req, res, next) {
     const user = jwt.verify(token, JWT_SECRET);
     
     // VERCEL WORKAROUND: If user exists in JWT but not in DB (DB reset)
-    // We auto-provision a shell record so Foreign Keys don't break
+    // We auto-provision a shell record so Foreign Keys don't break across isolated endpoints
     const userId = user.userId || user.id;
     if (userId) {
-      const existing = dbHelpers.getUserById(userId);
-      if (!existing && user.email) {
-        console.log(`🛠️ Auto-provisioning user ${userId} after DB reset...`);
+      const existing = await dbHelpers.getUserById(userId);
+      if (!existing) {
+        console.log(`🛠️ Auto-provisioning missing user ${userId} after DB reset...`);
         try {
-          // Password hash is irrelevant here as they are already authed via JWT
-          // We use a dummy hash as it's a required field in the schema
-          dbHelpers.createUser(userId, user.email, 'AUTOPROVISIONED_SESSION_RECOVERY');
+          const fallbackEmail = user.email || `recovered_${userId.substring(0, 8)}@studypod.local`;
+          await dbHelpers.createUser(userId, fallbackEmail, 'AUTOPROVISIONED_SESSION_RECOVERY', user.displayName || 'Recovered User', user.accountType || 'human');
         } catch (provisionError) {
           console.error('Failed to auto-provision user:', provisionError);
         }

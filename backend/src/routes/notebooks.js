@@ -17,9 +17,9 @@ router.use(authenticateToken);
  * GET /api/notebooks
  * List all notebooks for the authenticated user
  */
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const notebooks = dbHelpers.getNotebooksByUserId(req.user.userId);
+    const notebooks = await dbHelpers.getNotebooksByUserId(req.user.userId);
     notebooks.forEach(notebook => {
       if (notebook.example_questions && typeof notebook.example_questions === 'string') {
         try { notebook.example_questions = JSON.parse(notebook.example_questions); } catch (e) {}
@@ -36,7 +36,7 @@ router.get("/", (req, res) => {
  * POST /api/notebooks
  * Create a new notebook
  */
-router.post("/", (req, res, next) => {
+router.post("/", async (req, res, next) => {
   try {
     const { title, description, id: providedId } = req.body;
     if (!title) {
@@ -44,9 +44,9 @@ router.post("/", (req, res, next) => {
     }
 
     const id = providedId || uuidv4();
-    dbHelpers.createNotebook(id, req.user.userId, title, description);
+    await dbHelpers.createNotebook(id, req.user.userId, title, description);
     
-    const notebook = dbHelpers.getNotebookById(id, req.user.userId);
+    const notebook = await dbHelpers.getNotebookById(id, req.user.userId);
     res.status(201).json(notebook);
   } catch (error) {
     next(error);
@@ -57,14 +57,14 @@ router.post("/", (req, res, next) => {
  * GET /api/notebooks/:id
  * Get details for a specific notebook
  */
-router.get("/:id", (req, res) => {
+router.get("/:id", async (req, res) => {
   try {
-    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    let notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     if (!notebook) {
       // JIT recovery for Vercel cold-start DB wipes
       try {
-        dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned");
-        notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+        await dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned");
+        notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
       } catch(e) {}
     }
     if (!notebook) {
@@ -85,7 +85,7 @@ router.get("/:id", (req, res) => {
  * PUT /api/notebooks/:id
  * Update notebook metadata
  */
-router.put("/:id", (req, res) => {
+router.put("/:id", async (req, res) => {
   try {
     const { title, description, example_questions, generation_status, icon } = req.body;
     const updates = {};
@@ -105,18 +105,18 @@ router.put("/:id", (req, res) => {
     }
 
     // VERCEL WORKAROUND: Auto-provision notebook if it was wiped before updating
-    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    let notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     if (!notebook) {
       console.log(`🛠️ PUT /:id: Auto-provisioning missing notebook ${req.params.id}...`);
       try {
-        dbHelpers.createNotebook(req.params.id, req.user.userId, title || "Recovered Notebook", description || "Automatically provisioned");
+        await dbHelpers.createNotebook(req.params.id, req.user.userId, title || "Recovered Notebook", description || "Automatically provisioned");
       } catch (e) {
         console.error('Auto-provision failed:', e);
       }
     }
 
-    dbHelpers.updateNotebook(req.params.id, req.user.userId, updates);
-    notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    await dbHelpers.updateNotebook(req.params.id, req.user.userId, updates);
+    notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     
     if (!notebook) {
       return res.status(404).json({ error: "Notebook not found" });
@@ -138,9 +138,9 @@ router.put("/:id", (req, res) => {
  * DELETE /api/notebooks/:id
  * Delete a notebook
  */
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   try {
-    const result = dbHelpers.deleteNotebook(req.params.id, req.user.userId);
+    const result = await dbHelpers.deleteNotebook(req.params.id, req.user.userId);
     if (result.changes === 0) {
       return res.status(404).json({ error: "Notebook not found" });
     }
@@ -155,14 +155,14 @@ router.delete("/:id", (req, res) => {
  * GET /api/notebooks/:id/notes
  * List all notes in a notebook
  */
-router.get("/:id/notes", (req, res) => {
+router.get("/:id/notes", async (req, res) => {
   try {
-    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    let notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     if (!notebook) {
-      try { dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned"); notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId); } catch(e) {}
+      try { await dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned"); notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId); } catch(e) {}
     }
     if (!notebook) return res.status(404).json({ error: { code: "NOTEBOOK_NOT_FOUND", message: "Notebook not found" } });
-    const notes = dbHelpers.getNotesByNotebookId(req.params.id, req.user.userId);
+    const notes = await dbHelpers.getNotesByNotebookId(req.params.id, req.user.userId);
     res.json(notes);
   } catch (error) {
     console.error("List notes error:", error);
@@ -176,14 +176,14 @@ router.get("/:id/notes", (req, res) => {
  */
 router.post("/:id/notes", async (req, res) => {
   try {
-    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    let notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     
     // VERCEL WORKAROUND: If notebook missing but we have userId (DB reset)
     if (!notebook) {
       console.log(`🛠️ Auto-provisioning notebook ${req.params.id} for user ${req.user.userId}...`);
       try {
-        dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Automatically provisioned after system reset");
-        notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+        await dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Automatically provisioned after system reset");
+        notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
       } catch (provisionError) {
         console.error('Failed to auto-provision notebook:', provisionError);
       }
@@ -200,10 +200,10 @@ router.post("/:id/notes", async (req, res) => {
     const userId = req.user.userId;
     const author_id = authorId || userId;
     
-    dbHelpers.createNote(id, req.params.id, userId, content, author_id);
+    await dbHelpers.createNote(id, req.params.id, userId, content, author_id);
     
     // Phase 3 Hook: Auto-sync to EverMemOS for AI agents
-    const authorUser = dbHelpers.getUserById(author_id);
+    const authorUser = await dbHelpers.getUserById(author_id);
     if (authorUser && authorUser.account_type === 'agent') {
       console.log(`[Phase 3] Auto-syncing agent note ${id} to EverMemOS...`);
       // We don't await this to avoid blocking the main API response
@@ -224,9 +224,9 @@ router.post("/:id/notes", async (req, res) => {
  * GET /api/notebooks/:id/notes/:noteId
  * Get a single note
  */
-router.get("/:id/notes/:noteId", (req, res) => {
+router.get("/:id/notes/:noteId", async (req, res) => {
   try {
-    const note = dbHelpers.getNoteById(req.params.noteId, req.user.userId);
+    const note = await dbHelpers.getNoteById(req.params.noteId, req.user.userId);
     if (!note) return res.status(404).json({ error: "Note not found" });
     res.json(note);
   } catch (error) {
@@ -238,13 +238,13 @@ router.get("/:id/notes/:noteId", (req, res) => {
  * PUT /api/notebooks/:id/notes/:noteId
  * Update note content
  */
-router.put("/:id/notes/:noteId", (req, res) => {
+router.put("/:id/notes/:noteId", async (req, res) => {
   try {
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: "content is required" });
-    const result = dbHelpers.updateNote(req.params.noteId, req.user.userId, content);
+    const result = await dbHelpers.updateNote(req.params.noteId, req.user.userId, content);
     if (result.changes === 0) return res.status(404).json({ error: "Note not found" });
-    res.json(dbHelpers.getNoteById(req.params.noteId, req.user.userId));
+    res.json(await dbHelpers.getNoteById(req.params.noteId, req.user.userId));
   } catch (error) {
     res.status(500).json({ error: "Failed to update note" });
   }
@@ -254,9 +254,9 @@ router.put("/:id/notes/:noteId", (req, res) => {
  * DELETE /api/notebooks/:id/notes/:noteId
  * Delete a note
  */
-router.delete("/:id/notes/:noteId", (req, res) => {
+router.delete("/:id/notes/:noteId", async (req, res) => {
   try {
-    const result = dbHelpers.deleteNote(req.params.noteId, req.user.userId);
+    const result = await dbHelpers.deleteNote(req.params.noteId, req.user.userId);
     if (result.changes === 0) return res.status(404).json({ error: "Note not found" });
     res.json({ message: "Note deleted" });
   } catch (error) {
@@ -293,17 +293,17 @@ router.post("/:id/memory/search", async (req, res) => {
  * POST /api/notebooks/:id/sources
  * Create a new source in a notebook
  */
-router.post("/:id/sources", (req, res) => {
+router.post("/:id/sources", async (req, res) => {
   try {
-    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    let notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     
     // VERCEL WORKAROUND: If notebook missing but we have userId (DB reset)
     // Auto-provision a placeholder so sources can be attached
     if (!notebook) {
       console.log(`🛠️ Auto-provisioning notebook ${req.params.id} for user ${req.user.userId}...`);
       try {
-        dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Automatically provisioned after system reset");
-        notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+        await dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Automatically provisioned after system reset");
+        notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
       } catch (provisionError) {
         console.error('Failed to auto-provision notebook:', provisionError);
       }
@@ -325,7 +325,7 @@ router.post("/:id/sources", (req, res) => {
     // If processing_status is provided and not default, update it immediately
     if (processing_status && processing_status !== 'pending') {
       try {
-        dbHelpers.updateSource(id, req.user.userId, { processing_status });
+        await dbHelpers.updateSource(id, req.user.userId, { processing_status });
       } catch(e) {
         console.warn('Could not update initial processing_status:', e.message);
       }
@@ -342,21 +342,21 @@ router.post("/:id/sources", (req, res) => {
  * PUT /api/notebooks/:id/sources/:sourceId
  * Update an existing source
  */
-router.put("/:id/sources/:sourceId", (req, res) => {
+router.put("/:id/sources/:sourceId", async (req, res) => {
   try {
     const updates = req.body;
-    const result = dbHelpers.updateSource(req.params.sourceId, req.user.userId, updates);
+    const result = await dbHelpers.updateSource(req.params.sourceId, req.user.userId, updates);
     
     // VERCEL WORKAROUND: If changes is 0, the source was wiped by Vercel serverless. We MUST auto-provision it.
     if (result.changes === 0) {
       console.log(`🛠️ PUT /sources/:sourceId: Source missing, auto-provisioning...`);
       try {
-        let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+        let notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
         if (!notebook) {
-           dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned");
+           await dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned");
         }
         
-        dbHelpers.createSource(
+        await dbHelpers.createSource(
             req.params.sourceId, req.params.id, req.user.userId, 
             updates.title || "Recovered Source", 
             updates.type || "unknown", 
@@ -367,7 +367,7 @@ router.put("/:id/sources/:sourceId", (req, res) => {
             updates.file_size || 0
         );
         if (updates.processing_status) {
-           dbHelpers.updateSource(req.params.sourceId, req.user.userId, { processing_status: updates.processing_status });
+           await dbHelpers.updateSource(req.params.sourceId, req.user.userId, { processing_status: updates.processing_status });
         }
       } catch (e) {
           console.error("Failed to auto-provision source:", e);
@@ -386,14 +386,14 @@ router.put("/:id/sources/:sourceId", (req, res) => {
  * GET /api/notebooks/:id/sources
  * List all sources in a notebook
  */
-router.get("/:id/sources", (req, res) => {
+router.get("/:id/sources", async (req, res) => {
   try {
-    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    let notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     if (!notebook) {
-      try { dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned"); notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId); } catch(e) {}
+      try { await dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned"); notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId); } catch(e) {}
     }
     if (!notebook) return res.status(404).json({ error: { code: "NOTEBOOK_NOT_FOUND", message: "Notebook not found" } });
-    const sources = dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
+    const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
     res.json(sources);
   } catch (error) {
     console.error("List sources error:", error);
@@ -405,14 +405,14 @@ router.get("/:id/sources", (req, res) => {
  * GET /api/notebooks/:id/messages
  * Get conversation history for a notebook
  */
-router.get("/:id/messages", (req, res) => {
+router.get("/:id/messages", async (req, res) => {
   try {
-    let notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    let notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     if (!notebook) {
-      try { dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned"); notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId); } catch(e) {}
+      try { await dbHelpers.createNotebook(req.params.id, req.user.userId, "Recovered Notebook", "Auto-provisioned"); notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId); } catch(e) {}
     }
     if (!notebook) return res.status(404).json({ error: { code: "NOTEBOOK_NOT_FOUND", message: "Notebook not found" } });
-    const messages = dbHelpers.getChatMessagesByNotebookId(req.params.id, req.user.userId);
+    const messages = await dbHelpers.getChatMessagesByNotebookId(req.params.id, req.user.userId);
     res.json(messages);
   } catch (error) {
     console.error("Get messages error:", error);
@@ -424,13 +424,13 @@ router.get("/:id/messages", (req, res) => {
  * GET /api/notebooks/:id/context
  * Build an AI-optimized context payload for agents loading a notebook
  */
-router.get("/:id/context", (req, res) => {
+router.get("/:id/context", async (req, res) => {
   try {
-    const notebook = dbHelpers.getNotebookById(req.params.id, req.user.userId);
+    const notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
     if (!notebook) return res.status(404).json({ error: "Notebook not found" });
 
-    const sources = dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
-    const notes = dbHelpers.getNotesByNotebookId(req.params.id, req.user.userId);
+    const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
+    const notes = await dbHelpers.getNotesByNotebookId(req.params.id, req.user.userId);
 
     // Provide a structured snapshot so agents don't have to assemble it manually
     res.json({
@@ -475,13 +475,13 @@ router.post("/:id/chat", async (req, res) => {
     const userId = req.user.userId;
 
     // JIT recovery: the chat endpoint often hits a blank Vercel DB after a serverless cold-start
-    let notebook = dbHelpers.getNotebookById(notebookId, userId);
+    let notebook = await dbHelpers.getNotebookById(notebookId, userId);
     let jitError = null;
     if (!notebook) {
       console.log(`🛠️ Chat: Auto-provisioning notebook ${notebookId}...`);
       try {
-        dbHelpers.createNotebook(notebookId, userId, "Recovered Notebook", "Auto-provisioned");
-        notebook = dbHelpers.getNotebookById(notebookId, userId);
+        await dbHelpers.createNotebook(notebookId, userId, "Recovered Notebook", "Auto-provisioned");
+        notebook = await dbHelpers.getNotebookById(notebookId, userId);
       } catch(e) { 
         console.error('Chat JIT provision failed:', e);
         jitError = e.message;
@@ -489,13 +489,13 @@ router.post("/:id/chat", async (req, res) => {
     }
     if (!notebook) return res.status(404).json({ error: "Notebook not found", detail: jitError });
 
-    const sources = dbHelpers.getSourcesByNotebookId(notebookId, userId);
-    const notes = dbHelpers.getNotesByNotebookId(notebookId, userId);
-    const messages = dbHelpers.getChatMessagesByNotebookId(notebookId, userId);
+    const sources = await dbHelpers.getSourcesByNotebookId(notebookId, userId);
+    const notes = await dbHelpers.getNotesByNotebookId(notebookId, userId);
+    const messages = await dbHelpers.getChatMessagesByNotebookId(notebookId, userId);
 
     // Save the user's message to history
     const userMsgId = uuidv4();
-    dbHelpers.createChatMessage(userMsgId, notebookId, userId, agentId ? 'agent' : 'user', message);
+    await dbHelpers.createChatMessage(userMsgId, notebookId, userId, agentId ? 'agent' : 'user', message);
 
     try {
       // Call Gemini using our context service
@@ -510,14 +510,14 @@ router.post("/:id/chat", async (req, res) => {
 
       // Save the AI's response to history
       const aiMsgId = uuidv4();
-      dbHelpers.createChatMessage(aiMsgId, notebookId, userId, 'assistant', chatResult.answer, chatResult.groundedSources);
+      await dbHelpers.createChatMessage(aiMsgId, notebookId, userId, 'assistant', chatResult.answer, chatResult.groundedSources);
 
       let noteId = null;
       // Optionally save the interaction as a persistent note
       if (saveAsNote) {
         noteId = uuidv4();
         const noteContent = `**Q:** ${message}\n\n**A:** ${chatResult.answer}`;
-        dbHelpers.createNote(noteId, notebookId, userId, noteContent, agentId || userId);
+        await dbHelpers.createNote(noteId, notebookId, userId, noteContent, agentId || userId);
       }
 
       res.json({

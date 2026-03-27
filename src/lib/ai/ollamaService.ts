@@ -568,6 +568,8 @@ export async function generateTitle(content: string): Promise<string> {
  * Check if Ollama is available and running
  */
 export async function checkOllamaHealth(): Promise<boolean> {
+  if (!isOllamaEnabled()) return false;
+
   try {
     const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
       method: "GET",

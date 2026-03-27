@@ -231,15 +231,13 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
                 >
                   Already have an account? Sign in to Cloud
                 </Button>
-                {flowState === 'create-account' && (
-                  <Button
-                    variant="link"
-                    onClick={() => setFlowState('cloud-signup')}
-                    className="w-full text-blue-500 -mt-2"
-                  >
-                    Want to sync across devices? Sign up for Cloud
-                  </Button>
-                )}
+                <Button
+                  variant="link"
+                  onClick={() => setFlowState('cloud-signup')}
+                  className="w-full text-blue-500 -mt-2"
+                >
+                  Want to sync across devices? Sign up for Cloud
+                </Button>
               </div>
             )}
             <p className="text-xs text-muted-foreground mt-2">

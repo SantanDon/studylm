@@ -101,8 +101,24 @@ export const useNotebookGeneration = () => {
         });
       }
 
-      // Get the source content for the generation context
-      // Try to match by file_path OR url (for youtube/website sources)
+      // 1. Instantly tap local storage cache to bypass any Vercel DB sync delays
+      let cachedContent = "";
+      let cachedTitle = "Untitled";
+
+      try {
+        if (filePath) {
+          const cachedFileStr = localStorage.getItem(`file_${filePath}`);
+          if (cachedFileStr) {
+            const cachedFile = JSON.parse(cachedFileStr);
+            cachedContent = cachedFile.content || "";
+            cachedTitle = cachedFile.name || "Untitled";
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      // 2. Try to match by file_path OR url from the cloud sources
       let sources: any[] = [];
       try {
         if (session?.access_token) {
@@ -117,9 +133,17 @@ export const useNotebookGeneration = () => {
         sources = [];
       }
       
-      const source = sources.find((s) => s.file_path === filePath) ||
+      let source = sources.find((s) => s.file_path === filePath) ||
                      sources.find((s) => s.url === filePath) ||
                      sources[0]; // Fallback to first source if no match
+
+      // 3. Patch the race condition: Inject cached content if the cloud missed it
+      if (!source) {
+        source = { title: cachedTitle, content: cachedContent, type: sourceType };
+      } else {
+        source.content = source.content || cachedContent;
+        source.title = source.title || cachedTitle;
+      }
 
       console.log(`📄 Found source for generation: ${source?.title || 'None'}, type: ${source?.type || 'unknown'}`);
 

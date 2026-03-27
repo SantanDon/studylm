@@ -10,15 +10,15 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Get current user profile
-router.get('/profile', (req, res) => {
+router.get('/profile', async (req, res) => {
   try {
-    const user = dbHelpers.getUserById(req.user.userId);
+    const user = await dbHelpers.getUserById(req.user.userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const preferences = dbHelpers.getUserPreferences(user.id);
-    const stats = dbHelpers.getUserStats(user.id);
+    const preferences = await dbHelpers.getUserPreferences(user.id);
+    const stats = await dbHelpers.getUserStats(user.id);
 
     res.json({
       user: {
@@ -53,9 +53,9 @@ router.put('/profile', async (req, res) => {
       return res.status(400).json({ error: 'No updates provided' });
     }
 
-    dbHelpers.updateUser(req.user.userId, updates);
+    await dbHelpers.updateUser(req.user.userId, updates);
 
-    const user = dbHelpers.getUserById(req.user.userId);
+    const user = await dbHelpers.getUserById(req.user.userId);
     res.json({
       message: 'Profile updated successfully',
       user: {
@@ -74,9 +74,9 @@ router.put('/profile', async (req, res) => {
 });
 
 // Get user preferences
-router.get('/preferences', (req, res) => {
+router.get('/preferences', async (req, res) => {
   try {
-    const preferences = dbHelpers.getUserPreferences(req.user.userId);
+    const preferences = await dbHelpers.getUserPreferences(req.user.userId);
     if (!preferences) {
       return res.status(404).json({ error: 'Preferences not found' });
     }
@@ -88,7 +88,7 @@ router.get('/preferences', (req, res) => {
 });
 
 // Update user preferences
-router.put('/preferences', (req, res) => {
+router.put('/preferences', async (req, res) => {
   try {
     const {
       theme,
@@ -118,9 +118,9 @@ router.put('/preferences', (req, res) => {
       return res.status(400).json({ error: 'No updates provided' });
     }
 
-    dbHelpers.updateUserPreferences(req.user.userId, updates);
+    await dbHelpers.updateUserPreferences(req.user.userId, updates);
 
-    const preferences = dbHelpers.getUserPreferences(req.user.userId);
+    const preferences = await dbHelpers.getUserPreferences(req.user.userId);
     res.json({
       message: 'Preferences updated successfully',
       preferences
@@ -132,9 +132,9 @@ router.put('/preferences', (req, res) => {
 });
 
 // Get user stats
-router.get('/stats', (req, res) => {
+router.get('/stats', async (req, res) => {
   try {
-    const stats = dbHelpers.getUserStats(req.user.userId);
+    const stats = await dbHelpers.getUserStats(req.user.userId);
     if (!stats) {
       return res.status(404).json({ error: 'Stats not found' });
     }
@@ -159,7 +159,7 @@ router.put('/password', async (req, res) => {
     }
 
     // Get user
-    const user = dbHelpers.getUserById(req.user.userId);
+    const user = await dbHelpers.getUserById(req.user.userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -174,7 +174,7 @@ router.put('/password', async (req, res) => {
     const newPasswordHash = await bcrypt.hash(newPassword, 10);
 
     // Update password
-    dbHelpers.updateUser(req.user.userId, { password_hash: newPasswordHash });
+    await dbHelpers.updateUser(req.user.userId, { password_hash: newPasswordHash });
 
     res.json({ message: 'Password updated successfully' });
   } catch (error) {
@@ -184,12 +184,12 @@ router.put('/password', async (req, res) => {
 });
 
 // Export user data (for privacy/GDPR compliance)
-router.get('/export', (req, res) => {
+router.get('/export', async (req, res) => {
   try {
-    const user = dbHelpers.getUserById(req.user.userId);
-    const preferences = dbHelpers.getUserPreferences(req.user.userId);
-    const stats = dbHelpers.getUserStats(req.user.userId);
-    const notebooks = dbHelpers.getNotebooksByUserId(req.user.userId);
+    const user = await dbHelpers.getUserById(req.user.userId);
+    const preferences = await dbHelpers.getUserPreferences(req.user.userId);
+    const stats = await dbHelpers.getUserStats(req.user.userId);
+    const notebooks = await dbHelpers.getNotebooksByUserId(req.user.userId);
 
     const exportData = {
       user: {
@@ -203,10 +203,10 @@ router.get('/export', (req, res) => {
       },
       preferences,
       stats,
-      notebooks: notebooks.map(notebook => {
-        const sources = dbHelpers.getSourcesByNotebookId(notebook.id, req.user.userId);
-        const notes = dbHelpers.getNotesByNotebookId(notebook.id, req.user.userId);
-        const chatMessages = dbHelpers.getChatMessagesByNotebookId(notebook.id, req.user.userId);
+      notebooks: await Promise.all(notebooks.map(async (notebook) => {
+        const sources = await dbHelpers.getSourcesByNotebookId(notebook.id, req.user.userId);
+        const notes = await dbHelpers.getNotesByNotebookId(notebook.id, req.user.userId);
+        const chatMessages = await dbHelpers.getChatMessagesByNotebookId(notebook.id, req.user.userId);
 
         return {
           ...notebook,
@@ -214,7 +214,7 @@ router.get('/export', (req, res) => {
           notes,
           chatMessages
         };
-      }),
+      })),
       exportedAt: new Date().toISOString()
     };
 
@@ -235,7 +235,7 @@ router.delete('/account', async (req, res) => {
     }
 
     // Get user
-    const user = dbHelpers.getUserById(req.user.userId);
+    const user = await dbHelpers.getUserById(req.user.userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -248,9 +248,11 @@ router.delete('/account', async (req, res) => {
 
     // Delete user (cascade will delete related data)
     const { getDatabase } = await import('../db/database.js');
-    const db = getDatabase();
-    const stmt = db.prepare('DELETE FROM users WHERE id = ?');
-    stmt.run(req.user.userId);
+    const db = await getDatabase();
+    await db.execute({
+      sql: 'DELETE FROM users WHERE id = ?',
+      args: [req.user.userId]
+    });
 
     res.json({ message: 'Account deleted successfully' });
   } catch (error) {
