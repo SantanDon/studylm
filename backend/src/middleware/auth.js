@@ -60,8 +60,10 @@ export async function authenticateToken(req, res, next) {
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
+      console.log(`--> [AUTH] Token expired for token starting with: ${token ? token.substring(0, 10) : 'none'}`);
       return res.status(401).json({ error: 'Token expired' });
     }
+    console.error(`--> [AUTH] Invalid token precisely because: ${error.name} - ${error.message}. Token string: '${token}'`);
     return res.status(403).json({ error: 'Invalid token' });
   }
 }

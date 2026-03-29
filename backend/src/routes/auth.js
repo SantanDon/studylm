@@ -196,10 +196,8 @@ router.post("/signin", async (req, res, next) => {
         throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password');
       }
 
-      // Explicitly check for verified email, ignoring local extensions and specific test accounts
-      if (!user.is_verified && !user.email.endsWith('@user.local') && !user.email.endsWith('@agent.local') && user.email.toLowerCase() !== 'don16santos@gmail.com') {
-        throw new AppError(403, 'EMAIL_NOT_VERIFIED', 'Email not verified. Please check your inbox.', { unverified: true });
-      }
+      // Email verification check bypassed - we no longer use Resend and rely on real-time DNS MX checks at signup.
+      // Existing unverified accounts from the old flawed flow are now explicitly allowed to authenticate if they provide correct credentials.
 
       const isValidPassword = await bcrypt.compare(password, user.password_hash);
       if (!isValidPassword) {

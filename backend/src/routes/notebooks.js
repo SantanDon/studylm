@@ -37,18 +37,23 @@ router.get("/", async (req, res) => {
  * Create a new notebook
  */
 router.post("/", async (req, res, next) => {
+  console.log("--> [NOTEBOOKS] POST /api/notebooks Request Body:", req.body);
   try {
     const { title, description, id: providedId } = req.body;
     if (!title) {
+      console.log("--> [NOTEBOOKS] Error: Missing title payload.");
       return res.status(400).json({ error: "Notebook title is required" });
     }
 
     const id = providedId || uuidv4();
+    console.log(`--> [NOTEBOOKS] Creating notebook ${id} for user ${req.user.userId}`);
     await dbHelpers.createNotebook(id, req.user.userId, title, description);
     
     const notebook = await dbHelpers.getNotebookById(id, req.user.userId);
+    console.log("--> [NOTEBOOKS] Successfully created:", notebook ? notebook.id : "null");
     res.status(201).json(notebook);
   } catch (error) {
+    console.error("--> [NOTEBOOKS] CRITICAL POST ERROR:", error);
     next(error);
   }
 });
