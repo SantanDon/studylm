@@ -10,43 +10,10 @@ import {
   hashApiKey,
 } from "../middleware/auth.js";
 import crypto, { randomBytes } from "crypto";
-import { Resend } from "resend";
+import emailValidator from "deep-email-validator";
 import { AppError } from "../middleware/errorHandler.js";
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY || "re_dummy");
-
-const sendVerificationEmail = async (email, token) => {
-  const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
-  
-  if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === "re_dummy") {
-    console.log('----------------------------------------------------');
-    console.log('📧 DEVELOPMENT MODE: EMAIL LOGGED TO CONSOLE');
-    console.log(`To: ${email}`);
-    console.log(`Link: ${verifyUrl}`);
-    console.log('----------------------------------------------------');
-    return true;
-  }
-  
-  try {
-    await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
-      to: email,
-      subject: 'Confirm your StudyPodLM account',
-      html: `<div style="font-family: sans-serif; padding: 20px;">
-              <h2>Welcome to StudyPodLM!</h2>
-              <p>Please confirm your email address to complete your registration.</p>
-              <a href="${verifyUrl}" style="display:inline-block; padding: 10px 20px; color: white; background-color: #2563eb; text-decoration: none; border-radius: 5px;">Verify Email</a>
-              <p style="margin-top: 20px; font-size: 12px; color: #666;">If you didn't create this account, you can safely ignore this email.</p>
-             </div>`
-    });
-    console.log(`[AUTH] Verification email dispatched to ${email}`);
-    return true;
-  } catch (error) {
-    console.error(`[AUTH] Failed to send email to ${email}:`, error);
-    return false;
-  }
-};
 
 // Agent Registration (Requires Human Authentication)
 router.post("/register", authenticateToken, async (req, res, next) => {
@@ -111,7 +78,7 @@ router.post("/signup", async (req, res, next) => {
     // Support display name + passphrase registration without email (Local mode / Agent mode)
     const isLocalMode = !!(displayName && passphrase && !email);
     const isAutoVerifiedEmail = finalEmail && finalEmail.toLowerCase() === 'don16santos@gmail.com';
-    const isVerified = isLocalMode || isAutoVerifiedEmail ? 1 : 0; // Local/Agent modes bypass email verification
+    let isVerified = isLocalMode || isAutoVerifiedEmail ? 1 : 0; // Local/Agent modes bypass email verification
 
     if (isLocalMode) {
       if (passphrase.length < 8) {
@@ -142,6 +109,15 @@ router.post("/signup", async (req, res, next) => {
       throw new AppError(400, 'USER_EXISTS', 'User already exists');
     }
 
+    // Real-time email validation bypassing Resend link confirmation
+    if (!isVerified && !isLocalMode) {
+      const validationResult = await emailValidator.validate(finalEmail);
+      if (!validationResult.valid) {
+        throw new AppError(400, 'INVALID_EMAIL', `Email address is unreachable or invalid: ${validationResult.reason}`);
+      }
+      isVerified = 1; // Instant automated verification upon successful MX/SMTP lookup
+    }
+
     // Hash password
     const passwordHash = await bcrypt.hash(finalPassword, 10);
 
@@ -153,13 +129,6 @@ router.post("/signup", async (req, res, next) => {
     
     // Create user with explicit verified and consent status
     await dbHelpers.createUser(userId, finalEmail, passwordHash, finalDisplayName, 'human', null, null, isVerified, consentVal);
-
-    if (!isVerified) {
-      const verificationToken = crypto.randomBytes(32).toString('hex');
-      const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
-      await dbHelpers.updateUser(userId, { verification_token: verificationToken, token_expires_at: tokenExpiresAt });
-      await sendVerificationEmail(finalEmail, verificationToken);
-    }
 
     if (recovery_key_hash) {
       if (dbHelpers.storeRecoveryKeyHash) {
@@ -176,12 +145,12 @@ router.post("/signup", async (req, res, next) => {
     const preferences = await dbHelpers.getUserPreferences(userId);
     const stats = await dbHelpers.getUserStats(userId);
 
-    // If local mode or auto-verified, automatically log them in
+    // Since we auto-verify domains upfront, user is instantly logged in
     if (isVerified) {
       const accessToken = generateToken(userId, finalEmail);
       const refreshToken = generateRefreshToken(userId, finalEmail);
       return res.status(201).json({
-        message: "User created successfully",
+        message: "User created and instantly verified",
         user: {
           id: user.id,
           email: user.email,
@@ -197,21 +166,8 @@ router.post("/signup", async (req, res, next) => {
       });
     }
 
-    // If cloud mode, return success without tokens (requiring verification)
-    res.status(201).json({
-      message: "User created successfully. Please check your email to verify your account.",
-      user: {
-        id: user.id,
-        email: user.email,
-        displayName: user.display_name,
-        avatarUrl: user.avatar_url,
-        bio: user.bio,
-        createdAt: user.created_at,
-      },
-      preferences,
-      stats
-      // No tokens are sent! User must verify before signing in.
-    });
+    // Fallback just in case
+    res.status(201).json({ message: "User created successfully" });
   } catch (error) {
     next(error);
   }
