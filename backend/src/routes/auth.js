@@ -111,7 +111,14 @@ router.post("/signup", async (req, res, next) => {
 
     // Real-time email validation bypassing Resend link confirmation
     if (!isVerified && !isLocalMode) {
-      const validationResult = await emailValidator.validate(finalEmail);
+      const validationResult = await emailValidator.validate({
+        email: finalEmail,
+        validateRegex: true,
+        validateMx: true,
+        validateTypo: true,
+        validateDisposable: true,
+        validateSMTP: false // Disable SMTP to prevent Vercel Serverless timeout rejections on valid emails
+      });
       if (!validationResult.valid) {
         throw new AppError(400, 'INVALID_EMAIL', `Email address is unreachable or invalid: ${validationResult.reason}`);
       }
