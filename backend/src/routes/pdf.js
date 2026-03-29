@@ -46,7 +46,7 @@ const ensureUploadsDir = async () => {
 ensureUploadsDir();
 
 // PDF processing endpoint
-router.post('/process-pdf', upload.single('file'), async (req, res, next) => {
+router.post('/process-pdf', upload.single('file'), async (req, res) => {
     if (!req.file) {
       throw new AppError(400, 'NO_FILE_UPLOADED', 'No file uploaded');
     }

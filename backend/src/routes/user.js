@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { dbHelpers } from '../db/database.js';
 import { authenticateToken } from '../middleware/auth.js';
 import bcrypt from 'bcrypt';
-import { AppError } from '../middleware/errorHandler.js';
 
 const router = express.Router();
 
@@ -11,11 +10,11 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Get current user profile
-router.get('/profile', async (req, res, next) => {
+router.get('/profile', async (req, res) => {
   try {
     const user = await dbHelpers.getUserById(req.user.userId);
     if (!user) {
-      return next(new AppError(404, 'NOT_FOUND', 'User not found'));
+      return res.status(404).json({ error: 'User not found' });
     }
 
     const preferences = await dbHelpers.getUserPreferences(user.id);
@@ -35,12 +34,13 @@ router.get('/profile', async (req, res, next) => {
       stats
     });
   } catch (error) {
-    next(error);
+    console.error('Get profile error:', error);
+    res.status(500).json({ error: 'Failed to get profile' });
   }
 });
 
 // Update user profile
-router.put('/profile', async (req, res, next) => {
+router.put('/profile', async (req, res) => {
   try {
     const { displayName, bio, avatarUrl } = req.body;
     const updates = {};
@@ -50,7 +50,7 @@ router.put('/profile', async (req, res, next) => {
     if (avatarUrl !== undefined) updates.avatar_url = avatarUrl;
 
     if (Object.keys(updates).length === 0) {
-      return next(new AppError(400, 'BAD_REQUEST', 'No updates provided'));
+      return res.status(400).json({ error: 'No updates provided' });
     }
 
     await dbHelpers.updateUser(req.user.userId, updates);
@@ -68,25 +68,27 @@ router.put('/profile', async (req, res, next) => {
       }
     });
   } catch (error) {
-    next(error);
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
 // Get user preferences
-router.get('/preferences', async (req, res, next) => {
+router.get('/preferences', async (req, res) => {
   try {
     const preferences = await dbHelpers.getUserPreferences(req.user.userId);
     if (!preferences) {
-      return next(new AppError(404, 'NOT_FOUND', 'Preferences not found'));
+      return res.status(404).json({ error: 'Preferences not found' });
     }
     res.json(preferences);
   } catch (error) {
-    next(error);
+    console.error('Get preferences error:', error);
+    res.status(500).json({ error: 'Failed to get preferences' });
   }
 });
 
 // Update user preferences
-router.put('/preferences', async (req, res, next) => {
+router.put('/preferences', async (req, res) => {
   try {
     const {
       theme,
@@ -113,7 +115,7 @@ router.put('/preferences', async (req, res, next) => {
     if (browserNotifications !== undefined) updates.browser_notifications = browserNotifications ? 1 : 0;
 
     if (Object.keys(updates).length === 0) {
-      return next(new AppError(400, 'BAD_REQUEST', 'No updates provided'));
+      return res.status(400).json({ error: 'No updates provided' });
     }
 
     await dbHelpers.updateUserPreferences(req.user.userId, updates);
@@ -124,46 +126,48 @@ router.put('/preferences', async (req, res, next) => {
       preferences
     });
   } catch (error) {
-    next(error);
+    console.error('Update preferences error:', error);
+    res.status(500).json({ error: 'Failed to update preferences' });
   }
 });
 
 // Get user stats
-router.get('/stats', async (req, res, next) => {
+router.get('/stats', async (req, res) => {
   try {
     const stats = await dbHelpers.getUserStats(req.user.userId);
     if (!stats) {
-      return next(new AppError(404, 'NOT_FOUND', 'Stats not found'));
+      return res.status(404).json({ error: 'Stats not found' });
     }
     res.json(stats);
   } catch (error) {
-    next(error);
+    console.error('Get stats error:', error);
+    res.status(500).json({ error: 'Failed to get stats' });
   }
 });
 
 // Update password
-router.put('/password', async (req, res, next) => {
+router.put('/password', async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
-      return next(new AppError(400, 'BAD_REQUEST', 'Current password and new password are required'));
+      return res.status(400).json({ error: 'Current password and new password are required' });
     }
 
     if (newPassword.length < 6) {
-      return next(new AppError(400, 'BAD_REQUEST', 'New password must be at least 6 characters'));
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
     }
 
     // Get user
     const user = await dbHelpers.getUserById(req.user.userId);
     if (!user) {
-      return next(new AppError(404, 'NOT_FOUND', 'User not found'));
+      return res.status(404).json({ error: 'User not found' });
     }
 
     // Verify current password
     const isValidPassword = await bcrypt.compare(currentPassword, user.password_hash);
     if (!isValidPassword) {
-      return next(new AppError(401, 'UNAUTHORIZED', 'Current password is incorrect'));
+      return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
     // Hash new password
@@ -174,12 +178,13 @@ router.put('/password', async (req, res, next) => {
 
     res.json({ message: 'Password updated successfully' });
   } catch (error) {
-    next(error);
+    console.error('Update password error:', error);
+    res.status(500).json({ error: 'Failed to update password' });
   }
 });
 
 // Export user data (for privacy/GDPR compliance)
-router.get('/export', async (req, res, next) => {
+router.get('/export', async (req, res) => {
   try {
     const user = await dbHelpers.getUserById(req.user.userId);
     const preferences = await dbHelpers.getUserPreferences(req.user.userId);
@@ -215,29 +220,30 @@ router.get('/export', async (req, res, next) => {
 
     res.json(exportData);
   } catch (error) {
-    next(error);
+    console.error('Export data error:', error);
+    res.status(500).json({ error: 'Failed to export data' });
   }
 });
 
 // Delete user account
-router.delete('/account', async (req, res, next) => {
+router.delete('/account', async (req, res) => {
   try {
     const { password } = req.body;
 
     if (!password) {
-      return next(new AppError(400, 'BAD_REQUEST', 'Password is required to delete account'));
+      return res.status(400).json({ error: 'Password is required to delete account' });
     }
 
     // Get user
     const user = await dbHelpers.getUserById(req.user.userId);
     if (!user) {
-      return next(new AppError(404, 'NOT_FOUND', 'User not found'));
+      return res.status(404).json({ error: 'User not found' });
     }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
-      return next(new AppError(401, 'UNAUTHORIZED', 'Incorrect password'));
+      return res.status(401).json({ error: 'Incorrect password' });
     }
 
     // Delete user (cascade will delete related data)
@@ -250,7 +256,8 @@ router.delete('/account', async (req, res, next) => {
 
     res.json({ message: 'Account deleted successfully' });
   } catch (error) {
-    next(error);
+    console.error('Delete account error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
   }
 });
 

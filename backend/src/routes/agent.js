@@ -6,7 +6,6 @@ import fsSync from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticateToken } from '../middleware/auth.js';
 import { dbHelpers, getDatabase } from '../db/database.js';
-import { AppError } from '../middleware/errorHandler.js';
 
 const router = express.Router();
 
@@ -35,18 +34,18 @@ const upload = multer({
  * POST /api/agent/upload
  * Allows an agent to upload a raw file to a notebook for the frontend to process later
  */
-router.post('/upload', authenticateToken, upload.single('file'), async (req, res, next) => {
+router.post('/upload', authenticateToken, upload.single('file'), async (req, res) => {
   try {
     const { notebookId } = req.body;
     console.log(`[Agent Upload] Attempting upload for notebook: ${notebookId}`);
     
     if (!notebookId) {
-      return next(new AppError(400, 'BAD_REQUEST', 'notebookId is required'));
+      return res.status(400).json({ error: 'notebookId is required' });
     }
 
     if (!req.file) {
       console.error('[Agent Upload] No file received in Multer');
-      return next(new AppError(400, 'BAD_REQUEST', 'No file uploaded'));
+      return res.status(400).json({ error: 'No file uploaded' });
     }
 
     const userId = req.user.userId || req.user.id;
@@ -56,7 +55,7 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
     const notebook = await dbHelpers.getNotebookById(notebookId, userId);
     if (!notebook) {
       console.error(`[Agent Upload] Notebook ${notebookId} not found or unauthorized for user ${userId}`);
-      return next(new AppError(404, 'NOT_FOUND', 'Notebook not found'));
+      return res.status(404).json({ error: 'Notebook not found' });
     }
 
     const id = uuidv4();
@@ -83,7 +82,8 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
       uploadId: id
     });
   } catch (error) {
-    next(error);
+    console.error('[Agent Upload] CRITICAL FAILURE:', error);
+    res.status(500).json({ error: `Failed to upload agent file: ${error.message}` });
   }
 });
 
@@ -91,7 +91,7 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
  * GET /api/agent/pending-uploads
  * Returns a list of all unprocessed agent files for the user
  */
-router.get('/pending-uploads', authenticateToken, async (req, res, next) => {
+router.get('/pending-uploads', authenticateToken, async (req, res) => {
   try {
     const { notebookId } = req.query;
     const db = await getDatabase();
@@ -113,7 +113,8 @@ router.get('/pending-uploads', authenticateToken, async (req, res, next) => {
     });
     res.json({ success: true, pendingUploads: result.rows });
   } catch (error) {
-    next(error);
+    console.error('List pending uploads error:', error);
+    res.status(500).json({ error: 'Failed to list pending agent uploads' });
   }
 });
 
@@ -121,7 +122,7 @@ router.get('/pending-uploads', authenticateToken, async (req, res, next) => {
  * DELETE /api/agent/upload/:id
  * Removes the raw file and the database record after the frontend has successfully encrypted and processed it
  */
-router.delete('/upload/:id', authenticateToken, async (req, res, next) => {
+router.delete('/upload/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId || req.user.id;
@@ -134,14 +135,26 @@ router.delete('/upload/:id', authenticateToken, async (req, res, next) => {
     const record = result.rows[0];
     
     if (!record) {
-      return next(new AppError(404, 'NOT_FOUND', 'Upload record not found'));
+      return res.status(404).json({ error: 'Upload record not found' });
     }
 
     // Delete the physical file from the file system
     try {
       await fsPromises.unlink(record.file_path);
     } catch (fsError) {
-    next(fsError);
+      console.warn('Could not delete physical file, it may already be removed:', fsError);
+    }
+
+    // Delete the database record
+    await db.execute({
+      sql: `DELETE FROM agent_uploads WHERE id = ?`,
+      args: [id]
+    });
+
+    res.json({ success: true, message: 'Agent upload cleaned up successfully' });
+  } catch (error) {
+    console.error('Delete upload error:', error);
+    res.status(500).json({ error: 'Failed to delete agent upload record' });
   }
 });
 
@@ -149,7 +162,7 @@ router.delete('/upload/:id', authenticateToken, async (req, res, next) => {
  * GET /api/agent/download/:id
  * Securely streams the raw file to the frontend for local processing
  */
-router.get('/download/:id', authenticateToken, async (req, res, next) => {
+router.get('/download/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId || req.user.id;
@@ -162,12 +175,13 @@ router.get('/download/:id', authenticateToken, async (req, res, next) => {
     const record = result.rows[0];
     
     if (!record) {
-      return next(new AppError(404, 'NOT_FOUND', 'Upload record not found'));
+      return res.status(404).json({ error: 'Upload record not found' });
     }
 
     res.download(record.file_path, record.file_name);
   } catch (error) {
-    next(error);
+    console.error('Download upload error:', error);
+    res.status(500).json({ error: 'Failed to download agent upload' });
   }
 });
 
