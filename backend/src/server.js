@@ -13,6 +13,7 @@ import userRoutes from './routes/user.js';
 import pdfRoutes from './routes/pdf.js';
 import youtubeRoutes from './routes/youtube.js';
 import syncRoutes from './routes/sync.js';
+import adminRoutes from './routes/admin.js';
 import notebookRoutes from './routes/notebooks.js';
 import agentRoutes from './routes/agent.js';
 import proxyRoutes from './routes/proxy.js';
@@ -88,6 +89,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/sync', syncRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/user', apiLimiter, userRoutes);
 app.use('/api/notebooks', apiLimiter, notebookRoutes);
 app.use('/api/pdf', apiLimiter, pdfRoutes);
