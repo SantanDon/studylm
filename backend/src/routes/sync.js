@@ -9,7 +9,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { getDatabase, schema } from '../db/database.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { logger } from '../utils/logger.js';
+const logger = { info: console.log, error: console.error, warn: console.warn, debug: console.log };
 
 const router = express.Router();
 
