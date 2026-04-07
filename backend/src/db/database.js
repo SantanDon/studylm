@@ -190,6 +190,11 @@ export const dbHelpers = {
       content,
       authorId: authorId || userId,
     });
+  },
+
+  async deleteUser(id) {
+    const db = await getDatabase();
+    return await db.delete(schema.users).where(eq(schema.users.id, id));
   }
 };
 

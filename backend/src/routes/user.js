@@ -2,7 +2,7 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { dbHelpers } from '../db/database.js';
 import { authenticateToken } from '../middleware/auth.js';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 const router = express.Router();
 
@@ -247,12 +247,7 @@ router.delete('/account', async (req, res) => {
     }
 
     // Delete user (cascade will delete related data)
-    const { getDatabase } = await import('../db/database.js');
-    const db = await getDatabase();
-    await db.execute({
-      sql: 'DELETE FROM users WHERE id = ?',
-      args: [req.user.userId]
-    });
+    await dbHelpers.deleteUser(req.user.userId);
 
     res.json({ message: 'Account deleted successfully' });
   } catch (error) {
