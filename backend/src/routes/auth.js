@@ -55,9 +55,9 @@ router.post("/register", authenticateToken, async (req, res, next) => {
       message: "Agent created successfully",
       user: {
         id: user.id,
-        displayName: user.display_name,
-        account_type: user.account_type,
-        createdAt: user.created_at,
+        displayName: user.displayName,
+        account_type: user.accountType,
+        createdAt: user.createdAt,
       },
       accessToken,
       refreshToken,
@@ -138,9 +138,7 @@ router.post("/signup", async (req, res, next) => {
     await dbHelpers.createUser(userId, finalEmail, passwordHash, finalDisplayName, 'human', null, null, isVerified, consentVal);
 
     if (recovery_key_hash) {
-      if (dbHelpers.storeRecoveryKeyHash) {
-         await dbHelpers.storeRecoveryKeyHash(userId, recovery_key_hash);
-      }
+      await dbHelpers.storeRecoveryHash(userId, recovery_key_hash);
     }
 
     // Create user preferences and stats
@@ -161,10 +159,10 @@ router.post("/signup", async (req, res, next) => {
         user: {
           id: user.id,
           email: user.email,
-          displayName: user.display_name,
-          avatarUrl: user.avatar_url,
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl,
           bio: user.bio,
-          createdAt: user.created_at,
+          createdAt: user.createdAt,
         },
         preferences,
         stats,
@@ -199,7 +197,7 @@ router.post("/signin", async (req, res, next) => {
       // Email verification check bypassed - we no longer use Resend and rely on real-time DNS MX checks at signup.
       // Existing unverified accounts from the old flawed flow are now explicitly allowed to authenticate if they provide correct credentials.
 
-      const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
       if (!isValidPassword) {
         throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password');
       }
@@ -213,7 +211,7 @@ router.post("/signin", async (req, res, next) => {
       }
 
       console.log("--> Comparing passwords...");
-      const isValidPassword = await bcrypt.compare(passphrase, user.password_hash);
+      const isValidPassword = await bcrypt.compare(passphrase, user.passwordHash);
       console.log("--> Password valid:", isValidPassword);
       if (!isValidPassword) {
         throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid display name or passphrase');
@@ -239,10 +237,10 @@ router.post("/signin", async (req, res, next) => {
       user: {
         id: user.id,
         email: user.email,
-        displayName: user.display_name,
-        avatarUrl: user.avatar_url,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
         bio: user.bio,
-        createdAt: user.created_at,
+        createdAt: user.createdAt,
       },
       preferences,
       stats,
@@ -307,7 +305,7 @@ router.get("/verify-email", async (req, res, next) => {
     }
 
     // Mark user as verified, clear the token and expiration
-    await dbHelpers.updateUser(user.id, { is_verified: 1, verification_token: null, token_expires_at: null });
+    await dbHelpers.updateUser(user.id, { isVerified: 1, verificationToken: null, tokenExpiresAt: null });
 
     res.json({ message: "Email verified successfully. You can now log in." });
   } catch (error) {
@@ -323,14 +321,14 @@ router.post("/resend-verification", async (req, res, next) => {
     const user = await dbHelpers.getUserByEmail(email);
     if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
 
-    if (user.is_verified) {
+    if (user.isVerified) {
       throw new AppError(400, 'ALREADY_VERIFIED', 'Email is already verified');
     }
 
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h expiration
 
-    dbHelpers.updateUser(user.id, { verification_token: verificationToken, token_expires_at: tokenExpiresAt });
+    dbHelpers.updateUser(user.id, { verificationToken: verificationToken, tokenExpiresAt: tokenExpiresAt });
     const success = await sendVerificationEmail(email, verificationToken);
 
     if (!success) {
@@ -411,13 +409,13 @@ router.post("/recover", async (req, res, next) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Verify recovery key matches stored hash
-    const providedHash = crypto.createHash("sha256").update(recoveryKey).digest("hex");
+    // Verify recovery key matches stored hash (BIP39 phrase -> normalized SHA256)
+    const providedHash = crypto.createHash("sha256").update(recoveryKey.trim().toLowerCase()).digest("hex");
     
-    // Fix: Select user and verify recovery hash in one path
-    const userRow = await dbHelpers.getUserByRecoveryKeyHash(providedHash);
+    // Check against recoveryHash column
+    const userByHash = await dbHelpers.getUserByRecoveryHash(providedHash);
     
-    if (!userRow || userRow.id !== user.id) {
+    if (!userByHash || userByHash.id !== user.id) {
       throw new AppError(401, 'INVALID_RECOVERY_KEY', 'Invalid recovery key');
     }
 
@@ -456,7 +454,7 @@ router.post("/reset-passphrase", async (req, res, next) => {
 
     // Update password
     const newPasswordHash = await bcrypt.hash(newPassphrase, 10);
-    await dbHelpers.updateUser(user.id, { password_hash: newPasswordHash });
+    await dbHelpers.updateUser(user.id, { passwordHash: newPasswordHash });
     
     // Mark token used
     await dbHelpers.markRecoveryTokenUsed(tokenRecord.id);
@@ -469,7 +467,7 @@ router.post("/reset-passphrase", async (req, res, next) => {
       success: true, 
       user: {
         id: user.id,
-        displayName: user.display_name,
+        displayName: user.displayName,
         email: user.email
       },
       accessToken,
@@ -563,10 +561,10 @@ router.get("/me", authenticateToken, async (req, res) => {
     }
     res.json({
       id: user.id,
-      displayName: user.display_name,
+      displayName: user.displayName,
       email: user.email,
-      account_type: user.account_type,
-      createdAt: user.created_at,
+      account_type: user.accountType,
+      createdAt: user.createdAt,
     });
   } catch (error) {
     console.error("Get current user error:", error);
