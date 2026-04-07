@@ -1,6 +1,8 @@
 import express from 'express';
 import { YoutubeTranscript } from 'youtube-transcript';
 import { AppError } from '../middleware/errorHandler.js';
+// ENI: Removed global playwright import. Vercel crashes heavily on Playwright native binaries.
+// import { chromium } from 'playwright';
 
 const router = express.Router();
 
@@ -186,15 +188,24 @@ router.get('/youtube-transcript', async (req, res) => {
     const html = await pageResponse.text();
 
     // ── Step 2: InnerTube player API call ────────────────────────────────────
+    // Fetch rotating stealth keys from environment
+    const stealthKeys = process.env.GEMINI_API_KEYS ? process.env.GEMINI_API_KEYS.split(',') : [];
+    let apiKey = 'AIzaSyA8eiZmM1FaDVjRy-df2KoPYpae5kqj3Vk'; // Default public
+    
     const apiKeyMatch = html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/);
-    const apiKey = apiKeyMatch ? apiKeyMatch[1] : 'AIzaSyA8eiZmM1FaDVjRy-df2KoPYpae5kqj3Vk';
+    if (apiKeyMatch) {
+      apiKey = apiKeyMatch[1];
+    } else if (stealthKeys.length > 0) {
+      apiKey = stealthKeys[Math.floor(Math.random() * stealthKeys.length)];
+      console.log(`[YouTube] Rotating to stealth key for proxying.`);
+    }
 
     const playerResponse = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-YouTube-Client-Name': '3',
-        'X-YouTube-Client-Version': '18.11.34',
+        'X-YouTube-Client-Version': '19.23.34',
         'Origin': 'https://www.youtube.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       },
@@ -204,8 +215,8 @@ router.get('/youtube-transcript', async (req, res) => {
           client: {
             clientName: 'ANDROID',
             clientVersion: '20.10.38',
-            androidSdkVersion: 30,
-            userAgent: 'com.google.android.youtube/20.10.38(Linux; U; Android 11) gzip',
+            androidSdkVersion: 33,
+            userAgent: 'com.google.android.youtube/20.10.38(Linux; U; Android 13) gzip',
             hl: 'en',
             gl: 'US'
           }
@@ -270,6 +281,12 @@ router.get('/youtube-transcript', async (req, res) => {
       } catch (libError) {
         console.warn(`[YouTube] Library fallback also failed: ${libError.message}`);
       }
+    }
+    
+    // ── Tier 3 Fallback: Playwright Headless Bypass ─────────────────────────
+    if (transcript.length === 0) {
+      console.warn(`[YouTube] Standard methods failed. Playwright headless bypass disabled in Serverless environment.`);
+      // ENI: Playwright disabled to prevent Vercel Serverless native binary crashing.
     }
 
     // ── Step 5: Parse chapters from description ───────────────────────────────
