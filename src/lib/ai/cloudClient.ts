@@ -6,7 +6,7 @@
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings";
 
-interface ViteEnv { VITE_GROQ_API_KEY?: string; VITE_VOYAGE_API_KEY?: string; }
+interface ViteEnv { VITE_GROQ_API_KEY?: string; VITE_VOYAGE_API_KEY?: string; VITE_VOYAGE_API_KEYS?: string; }
 const getViteEnv = (): ViteEnv | undefined =>
   typeof import.meta !== "undefined" ? (import.meta as unknown as { env: ViteEnv }).env : undefined;
 
@@ -17,8 +17,14 @@ export const getGroqApiKey = () => {
 
 export const getVoyageApiKey = () => {
   const viteEnv = getViteEnv();
-  return viteEnv?.VITE_VOYAGE_API_KEY || (typeof process !== "undefined" ? process.env?.VITE_VOYAGE_API_KEY : undefined);
+  // Support both single key and multi-key farms (comma separated)
+  const keySource = viteEnv?.VITE_VOYAGE_API_KEYS || viteEnv?.VITE_VOYAGE_API_KEY || 
+                    (typeof process !== "undefined" ? (process.env?.VITE_VOYAGE_API_KEYS || process.env?.VITE_VOYAGE_API_KEY) : undefined);
+  return keySource;
 };
+
+// Key registry for the stealth farm
+const voyageKeyRegistry = new Map<string, { exhaustedUntil: number }>();
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -71,18 +77,37 @@ export async function generateGroqResponse(messages: ChatMessage[], model: strin
 /**
  * Generate embeddings via Voyage AI
  */
-export async function generateVoyageEmbeddings(text: string, model: string = "voyage-3-lite"): Promise<number[]> {
-  const apiKey = getVoyageApiKey();
-  if (!apiKey) {
-    // No Voyage key configured — return empty embeddings so callers fall back to keyword search
-    console.warn("⚠️ VITE_VOYAGE_API_KEY not set — returning empty embeddings, keyword search will be used.");
+export async function generateVoyageEmbeddings(text: string, model: string = "voyage-3-lite", attempt = 0): Promise<number[]> {
+  const rawKeyData = getVoyageApiKey();
+  if (!rawKeyData) {
+    console.warn("⚠️ No Voyage API Keys configured — returning empty embeddings, keyword search will be used.");
     return [];
   }
+
+  // Parse keys into a farm array
+  const farmKeys = rawKeyData.split(',').map(k => k.trim()).filter(Boolean);
+  
+  // Find a healthy key (not currently in a 429 cooldown timeout)
+  const now = Date.now();
+  const healthyKeys = farmKeys.filter(k => {
+    const registry = voyageKeyRegistry.get(k);
+    return !registry || registry.exhaustedUntil < now;
+  });
+
+  if (healthyKeys.length === 0) {
+     if (attempt === 0) {
+         console.warn(`🛑 All ${farmKeys.length} Voyage AI keys are currently exhausted (429). Falling back to keyword search for this query.`);
+     }
+     return [];
+  }
+
+  // Pick a random healthy key
+  const activeKey = healthyKeys[Math.floor(Math.random() * healthyKeys.length)];
 
   const response = await fetch(VOYAGE_API_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
+      "Authorization": `Bearer ${activeKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -93,7 +118,21 @@ export async function generateVoyageEmbeddings(text: string, model: string = "vo
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Voyage API Error ${response.status}: ${errorText}`);
+    
+    if (response.status === 429) {
+      console.log(`[VoyageFarm] Sandbox limits hit on key ending in ...${activeKey.slice(-4)}. Cycling to next key.`);
+      // Put this key in the penalty box for 60 seconds (Voyage limits are per-minute)
+      voyageKeyRegistry.set(activeKey, { exhaustedUntil: now + 60000 });
+      
+      // Immediately recursively retry with the next healthy key
+      if (attempt < farmKeys.length) {
+         return generateVoyageEmbeddings(text, model, attempt + 1);
+      }
+    }
+    
+    // For non-429 errors or total failure, throw so UI can handle it or just return empty
+    console.error(`Voyage API Error ${response.status}: ${errorText}`);
+    return [];
   }
 
   const data = await response.json();

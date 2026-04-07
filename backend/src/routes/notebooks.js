@@ -1,10 +1,10 @@
 import express from "express";
-// [restart trigger - DB migration for file_path/file_size columns]
 import { v4 as uuidv4 } from "uuid";
 import { dbHelpers } from "../db/database.js";
 import { authenticateToken } from "../middleware/auth.js";
 import { MemoryService } from "../services/memoryService.js";
 import { chatWithNotebook } from "../services/aiChatService.js";
+import { logger } from "../utils/logger.js";
 
 const router = express.Router();
 
@@ -27,7 +27,7 @@ router.get("/", async (req, res) => {
     });
     res.json(notebooks);
   } catch (error) {
-    console.error("List notebooks error:", error);
+    logger.error("List notebooks failed:", error.message);
     res.status(500).json({ error: "Failed to list notebooks" });
   }
 });
@@ -37,23 +37,32 @@ router.get("/", async (req, res) => {
  * Create a new notebook
  */
 router.post("/", async (req, res, next) => {
-  console.log("--> [NOTEBOOKS] POST /api/notebooks Request Body:", req.body);
+  logger.debug("Creating notebook:", { title: req.body?.title, id: req.body?.id });
   try {
     const { title, description, id: providedId } = req.body;
     if (!title) {
-      console.log("--> [NOTEBOOKS] Error: Missing title payload.");
+      logger.warn("Notebook creation failed: Missing title");
       return res.status(400).json({ error: "Notebook title is required" });
     }
 
     const id = providedId || uuidv4();
-    console.log(`--> [NOTEBOOKS] Creating notebook ${id} for user ${req.user.userId}`);
-    await dbHelpers.createNotebook(id, req.user.userId, title, description);
+    logger.debug(`Creating notebook ${id} for user ${req.user.userId}`);
+    
+    try {
+      await dbHelpers.createNotebook(id, req.user.userId, title, description);
+    } catch (insertError) {
+      if (insertError.code === 'SQLITE_CONSTRAINT' || insertError.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || insertError.message.includes('UNIQUE constraint')) {
+        logger.debug(`Notebook ${id} already exists, proceeding`);
+      } else {
+        throw insertError;
+      }
+    }
     
     const notebook = await dbHelpers.getNotebookById(id, req.user.userId);
-    console.log("--> [NOTEBOOKS] Successfully created:", notebook ? notebook.id : "null");
+    logger.debug(`Notebook processed: ${notebook ? notebook.id : "null"}`);
     res.status(201).json(notebook);
   } catch (error) {
-    console.error("--> [NOTEBOOKS] CRITICAL POST ERROR:", error);
+    logger.error("Notebook creation failed:", error.message);
     next(error);
   }
 });
@@ -81,7 +90,7 @@ router.get("/:id", async (req, res) => {
     }
     res.json(notebook);
   } catch (error) {
-    console.error("Get notebook error:", error);
+    logger.error("Get notebook failed:", error.message);
     res.status(500).json({ error: "Failed to get notebook" });
   }
 });
@@ -271,20 +280,54 @@ router.delete("/:id/notes/:noteId", async (req, res) => {
 
 
 /**
+ * POST /api/notebooks/:id/memory/store
+ * Generate a local embedding and store it in SQLite
+ */
+router.post("/:id/memory/store", async (req, res) => {
+  try {
+    const { content, metadata } = req.body;
+    if (!content) {
+      return res.status(400).json({ error: "Memory content is required" });
+    }
+
+    const userId = req.user.userId;
+    const notebookId = req.params.id;
+    
+    // Auto-provision check in case of Vercel DB wipe
+    let notebook = await dbHelpers.getNotebookById(notebookId, userId);
+    if (!notebook) {
+      try {
+        await dbHelpers.createNotebook(notebookId, userId, "Recovered Notebook", "Auto-provisioned");
+      } catch(e) {}
+    }
+
+    const memory = await MemoryService.storeMemory(userId, notebookId, content, metadata || {});
+    if (!memory) {
+      return res.status(500).json({ error: "Pipeline failed to generate embedding" });
+    }
+
+    res.status(201).json({ success: true, memory });
+  } catch (error) {
+    console.error("Memory store error:", error);
+    res.status(500).json({ error: "Memory store failed" });
+  }
+});
+
+/**
  * POST /api/notebooks/:id/memory/search
- * Semantic search in EverMemOS for this notebook's context
+ * Semantic search using local Cosine Similarity
  */
 router.post("/:id/memory/search", async (req, res) => {
   try {
-    const { query } = req.body;
+    const { query, limit = 5 } = req.body;
     if (!query) {
       return res.status(400).json({ error: "Search query is required" });
     }
 
     const userId = req.user.userId;
-    const memories = await MemoryService.searchMemories(userId, query, {
-      notebook_id: req.params.id
-    });
+    const notebookId = req.params.id;
+    
+    const memories = await MemoryService.searchMemories(userId, notebookId, query, limit);
 
     res.json({ results: memories });
   } catch (error) {

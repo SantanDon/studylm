@@ -10,6 +10,7 @@ import ChatArea from '@/components/notebook/ChatArea';
 import StudioSidebar from '@/components/notebook/StudioSidebar';
 import MobileNotebookTabs from '@/components/notebook/MobileNotebookTabs';
 import PodcastGenerationIndicator from '@/components/notebook/PodcastGenerationIndicator';
+import { AgentPulse } from '@/components/agent/AgentPulse';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { Citation } from '@/types/message';
 
@@ -126,6 +127,9 @@ const Notebook = () => {
           />
         </ErrorBoundary>
       )}
+
+      {/* Real-time Council Telemetry */}
+      <AgentPulse notebookId={notebookId || ''} />
     </div>
   );
 };

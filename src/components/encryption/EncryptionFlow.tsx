@@ -12,13 +12,14 @@ import { RecoveryAccess } from './RecoveryAccess';
 import { RecoverySetup } from './RecoverySetup';
 import { AccountSelector } from './AccountSelector';
 import { MigrationFlow } from './MigrationFlow';
+import { RecoveryView } from '../auth/RecoveryView';
 import { useEncryptionStore } from '@/stores/encryptionStore';
 import { Button } from '@/components/ui/button';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { listAllUserIds, getCurrentUserId } from '@/lib/encryption/userStorage';
 import { CloudLogin } from '../auth/CloudLogin';
 
-type FlowState = 'loading' | 'select-account' | 'create-account' | 'authenticate' | 'recovery-setup' | 'recovery-access' | 'migrate' | 'unlocked' | 'cloud-login' | 'cloud-signup';
+type FlowState = 'loading' | 'select-account' | 'create-account' | 'authenticate' | 'recovery-setup' | 'recovery-access' | 'recover-account' | 'migrate' | 'unlocked' | 'cloud-login' | 'cloud-signup';
 
 interface EncryptionFlowProps {
   onUnlocked?: () => void;
@@ -53,7 +54,7 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
         setFlowState('unlocked');
         onUnlocked?.();
       } else if (mode === 'recover') {
-        setFlowState('recovery-access');
+        setFlowState('recover-account');
       } else if (mode === 'create') {
         setFlowState('create-account');
       } else if (mode === 'authenticate') {
@@ -127,7 +128,7 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
   };
 
   const handleShowRecovery = () => {
-    setFlowState('recovery-access');
+    setFlowState('recover-account');
   };
 
   const handleRecoverySuccess = () => {
@@ -190,6 +191,13 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
           <RecoveryAccess
             onSuccess={handleRecoverySuccess}
             onCancel={handleRecoveryCancel}
+          />
+        )}
+
+        {flowState === 'recover-account' && (
+          <RecoveryView
+            onBack={() => setFlowState('authenticate')}
+            onSuccess={handleAuthenticationSuccess}
           />
         )}
 

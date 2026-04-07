@@ -1,11 +1,8 @@
-﻿import { defineConfig } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { corsProxyPlugin } from "./vite-plugin-cors-proxy";
 
-// https://vitejs.de
-// Trigger Vite restart for @mozilla/readability 2
-// v/config/
+// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
     host: "127.0.0.1",
@@ -36,7 +33,6 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
-    corsProxyPlugin(),
   ].filter(Boolean),
   resolve: {
     alias: {

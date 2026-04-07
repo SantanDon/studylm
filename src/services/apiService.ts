@@ -26,7 +26,9 @@ async function handleResponse(response: Response) {
     try {
       const errData = await response.json();
       errorMsg = errData.error || errorMsg;
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Silent JSON parsing fail for error body');
+    }
     throw new Error(errorMsg);
   }
   return response.json();

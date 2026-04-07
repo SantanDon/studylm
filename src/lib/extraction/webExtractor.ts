@@ -6,7 +6,6 @@
  */
 
 import { validateDocumentContent } from "./contentValidator";
-import { Readability } from '@mozilla/readability';
 
 export interface WebContentResult {
   url: string;
@@ -40,78 +39,43 @@ export async function extractWebContent(
       throw new Error("Invalid URL protocol");
     }
 
-    // Use CORS proxy for fetching external websites
-    const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+    // 1. Try smart backend extraction first
+    const smartUrl = `/api/extract-web?url=${encodeURIComponent(url)}`;
     
-    console.log(`Fetching website content via proxy: ${url}`);
-    
-    const response = await fetch(proxyUrl, {
-      headers: {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    console.log(`[WebExtractor] Attempting smart extraction via backend: ${url}`);
+    try {
+      const smartResponse = await fetch(smartUrl);
+      if (smartResponse.ok) {
+        const data = await smartResponse.json();
+        
+        if (data.content && data.content.length > 50) {
+          console.log(`[WebExtractor] Backend extraction success!`);
+          const validation = await validateDocumentContent(data.content, data.title || url);
+          
+          return {
+            url,
+            title: data.title || url,
+            description: data.description || "",
+            content: data.content,
+            extractedText: data.content,
+            metadata: {
+              wordCount: data.metadata?.wordCount || data.content.split(/\s+/).filter((w: string) => w.length > 0).length,
+              charCount: data.content.length,
+              images: 0,
+              links: 0,
+              processingTime: Date.now() - startTime,
+              extractionMethod: data.metadata?.extractionMethod || "server",
+            },
+            isValid: validation.isValid,
+            validationIssues: validation.issues,
+          };
+        }
+      }
+    } catch (smartError) {
+      console.warn('[WebExtractor] Backend extraction fetch failed:', smartError);
     }
-
-    const html = await response.text();
     
-    // Parse HTML string into DOM Document
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, "text/html");
-
-    // Extract title
-    const title = doc.title || doc.querySelector("h1")?.textContent || parsedUrl.hostname;
-
-    // Extract description
-    const description = 
-      doc.querySelector('meta[name="description"]')?.getAttribute('content') || 
-      doc.querySelector('meta[property="og:description"]')?.getAttribute('content') || 
-      "";
-      
-    // Count links and images using the original document BEFORE Readability modifies it
-    const links = doc.querySelectorAll("a").length;
-    const images = doc.querySelectorAll("img").length;
-
-    // Use Readability to extract the core article content intelligently
-    const reader = new Readability(doc);
-    const article = reader.parse();
-
-    let content = "";
-    if (article && article.textContent && article.textContent.trim().length > 100) {
-      content = article.textContent
-        .replace(/\s+/g, " ")
-        .trim()
-        .substring(0, 50000);
-    } else {
-      // Fallback if Readability yields nothing or very little text
-      const contentElement = doc.querySelector("article, main, [role='main'], #mw-content-text, .mw-parser-output, #content, .post-content, .entry-content") || doc.body;
-      content = (contentElement?.textContent || "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .substring(0, 50000);
-    }
-
-    const validation = await validateDocumentContent(content, title);
-
-    return {
-      url,
-      title,
-      description,
-      content,
-      extractedText: content,
-      metadata: {
-        wordCount: content.split(/\s+/).filter((w) => w.length > 0).length,
-        charCount: content.length,
-        images,
-        links,
-        processingTime: Date.now() - startTime,
-        extractionMethod: "cheerio",
-      },
-      isValid: validation.isValid,
-      validationIssues: validation.issues,
-    };
+    throw new Error("Backend extraction returned insufficient or invalid content.");
   } catch (error) {
     console.error(`Failed to extract content from ${url}:`, error);
     return {

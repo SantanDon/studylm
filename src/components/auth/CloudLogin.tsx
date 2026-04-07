@@ -11,10 +11,11 @@ import { Loader2, Globe, Mail } from "lucide-react";
 interface CloudLoginProps {
   onSuccess?: () => void;
   onCancel?: () => void;
+  onRecover?: () => void;
   initialIsSignUp?: boolean;
 }
 
-export const CloudLogin = ({ onSuccess, onCancel, initialIsSignUp = false }: CloudLoginProps) => {
+export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = false }: CloudLoginProps) => {
   const [isSignUp, setIsSignUp] = useState(initialIsSignUp);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -179,6 +180,18 @@ export const CloudLogin = ({ onSuccess, onCancel, initialIsSignUp = false }: Clo
             required
             minLength={6}
           />
+          {!isSignUp && (
+            <div className="flex justify-end mt-1">
+              <Button
+                type="button"
+                variant="link"
+                className="text-xs text-emerald-600 h-auto p-0"
+                onClick={onRecover}
+              >
+                Forgot passphrase?
+              </Button>
+            </div>
+          )}
         </div>
 
         {isSignUp && (

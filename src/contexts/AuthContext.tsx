@@ -10,6 +10,7 @@ import { localStorageService } from "@/services/localStorageService";
 import { useEncryptionStore } from "@/stores/encryptionStore";
 import { safeGetItem, safeParseJSON } from "@/lib/utils/contextUtils";
 import { migrateLocalToCloud } from "@/lib/sync/localToCloudMigration";
+import { ApiService } from "@/services/apiService";
 
 
 interface AuthProviderProps {
@@ -195,6 +196,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     signOut,
     signIn,
     signInWithCloud,
+    recoverAccount: async (displayName: string, recoveryKey: string) => {
+      setError(null);
+      try {
+        return await ApiService.recover(displayName, recoveryKey);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Recovery failed";
+        setError(msg);
+        throw new Error(msg);
+      }
+    },
+    resetPassphrase: async (resetToken: string, newPassphrase: string) => {
+      setError(null);
+      try {
+        const data = await ApiService.resetPassphrase(resetToken, newPassphrase);
+        if (data.accessToken && data.refreshToken && data.user) {
+          // Auto-login after reset
+          signInWithCloud(data.user, { accessToken: data.accessToken, refreshToken: data.refreshToken });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Reset failed";
+        setError(msg);
+        throw new Error(msg);
+      }
+    },
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
