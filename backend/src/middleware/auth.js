@@ -1,20 +1,50 @@
 import jwt from 'jsonwebtoken';
 import { createHash } from 'crypto';
-import { dbHelpers } from '../db/database.js';
+import { v4 as uuidv4 } from 'uuid';
+import { dbHelpers, getDatabase } from '../db/database.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.warn('⚠️ [AUTH] JWT_SECRET is not set. Token verification will fail, but the server is booting...');
+}
 
 export function hashApiKey(rawKey) {
   return createHash('sha256').update(rawKey).digest('hex');
 }
 
 export async function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+   const authHeader = req.headers['authorization'];
+   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+ 
+   // ZERO-FRICTION DEV BYPASS:
+   // If running in development and requested via localhost, auto-login the primary user.
+   if (process.env.DEV_AUTO_LOGIN === 'true' && (req.hostname === 'localhost' || req.hostname === '127.0.0.1')) {
+     console.log('🛡️ [AUTH] Zero-Friction Dev Bypass active. Auto-login for localhost...');
+     // Attempt to get the first human user in the system (typically the developer)
+     try {
+        const db = await getDatabase();
+        const result = await db.execute('SELECT id, email, display_name FROM users ORDER BY created_at ASC LIMIT 1');
+        const primaryUser = result.rows[0];
+        
+        if (primaryUser) {
+          req.user = { userId: primaryUser.id, email: primaryUser.email, displayName: primaryUser.display_name };
+          return next();
+        } else {
+          // Fallback if no users exist yet
+          req.user = { userId: 'dev-zero-friction', email: 'dev@studypod.local', displayName: 'Local Developer' };
+          return next();
+        }
+     } catch (dbError) {
+        console.warn('⚠️ [AUTH] Zero-Friction Bypass failed to query DB (Providing Mock User):', dbError.message);
+        req.user = { userId: 'dev-zero-friction', email: 'dev@studypod.local', displayName: 'Local Developer' };
+        return next();
+     }
+   }
 
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
+   if (!token) {
+     return res.status(401).json({ error: 'Access token required' });
+   }
 
   // API key path — starts with spm_
   if (token.startsWith('spm_')) {
