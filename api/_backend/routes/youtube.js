@@ -1,5 +1,5 @@
 import express from 'express';
-import { YoutubeTranscript } from 'youtube-transcript';
+// removed youtube-transcript dependency for production stability
 import { AppError } from '../middleware/errorHandler.js';
 // ENI: Removed global playwright import. Vercel crashes heavily on Playwright native binaries.
 // import { chromium } from 'playwright';
@@ -267,21 +267,7 @@ router.get('/youtube-transcript', async (req, res) => {
       }
     }
 
-    // Fallback if manual method yielded nothing
-    if (transcript.length === 0) {
-      try {
-        console.log(`[YouTube] Attempting library fallback for video: ${videoId}`);
-        const libTranscript = await YoutubeTranscript.fetchTranscript(videoId);
-        transcript = libTranscript.map(item => ({
-          text: item.text,
-          offset: item.offset,
-          duration: item.duration
-        }));
-        console.log(`[YouTube] Transcript items (Library): ${transcript.length}`);
-      } catch (libError) {
-        console.warn(`[YouTube] Library fallback also failed: ${libError.message}`);
-      }
-    }
+    // redundant library fallback removed to prevent production bundling crashes
     
     // ── Tier 3 Fallback: Playwright Headless Bypass ─────────────────────────
     if (transcript.length === 0) {
