@@ -2,8 +2,10 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import { promises as fs } from 'fs';
-import pdf from 'pdf-parse';
-// STABILITY PATCH v5: pdf-parse import corrected for ESM. 
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
+// STABILITY PATCH v6: pdf-parse loaded via createRequire bridge for ESM compatibility. 
 import { AppError } from '../middleware/errorHandler.js';
 
 const router = express.Router();
