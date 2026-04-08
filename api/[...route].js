@@ -3,7 +3,6 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 
 // Force Vercel to bundle backend dependencies
-import 'deep-email-validator';
 import 'bcryptjs';
 import 'jsonwebtoken';
 import 'drizzle-orm';

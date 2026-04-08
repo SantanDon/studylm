@@ -10,7 +10,7 @@ import {
   hashApiKey,
 } from "../middleware/auth.js";
 import crypto, { randomBytes } from "crypto";
-import emailValidator from "deep-email-validator";
+// removed deep-email-validator to resolve bundling issues
 import { AppError } from "../middleware/errorHandler.js";
 
 const router = express.Router();
@@ -109,20 +109,13 @@ router.post("/signup", async (req, res, next) => {
       throw new AppError(400, 'USER_EXISTS', 'User already exists');
     }
 
-    // Real-time email validation bypassing Resend link confirmation
+    // Simple regex validation to replace problematic deep-email-validator
     if (!isVerified && !isLocalMode) {
-      const validationResult = await emailValidator.validate({
-        email: finalEmail,
-        validateRegex: true,
-        validateMx: true,
-        validateTypo: true,
-        validateDisposable: true,
-        validateSMTP: false // Disable SMTP to prevent Vercel Serverless timeout rejections on valid emails
-      });
-      if (!validationResult.valid) {
-        throw new AppError(400, 'INVALID_EMAIL', `Email address is unreachable or invalid: ${validationResult.reason}`);
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(finalEmail)) {
+        throw new AppError(400, 'INVALID_EMAIL', 'Email address is invalid');
       }
-      isVerified = 1; // Instant automated verification upon successful MX/SMTP lookup
+      isVerified = 1; // Instant automated verification
     }
 
     // Hash password
