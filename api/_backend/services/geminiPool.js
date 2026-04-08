@@ -1,19 +1,19 @@
 import { GoogleGenAI } from '@google/genai';
-import UserAgent from 'user-agents';
+
+// STABILITY PATCH v4: user-agents PURGED.
+const UA_LIST = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+];
 
 /**
  * GeminiKeyPool — STEALTH EDITION
- * 
- * Implements advanced evasion to bypass:
- * 1. Algorithmic Fingerprinting: Jittered random selection instead of round-robin.
- * 2. Header Leaks: Personalized User-Agent randomization per request.
- * 3. 429 Recovery: Weighted health scores and automatic backoff.
  */
 class GeminiKeyPool {
   constructor() {
     this.keys = [];
     this.keyHealth = new Map(); // Key -> { failures, lastUsed, isExhausted }
-    this.uaGenerator = new UserAgent({ deviceCategory: 'desktop' });
     this.loadKeys();
   }
 
@@ -71,8 +71,8 @@ class GeminiKeyPool {
       const apiKey = this.getStealthKey();
       
       try {
-        // Anti-Detection Header: Randomized User-Agent
-        const customUA = this.uaGenerator.random().toString();
+        // Anti-Detection Header: Randomized User-Agent from stable pool
+        const customUA = UA_LIST[Math.floor(Math.random() * UA_LIST.length)];
         
         // Initialize client with custom headers if the SDK allows, 
         // otherwise we manually fetch to stay in control of the fingerprint
