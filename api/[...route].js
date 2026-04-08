@@ -1,3 +1,4 @@
+// API BRIDGE v1.0.2 - TS: 1309
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';

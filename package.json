@@ -1,7 +1,7 @@
 {
     "name": "study-lm",
     "private": true,
-    "version": "1.0.1-stabilized",
+    "version": "1.0.2-stabilized",
     "type": "module",
     "scripts": {
         "postinstall": "node scripts/install-backend.js",
