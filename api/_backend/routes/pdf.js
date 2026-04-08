@@ -2,7 +2,8 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import { promises as fs } from 'fs';
-import pdfParse from 'pdf-parse';
+import pdf from 'pdf-parse';
+// STABILITY PATCH v5: pdf-parse import corrected for ESM. 
 import { AppError } from '../middleware/errorHandler.js';
 
 const router = express.Router();
@@ -32,7 +33,7 @@ router.post('/process-pdf', upload.single('file'), async (req, res, next) => {
 
   try {
     // Parse the PDF to extract text directly from memory buffer
-    const pdfData = await pdfParse(req.file.buffer);
+    const pdfData = await pdf(req.file.buffer);
 
     // Create chunks for better processing
     const chunks = createChunks(pdfData.text, 1000);
