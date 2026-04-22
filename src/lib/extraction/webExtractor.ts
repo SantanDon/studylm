@@ -40,7 +40,7 @@ export async function extractWebContent(
     }
 
     // 1. Try smart backend extraction first
-    const smartUrl = `/api/extract-web?url=${encodeURIComponent(url)}`;
+    const smartUrl = `/api/proxy/extract-web?url=${encodeURIComponent(url)}`;
     
     console.log(`[WebExtractor] Attempting smart extraction via backend: ${url}`);
     try {

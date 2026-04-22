@@ -13,6 +13,7 @@ import PodcastGenerationIndicator from '@/components/notebook/PodcastGenerationI
 import { AgentPulse } from '@/components/agent/AgentPulse';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { Citation } from '@/types/message';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 const Notebook = () => {
   const { id: notebookId } = useParams();
@@ -60,54 +61,72 @@ const Notebook = () => {
       )}
       
       {isDesktop ? (
-        // Desktop layout (3-column)
+        // Desktop layout (3-column resizable)
         <div className="flex-1 flex overflow-hidden">
-          <div className={`${sourcesWidth} flex-shrink-0`}>
-            <ErrorBoundary
-              variant="component"
-              title="Sources Error"
-              message="Failed to load sources. Please try again."
-              showHomeButton={false}
+          <ResizablePanelGroup direction="horizontal">
+            <ResizablePanel 
+              defaultSize={isSourceDocumentOpen ? 35 : 25} 
+              minSize={15}
+              className="flex flex-col"
             >
-              <SourcesSidebar 
-                hasSource={hasSource || false} 
-                notebookId={notebookId}
-                selectedCitation={selectedCitation}
-                onCitationClose={handleCitationClose}
-                setSelectedCitation={setSelectedCitation}
-              />
-            </ErrorBoundary>
-          </div>
-          
-          <div className={`${chatWidth} flex-shrink-0`}>
-            <ErrorBoundary
-              variant="component"
-              title="Chat Error"
-              message="Failed to load chat. Please try again."
-              showHomeButton={false}
+              <ErrorBoundary
+                variant="component"
+                title="Sources Error"
+                message="Failed to load sources. Please try again."
+                showHomeButton={false}
+              >
+                <SourcesSidebar 
+                  hasSource={hasSource || false} 
+                  notebookId={notebookId}
+                  selectedCitation={selectedCitation}
+                  onCitationClose={handleCitationClose}
+                  setSelectedCitation={setSelectedCitation}
+                />
+              </ErrorBoundary>
+            </ResizablePanel>
+            
+            <ResizableHandle withHandle className="w-1.5 bg-gray-100/50 hover:bg-primary/30 transition-colors" />
+            
+            <ResizablePanel 
+              defaultSize={isSourceDocumentOpen ? 35 : 45} 
+              minSize={25}
+              className="flex flex-col"
             >
-              <ChatArea 
-                hasSource={hasSource || false} 
-                notebookId={notebookId}
-                notebook={notebook}
-                onCitationClick={handleCitationClick}
-              />
-            </ErrorBoundary>
-          </div>
-          
-          <div className={`${studioWidth} flex-shrink-0`}>
-            <ErrorBoundary
-              variant="component"
-              title="Studio Error"
-              message="Failed to load studio. Please try again."
-              showHomeButton={false}
+              <ErrorBoundary
+                variant="component"
+                title="Chat Error"
+                message="Failed to load chat. Please try again."
+                showHomeButton={false}
+              >
+                <ChatArea 
+                  hasSource={hasSource || false} 
+                  notebookId={notebookId}
+                  notebook={notebook}
+                  onCitationClick={handleCitationClick}
+                />
+              </ErrorBoundary>
+            </ResizablePanel>
+            
+            <ResizableHandle withHandle className="w-1.5 bg-gray-100/50 hover:bg-primary/30 transition-colors" />
+            
+            <ResizablePanel 
+              defaultSize={30} 
+              minSize={20}
+              className="flex flex-col"
             >
-              <StudioSidebar 
-                notebookId={notebookId} 
-                onCitationClick={handleCitationClick}
-              />
-            </ErrorBoundary>
-          </div>
+              <ErrorBoundary
+                variant="component"
+                title="Studio Error"
+                message="Failed to load studio. Please try again."
+                showHomeButton={false}
+              >
+                <StudioSidebar 
+                  notebookId={notebookId} 
+                  onCitationClick={handleCitationClick}
+                />
+              </ErrorBoundary>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </div>
       ) : (
         // Mobile/Tablet layout (tabs)

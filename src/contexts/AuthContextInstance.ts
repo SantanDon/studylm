@@ -1,5 +1,10 @@
 import { createContext } from "react";
-import { LocalUser, LocalSession } from "@/services/localStorageService";
+import { LocalUser } from "@/services/localStorageService";
+
+export interface LocalSession {
+  user: LocalUser;
+  expires_at: number;
+}
 
 export interface AuthContextType {
   user: LocalUser | null;
@@ -7,9 +12,12 @@ export interface AuthContextType {
   loading: boolean;
   error: string | null;
   isAuthenticated: boolean;
+  mfaRequired: boolean;
+  mfaToken: string | null;
   signOut: () => Promise<void>;
-  signIn: (user: LocalUser, session: LocalSession) => void;
-  signInWithCloud: (userData: { id: string; email?: string; displayName?: string; account_type?: string; createdAt: string }, sessionData: { accessToken: string; refreshToken: string }) => void;
+  signIn: (credentials: any) => Promise<void>;
+  signInWithCloud: (userData: any) => void;
+  verifyMfa: (code: string) => Promise<boolean>;
   recoverAccount: (displayName: string, recoveryKey: string) => Promise<{ resetToken: string }>;
   resetPassphrase: (resetToken: string, newPassphrase: string) => Promise<void>;
 }

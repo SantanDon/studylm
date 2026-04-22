@@ -9,9 +9,12 @@ import { useChatMessages } from '@/hooks/useChatMessages';
 import { useSources } from '@/hooks/useSources';
 import { useGuest, useNotebookLimits } from '@/hooks/useGuest';
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer';
-import SaveToNoteButton from './SaveToNoteButton';
+import ChatInput from '@/components/chat/ChatInput';
+import SovereignChatIntro from '@/components/chat/SovereignChatIntro';
+import CaptureButtons from './CaptureButtons';
 import AddSourcesDialog from './AddSourcesDialog';
 import { Citation, EnhancedChatMessage } from '@/types/message';
+import { IMMERSIVE_PROMPTS } from '@/config/prompts';
 
 interface ChatAreaProps {
   hasSource: boolean;
@@ -61,10 +64,17 @@ const ChatArea = ({
   const sourceCount = sources?.length || 0;
 
   // Check if at least one source has finished processing (either successfully or failed)
-  const hasProcessedSource = sources?.some(source => source.processing_status === 'completed' || source.processing_status === 'failed') || false;
+  const hasProcessedSource = sources?.some(source => 
+    source.processing_status === 'completed' || 
+    source.processing_status === 'failed' ||
+    (source as any).processingStatus === 'completed' ||
+    (source as any).processingStatus === 'failed'
+  ) || false;
 
-  // Chat should be disabled if there are no processed sources
-  const isChatDisabled = !hasProcessedSource;
+  // Never permanently lock the chat box just because a state flag is stuck.
+  // If there's 0 sources, we show the 'upload a source' message, but if there are ANY sources,
+  // we let the user chat. The backend can handle if it's not ready.
+  const isChatDisabled = sourceCount === 0;
 
   // Track when we send a message to show loading state
   const [lastMessageCount, setLastMessageCount] = useState(0);
@@ -179,16 +189,25 @@ const ChatArea = ({
   // Show refresh button if there are any messages (including system messages)
   const shouldShowRefreshButton = messages.length > 0;
 
-  // Agent-specific collaboration prompts
-  const agentPrompts = [
-    "Summarize all sources for me",
-    "What key concepts am I missing?",
-    "Review my notes and find gaps"
-  ];
+  // Agent-specific collaboration prompts from the Sovereign Immersion library
+  const getAgentPrompts = () => {
+    // Flatten the categories into a single array of prompts for the carousel
+    // but maybe we can prefix them with the category for immersion
+    return IMMERSIVE_PROMPTS.flatMap(category => 
+      category.prompts.map(prompt => ({
+        text: prompt.text,
+        category: category.name
+      }))
+    );
+  };
+
+  const agentPrompts = getAgentPrompts();
 
   // Get example questions from the notebook, filtering out clicked ones
   const exampleQuestions = chatMode === 'agent' 
-    ? agentPrompts.filter(q => !clickedQuestions.has(q))
+    ? agentPrompts
+        .filter(p => !clickedQuestions.has(p.text))
+        .map(p => p.text)
     : (notebook?.example_questions?.filter(q => !clickedQuestions.has(q)) || []);
 
   // Update placeholder text based on processing status
@@ -242,6 +261,11 @@ const ChatArea = ({
           </div>
 
           <ScrollArea className="flex-1 h-full bg-white dark:bg-background" ref={scrollAreaRef}>
+             {/* Empty State / Sovereign Intro */}
+             {!shouldShowScrollTarget() && (
+               <SovereignChatIntro onPromptClick={handleExampleQuestionClick} />
+             )}
+
             {/* Document Summary */}
             <div className="p-8 border-b border-gray-200 dark:border-border">
               <div className="max-w-4xl mx-auto">
@@ -272,7 +296,7 @@ const ChatArea = ({
                             <MarkdownRenderer content={msg.message.content} className={isUserMessage(msg) ? '' : ''} onCitationClick={handleCitationClick} isUserMessage={isUserMessage(msg)} />
                           </div>
                           {isAiMessage(msg) && <div className="mt-2 flex justify-start">
-                              <SaveToNoteButton content={msg.message.content} notebookId={notebookId} />
+                              <CaptureButtons content={msg.message.content} notebookId={notebookId} />
                             </div>}
                         </div>
                       </div>)}
@@ -305,38 +329,17 @@ const ChatArea = ({
           </ScrollArea>
 
           {/* Chat Input - Fixed at bottom */}
-          <div className="p-6 border-t border-border flex-shrink-0 bg-background">
-            <div className="max-w-4xl mx-auto">
-              <div className="flex space-x-4">
-                <div className="flex-1 relative">
-                  <Input placeholder={getPlaceholderText()} value={message} onChange={e => setMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && !isChatDisabled && !isSending && !pendingUserMessage && handleSendMessage()} className="pr-12" disabled={isChatDisabled || isSending || !!pendingUserMessage} />
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-muted-foreground">
-                    {sourceCount} source{sourceCount !== 1 ? 's' : ''}
-                  </div>
-                </div>
-                <Button onClick={() => handleSendMessage()} disabled={!message.trim() || isChatDisabled || isSending || !!pendingUserMessage}>
-                  {isSending || pendingUserMessage ? <i className="fi fi-rr-spinner h-4 w-4 animate-spin"></i> : <i className="fi fi-rr-paper-plane-top h-4 w-4"></i>}
-                </Button>
-              </div>
-              
-              {/* Example Questions Carousel */}
-              {!isChatDisabled && !pendingUserMessage && !showAiLoading && exampleQuestions.length > 0 && <div className="mt-4">
-                  <Carousel className="w-full max-w-4xl">
-                    <CarouselContent className="-ml-2 md:-ml-4">
-                      {exampleQuestions.map((question, index) => <CarouselItem key={index} className="pl-2 md:pl-4 basis-auto">
-                          <Button variant="outline" size="sm" className="text-left whitespace-nowrap h-auto py-2 px-3 text-sm" onClick={() => handleExampleQuestionClick(question)}>
-                            {question}
-                          </Button>
-                        </CarouselItem>)}
-                    </CarouselContent>
-                    {exampleQuestions.length > 2 && <>
-                        <CarouselPrevious className="left-0" />
-                        <CarouselNext className="right-0" />
-                      </>}
-                  </Carousel>
-                </div>}
-            </div>
-          </div>
+          <ChatInput 
+            message={message}
+            onMessageChange={setMessage}
+            onSend={() => handleSendMessage()}
+            disabled={isChatDisabled}
+            isLoading={isSending || !!pendingUserMessage}
+            sourceCount={sourceCount}
+            exampleQuestions={exampleQuestions}
+            onExampleQuestionClick={handleExampleQuestionClick}
+            placeholder={getPlaceholderText()}
+          />
         </div> :
     // Empty State
     <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-hidden bg-white dark:bg-background">

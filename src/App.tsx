@@ -16,7 +16,7 @@ import Notebook from "./pages/Notebook";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import VerifyEmail from "./pages/VerifyEmail";
-import { useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import ReactGA from "react-ga4";
 
@@ -34,13 +34,28 @@ const PageTracker = () => {
 
 const queryClient = new QueryClient();
 
+import GlobalSearch from "@/components/dashboard/GlobalSearch";
+// ...
 const AppContent = () => {
   const navigate = useNavigate();
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <>
       <PageTracker />
       <GuestBanner />
+      <GlobalSearch open={searchOpen} setOpen={setSearchOpen} />
       <Routes>
         {/* Dedicated authentication route */}
         <Route 

@@ -10,12 +10,24 @@ import {
   faMinimize,
   faExpand,
   faClock,
+  faKeyboard,
+  faWandMagicSparkles,
+  faHourglassHalf,
+  faFlask,
 } from "@fortawesome/free-solid-svg-icons";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { 
+  Tabs, 
+  TabsContent, 
+  TabsList, 
+  TabsTrigger 
+} from "@/components/ui/tabs";
 import { useSources } from "@/hooks/useSources";
 import { generatePodcastScript } from "@/lib/podcastGenerator";
 import { useToast } from "@/hooks/use-toast";
-import TTSSettingsDialog from "./TTSSettingsDialog";
 import TTSProviderSettings from "./TTSProviderSettings";
+import TTSSettingsDialog from "./TTSSettingsDialog";
 import {
   usePodcastGenerationStore,
   usePodcastIsGenerating,
@@ -28,6 +40,7 @@ import AudioPlayer from "./AudioPlayer";
 import "./PodcastView.css";
 import { PodcastHistory } from "./PodcastHistory";
 import { usePodcastHistory } from "@/hooks/usePodcastHistory";
+import { useNotes } from "@/hooks/useNotes";
 
 interface PodcastViewProps {
   notebookId?: string;
@@ -36,6 +49,7 @@ interface PodcastViewProps {
 const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
   const safeNotebookId = notebookId || '';
   const { sources } = useSources(safeNotebookId);
+  const { notes } = useNotes(safeNotebookId);
   const { toast } = useToast();
 
   // Store state
@@ -50,15 +64,22 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
     updateProgress,
     setAudioReady,
     setFinalAudio,
+    rehydrateState,
     cancelGeneration,
   } = usePodcastGenerationStore();
 
   // Local state
   const [isMinimized, setIsMinimized] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProviderSettingsOpen, setIsProviderSettingsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showAudioLab, setShowAudioLab] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [usingKokoro, setUsingKokoro] = useState(false);
+  
+  // Customization state
+  const [host1, setHost1] = useState("Alex");
+  const [host2, setHost2] = useState("Sarah");
+  const [podcastType, setPodcastType] = useState<'brief' | 'standard' | 'deep-dive'>('standard');
 
   const { savePodcast } = usePodcastHistory(safeNotebookId);
 
@@ -77,6 +98,16 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
       }
     };
   }, []);
+
+  // Auto-rehydrate active sessions on mount
+  useEffect(() => {
+    if (safeNotebookId && !isGenerating) {
+      const rehydrated = rehydrateState(safeNotebookId);
+      if (rehydrated) {
+        console.log('🎙️ Rehydrated active podcast session');
+      }
+    }
+  }, [safeNotebookId, isGenerating, rehydrateState]);
 
   // Handle progress updates
   const handleProgress = useCallback((prog: StreamingProgress) => {
@@ -206,6 +237,11 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
         .join("\n\n")
         .substring(0, 15000);
 
+      const combinedNotes = (notes || [])
+        .map(n => n.content)
+        .join("\n\n")
+        .substring(0, 3000);
+
       if (combinedContent.length < 100) {
         setIsStarting(false);
         toast({
@@ -216,9 +252,28 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
         return;
       }
 
-      const generatedScript = await generatePodcastScript(combinedContent);
-      startGeneration(safeNotebookId, generatedScript);
+      const generatedScript = await generatePodcastScript(combinedContent, {
+        userNotes: combinedNotes,
+        host1Name: host1,
+        host2Name: host2,
+        type: podcastType
+      });
+      
+      // Inject our custom names and metadata into the script before starting
+      generatedScript.metadata = {
+        host1Name: host1,
+        host2Name: host2,
+        type: podcastType
+      };
+
+      startGeneration(safeNotebookId, generatedScript, {
+        host1Name: host1,
+        host2Name: host2,
+        type: podcastType
+      });
+      
       setIsStarting(false);
+      setShowAudioLab(false);
 
       const generator = getStreamingTTSGenerator();
       generator.startStreaming(
@@ -302,34 +357,91 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
           <span className="provider-value">Kokoro TTS (High Quality)</span>
         </div>
 
-        <button
-          className={`podcast-generate-btn ${isStarting ? 'loading' : ''}`}
-          onClick={handleGenerate}
-          disabled={!sources || sources.length === 0 || isStarting}
-        >
-          {isStarting ? (
-            <>
-              <FontAwesomeIcon icon={faArrowsRotate} spin />
-              Preparing Script...
-            </>
-          ) : (
-            <>
-              <FontAwesomeIcon icon={faPlay} />
-              Generate Podcast
-            </>
-          )}
-        </button>
+        {showAudioLab ? (
+          <div className="audio-lab-overlay glassmorphism">
+            <div className="audio-lab-header">
+              <h4><FontAwesomeIcon icon={faFlask} /> Audio Lab</h4>
+              <button className="close-lab" onClick={() => setShowAudioLab(false)}>
+                <FontAwesomeIcon icon={faXmark} />
+              </button>
+            </div>
+            
+            <div className="audio-lab-grid">
+              <div className="lab-input-group">
+                <Label htmlFor="host1"><FontAwesomeIcon icon={faKeyboard} /> Host 1 Name</Label>
+                <Input 
+                  id="host1" 
+                  value={host1} 
+                  onChange={(e) => setHost1(e.target.value)}
+                  placeholder="e.g. Alex"
+                  className="lab-input"
+                />
+              </div>
+              <div className="lab-input-group">
+                <Label htmlFor="host2"><FontAwesomeIcon icon={faKeyboard} /> Host 2 Name</Label>
+                <Input 
+                  id="host2" 
+                  value={host2} 
+                  onChange={(e) => setHost2(e.target.value)}
+                  placeholder="e.g. Sarah"
+                  className="lab-input"
+                />
+              </div>
+            </div>
+
+            <div className="lab-length-selector">
+              <Label><FontAwesomeIcon icon={faHourglassHalf} /> Episode Style</Label>
+              <Tabs value={podcastType} onValueChange={(val) => setPodcastType(val as any)} className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="brief">Brief</TabsTrigger>
+                  <TabsTrigger value="standard">Standard</TabsTrigger>
+                  <TabsTrigger value="deep-dive">Deep Dive</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <p className="lab-hint">
+                {podcastType === 'brief' && "~2-3 mins podcast covering highlights."}
+                {podcastType === 'standard' && "~7-10 mins educational deep dive."}
+                {podcastType === 'deep-dive' && "15+ mins comprehensive masterclass."}
+              </p>
+            </div>
+
+            <button
+              className={`podcast-generate-btn ${isStarting ? 'loading' : ''}`}
+              onClick={handleGenerate}
+              disabled={!sources || sources.length === 0 || isStarting}
+              data-testid="btn-start-production"
+            >
+              {isStarting ? (
+                <>
+                  <FontAwesomeIcon icon={faArrowsRotate} spin />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <FontAwesomeIcon icon={faPlay} />
+                  Start Production
+                </>
+              )}
+            </button>
+          </div>
+        ) : (
+          <button
+            className="podcast-generate-btn"
+            onClick={() => setShowAudioLab(true)}
+            disabled={!sources || sources.length === 0}
+            data-testid="btn-generate-podcast"
+          >
+            <FontAwesomeIcon icon={faPlay} />
+            Generate Podcast
+          </button>
+        )}
 
         <div className="podcast-settings-row">
           <button className="podcast-settings-btn" onClick={() => setIsProviderSettingsOpen(true)}>
-            <FontAwesomeIcon icon={faGear} /> Settings
-          </button>
-          <button className="podcast-settings-btn" onClick={() => setIsSettingsOpen(true)}>
-            <FontAwesomeIcon icon={faSliders} /> Voices
+            <FontAwesomeIcon icon={faGear} /> Audio Studio
           </button>
         </div>
 
-        <TTSSettingsDialog isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
         <TTSProviderSettings isOpen={isProviderSettingsOpen} onClose={() => setIsProviderSettingsOpen(false)} />
         
         {/* Podcast History */}
@@ -347,7 +459,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
   // Generating state
   if (isGenerating) {
     return (
-      <div className="podcast-card podcast-generating">
+      <div className="podcast-card podcast-generating" data-testid="podcast-generating-card">
         <div className="generating-header">
           <span className="generating-title">Generating Podcast</span>
           <div className="generating-actions">

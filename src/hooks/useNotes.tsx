@@ -37,7 +37,15 @@ export const useNotes = (notebookId?: string) => {
 
       if (isAuthenticated) {
         console.log("useNotes: Fetching from backend API...");
-        notes = await ApiService.fetchNotes(notebookId, session!.access_token);
+        const rawNotes = await ApiService.fetchNotes(notebookId, session!.access_token);
+        // Map Drizzle camelCase to Supabase-style snake_case the frontend expects
+        notes = rawNotes.map((n: any) => ({
+          ...n,
+          notebook_id: n.notebookId || n.notebook_id,
+          author_id: n.authorId || n.author_id,
+          created_at: n.createdAt || n.created_at,
+          updated_at: n.updatedAt || n.updated_at,
+        }));
       } else {
         console.log("useNotes: Fetching from local storage...");
         notes = await localStorageService.getNotes(notebookId) as Note[];

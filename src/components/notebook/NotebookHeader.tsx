@@ -96,6 +96,7 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
             <button
               onClick={handleIconClick}
               className="hover:bg-accent rounded transition-colors p-1"
+              data-testid="nav-home"
             >
               <Logo />
             </button>

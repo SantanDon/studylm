@@ -83,7 +83,8 @@ export async function validateDocumentContent(
     if (pattern.test(content)) {
       // Check if this is just an error message from the system or actual document content
       // If the content is very likely to be an error message (short, with specific error patterns), mark as invalid
-      const isLikelyErrorMessage = content.split(/\s+/).length < 30 &&
+      // INCREASED WORD THRESHOLD FOR ERROR DETECTION: System errors are rarely more than 40 words.
+      const isLikelyErrorMessage = content.split(/\s+/).length < 40 &&
                                    (content.toLowerCase().includes("error") ||
                                     content.toLowerCase().includes("failed") ||
                                     content.toLowerCase().includes("unable") ||
@@ -100,8 +101,8 @@ export async function validateDocumentContent(
         // If content is longer and might be actual document text, be more lenient
         // This allows for documents that might contain the words "extraction" or "failed" in normal context
         result.isHighQuality = false;
-        result.issues.push("Content contains potential error messages");
-        result.confidenceScore = 0.5;
+        result.issues.push("Content contains phrases often associated with system errors");
+        result.confidenceScore = 0.8; // High confidence because it's long, despite the keywords
         break;
       }
     }
@@ -127,10 +128,23 @@ export async function validateDocumentContent(
     );
 
     if (criticalIssues.length > 0) {
-      // If there are critical issues, mark as invalid
-      result.isValid = false;
-      result.confidenceScore = 0.0;
-      result.suggestions.push("Content has critical quality issues. Please review and correct the source file.");
+      // Determine if we should be lenient based on file type
+      const isLenientType = fileName.toLowerCase().endsWith(".pdf") || 
+                           fileName.toLowerCase().endsWith(".jpg") || 
+                           fileName.toLowerCase().endsWith(".png");
+
+      if (isLenientType) {
+        // For PDFs and images, binary/control characters are often just formatting artifacts
+        result.isHighQuality = false;
+        result.confidenceScore = 0.3;
+        result.suggestions.push("Content contains formatting artifacts (control characters); proceed with caution.");
+        console.warn(`[Validator] Lenient validation for ${fileName}: Allowing ${criticalIssues.length} control artifacts.`);
+      } else {
+        // If there are critical issues in other types, mark as invalid
+        result.isValid = false;
+        result.confidenceScore = 0.0;
+        result.suggestions.push("Content has critical quality issues. Please review and correct the source file.");
+      }
     } else {
       // For non-critical issues, reduce confidence
       result.confidenceScore = Math.max(0.1, 1 - (issueCount * 0.15)); // Minimum 10% confidence
@@ -174,11 +188,10 @@ function checkContentQuality(content: string, fileName: string): string[] {
     issues.push("Document contains too much repetitive content");
   }
 
-  // Check for character diversity
   const uniqueChars = new Set(content);
   const charDiversity = uniqueChars.size / Math.max(1, content.length);
-  if (charDiversity < 0.1) { // Less than 10% unique characters
-    issues.push("Document has low character diversity, may contain artifacts");
+  if (charDiversity < 0.001) { // Reduced from 0.1 to 0.001 for long documents
+    issues.push("Document has extremely low character diversity, may contain repetitive artifacts");
   }
 
   // Check if content appears to be primarily non-text
@@ -205,11 +218,9 @@ function checkContentQuality(content: string, fileName: string): string[] {
     issues.push("Document contains only numbers or symbols, not meaningful text");
   }
 
-  // Enhanced quality checks
-  // Check if text is mostly special characters
   const letterRatio = letterCount / Math.max(1, content.length);
-  if (letterRatio < 0.15) { // Reduced threshold to be more lenient
-    issues.push("Document contains too many special characters and too few letters");
+  if (letterRatio < 0.05) { // Reduced from 0.15 to 0.05 for legal/technical docs
+    issues.push("Document contains excessively high special character density");
   }
 
   // Check for potential binary content by checking for null bytes or control characters
@@ -233,7 +244,7 @@ function checkContentQuality(content: string, fileName: string): string[] {
 
   // Check for content that might be machine-generated or not human-readable
   const avgWordLength = content.split(/\s+/).reduce((sum, word) => sum + word.length, 0) / Math.max(1, content.split(/\s+/).length);
-  if (avgWordLength > 20) { // Increased threshold from 15 to 20 to be more lenient
+  if (avgWordLength > 50) { // Increased from 20 to 50 for legal/technical docs
     issues.push("Document has unusually long average word length, may contain technical data or non-human text");
   }
 

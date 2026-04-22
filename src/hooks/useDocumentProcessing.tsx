@@ -16,11 +16,13 @@ export const useDocumentProcessing = () => {
       filePath,
       sourceType,
       notebookId,
+      content: providedContent,
     }: {
       sourceId: string;
       filePath: string;
       sourceType: string;
       notebookId?: string;
+      content?: string;
     }) => {
       console.log("🚀 Ultra-fast document processing for:", {
         sourceId,
@@ -41,15 +43,17 @@ export const useDocumentProcessing = () => {
         }
       };
 
-      let content = "";
+      let content = providedContent || "";
       let metadata: Record<string, unknown> = {};
 
-      // 1. Try to get source from local storage first (legacy/guest users)
-      const localSource = localStorageService.getSourceById(sourceId);
-      
-      if (localSource) {
-        content = localSource.content || "";
-        metadata = localSource.metadata || {};
+      // 1. Try to get source from local storage first if content wasn't provided
+      if (!content) {
+        const localSource = localStorageService.getSourceById(sourceId);
+        
+        if (localSource) {
+          content = localSource.content || "";
+          metadata = localSource.metadata || {};
+        }
       }
       
       // 2. If no local source, try to get it from the temporary file cache saved by useFileUpload

@@ -1,9 +1,11 @@
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
+import { generateSovereignHooks } from "../services/outreachService.js";
 import { dbHelpers } from "../db/database.js";
 import { authenticateToken } from "../middleware/auth.js";
 import { MemoryService } from "../services/memoryService.js";
 import { chatWithNotebook } from "../services/aiChatService.js";
+import { MasticationService } from "../services/masticationService.js";
 import { logger } from "../utils/logger.js";
 
 const router = express.Router();
@@ -19,12 +21,21 @@ router.use(authenticateToken);
  */
 router.get("/", async (req, res) => {
   try {
-    const notebooks = await dbHelpers.getNotebooksByUserId(req.user.userId);
+    const { include_contexts } = req.query;
+    let notebooks;
+    
+    if (include_contexts === 'true') {
+      notebooks = await dbHelpers.getNotebooksWithDeepContext(req.user.userId);
+    } else {
+      notebooks = await dbHelpers.getNotebooksByUserId(req.user.userId);
+    }
+
     notebooks.forEach(notebook => {
-      if (notebook.example_questions && typeof notebook.example_questions === 'string') {
-        try { notebook.example_questions = JSON.parse(notebook.example_questions); } catch (e) {}
+      if (notebook.exampleQuestions && typeof notebook.exampleQuestions === 'string') {
+        try { notebook.exampleQuestions = JSON.parse(notebook.exampleQuestions); } catch (e) {}
       }
     });
+    
     res.json(notebooks);
   } catch (error) {
     logger.error("List notebooks failed:", error.message);
@@ -58,12 +69,40 @@ router.post("/", async (req, res, next) => {
       }
     }
     
+    // Joint check compatible - returns based on owner/member status
     const notebook = await dbHelpers.getNotebookById(id, req.user.userId);
-    logger.debug(`Notebook processed: ${notebook ? notebook.id : "null"}`);
     res.status(201).json(notebook);
   } catch (error) {
     logger.error("Notebook creation failed:", error.message);
     next(error);
+  }
+});
+
+/**
+ * POST /api/notebooks/join
+ * Join a notebook using a shared join code
+ */
+router.post("/join", async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ error: "Join code is required" });
+    }
+
+    const notebook = await dbHelpers.joinNotebookByCode(req.user.userId, code.toUpperCase());
+    res.json({ 
+      message: "Joined notebook successfully", 
+      notebook: {
+        id: notebook.id,
+        title: notebook.title
+      }
+    });
+  } catch (error) {
+    if (error.message === "INVALID_JOIN_CODE") {
+      return res.status(404).json({ error: "Invalid or expired join code" });
+    }
+    logger.error("Join notebook failed:", error.message, error.stack);
+    res.status(500).json({ error: "Failed to join notebook", detail: error.message });
   }
 });
 
@@ -84,9 +123,13 @@ router.get("/:id", async (req, res) => {
     if (!notebook) {
       return res.status(404).json({ error: "Notebook not found" });
     }
-    // Parse example_questions if it exists and is a string
-    if (notebook.example_questions && typeof notebook.example_questions === 'string') {
-      try { notebook.example_questions = JSON.parse(notebook.example_questions); } catch (e) {}
+    // Parse exampleQuestions if it exists and is a string
+    if (notebook.exampleQuestions && typeof notebook.exampleQuestions === 'string') {
+      try {
+        notebook.exampleQuestions = JSON.parse(notebook.exampleQuestions);
+      } catch (e) {
+        console.error('Failed to parse example questions:', e);
+      }
     }
     res.json(notebook);
   } catch (error) {
@@ -105,11 +148,11 @@ router.put("/:id", async (req, res) => {
     const updates = {};
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
-    if (generation_status !== undefined) updates.generation_status = generation_status;
+    if (generation_status !== undefined) updates.generationStatus = generation_status;
     if (icon !== undefined) updates.icon = icon;
     
     if (example_questions !== undefined) {
-      updates.example_questions = Array.isArray(example_questions) 
+      updates.exampleQuestions = Array.isArray(example_questions) 
         ? JSON.stringify(example_questions) 
         : example_questions;
     }
@@ -136,9 +179,13 @@ router.put("/:id", async (req, res) => {
       return res.status(404).json({ error: "Notebook not found" });
     }
 
-    // Parse it back for the response
-    if (notebook.example_questions && typeof notebook.example_questions === 'string') {
-      try { notebook.example_questions = JSON.parse(notebook.example_questions); } catch (e) {}
+    // Parse it back for the response using the ORM key
+    if (notebook.exampleQuestions && typeof notebook.exampleQuestions === 'string') {
+      try {
+        notebook.exampleQuestions = JSON.parse(notebook.exampleQuestions);
+      } catch (e) {
+        console.error('Failed to parse example questions:', e);
+      }
     }
     
     res.json(notebook);
@@ -149,18 +196,39 @@ router.put("/:id", async (req, res) => {
 });
 
 /**
+ * DELETE /api/notebooks/batch
+ * Batch delete multiple notebooks
+ */
+router.delete("/batch", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "No notebook IDs provided" });
+    }
+    const result = await dbHelpers.batchDeleteNotebooks(ids, req.user.userId);
+    res.json({ message: `${result.changes} notebooks deleted successfully`, deletedCount: result.changes });
+  } catch (error) {
+    logger.error("Batch delete notebooks failed:", error.message);
+    res.status(500).json({ error: "Failed to batch delete notebooks" });
+  }
+});
+
+/**
  * DELETE /api/notebooks/:id
  * Delete a notebook
  */
 router.delete("/:id", async (req, res) => {
   try {
     const result = await dbHelpers.deleteNotebook(req.params.id, req.user.userId);
-    if (result.changes === 0) {
+    if (result.action === 'none') {
       return res.status(404).json({ error: "Notebook not found" });
     }
-    res.json({ message: "Notebook deleted successfully" });
+    const message = result.action === 'deleted' 
+      ? "Notebook deleted successfully" 
+      : "You have successfully left the notebook";
+    res.json({ message, action: result.action });
   } catch (error) {
-    console.error("Delete notebook error:", error);
+    logger.error("Delete notebook error:", error.message);
     res.status(500).json({ error: "Failed to delete notebook" });
   }
 });
@@ -368,7 +436,7 @@ router.post("/:id/sources", async (req, res) => {
     // Serialize metadata to JSON string for SQLite TEXT column
     const metadataStr = metadata ? (typeof metadata === 'string' ? metadata : JSON.stringify(metadata)) : null;
     
-    dbHelpers.createSource(id, req.params.id, req.user.userId, title, type, content, url, metadataStr, file_path, file_size);
+    await dbHelpers.createSource(id, req.params.id, req.user.userId, title, type, content, url, metadataStr, file_path, file_size);
     
     // If processing_status is provided and not default, update it immediately
     if (processing_status && processing_status !== 'pending') {
@@ -450,6 +518,48 @@ router.get("/:id/sources", async (req, res) => {
 });
 
 /**
+ * POST /api/notebooks/:id/sources/:sourceId/generate-hooks
+ * Generates viral outreach hooks from a source and persists as a note.
+ */
+router.post("/:id/sources/:sourceId/generate-hooks", async (req, res) => {
+  try {
+    const { id, sourceId } = req.params;
+    const userId = req.user.userId;
+
+    // 1. Verify access and fetch source
+    const sources = await dbHelpers.getSourcesByNotebookId(id, userId);
+    const source = sources.find(s => s.id === sourceId);
+    
+    if (!source) {
+      return res.status(404).json({ error: "Source not found or access denied" });
+    }
+
+    if (!source.content || source.content.length < 50) {
+      return res.status(400).json({ error: "Source content is too thin for high-quality signal generation." });
+    }
+
+    // 2. Generate Hooks
+    console.log(`🧬 [SOVEREIGN SIGNAL] Generating hooks for source: ${source.title}`);
+    const hooks = await generateSovereignHooks(source.content, source.title);
+
+    // 3. Persist as Note for later refinement (as requested by LO)
+    const noteContent = `# 🧬 Sovereign Signal: Social Hooks\n\n**Source:** ${source.title}\n\n## LinkedIn Strike\n${hooks.linkedin}\n\n## Reddit Thread-Starter\n${hooks.reddit}\n\n## Twitter/X Hook\n${hooks.twitter}\n\n--- \n*Generated by the Sovereign Signal Engine. Refine and strike.*`;
+    
+    const noteId = uuidv4();
+    await dbHelpers.createNote(noteId, id, userId, noteContent);
+
+    res.json({ 
+      hooks, 
+      noteId,
+      message: "Sovereign Signal generated and persisted as a note for later refinement." 
+    });
+  } catch (error) {
+    console.error("Signal generation error:", error);
+    res.status(500).json({ error: "Sovereign Signal failed", details: error.message });
+  }
+});
+
+/**
  * GET /api/notebooks/:id/messages
  * Get conversation history for a notebook
  */
@@ -507,6 +617,30 @@ router.get("/:id/context", async (req, res) => {
   } catch (error) {
     console.error("Get context error:", error);
     res.status(500).json({ error: "Failed to build context" });
+  }
+});
+
+/**
+ * POST /api/notebooks/:id/immerse
+ * Trigger the Mastication Loop for a specific source
+ */
+router.post("/:id/immerse", async (req, res) => {
+  try {
+    const { sourceId, agentId } = req.body;
+    const notebookId = req.params.id;
+    const userId = req.user.userId;
+
+    if (!sourceId) {
+      return res.status(400).json({ error: "sourceId is required" });
+    }
+
+    // Fire and forget (Background immersion)
+    MasticationService.immerseInSource(notebookId, userId, sourceId, agentId);
+
+    res.json({ message: "Immersion loop triggered in the background. Margin notes will appear as they generate." });
+  } catch (error) {
+    logger.error("Immersion trigger failed:", error.message);
+    res.status(500).json({ error: "Failed to trigger immersion" });
   }
 });
 
@@ -573,7 +707,8 @@ router.post("/:id/chat", async (req, res) => {
         groundedSources: chatResult.groundedSources,
         tokensUsed: chatResult.tokensUsed,
         messageId: aiMsgId,
-        noteId
+        noteId,
+        joinCode: notebook.joinCode // Proactively return join code so users can share it immediately after chat
       });
 
     } catch (aiError) {

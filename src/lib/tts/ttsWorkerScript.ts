@@ -69,11 +69,11 @@ async function initializeKokoro(): Promise<void> {
       percentage: 30,
     });
 
-    // Use fp32 for better quality - q8 can cause gibberish output
-    // Use wasm device for better compatibility
+    // Use q8 for faster loading and better memory efficiency on typical hardware
+    // wasm device is the most reliable fallback
     const options: { dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'; device: 'wasm' | 'webgpu' | 'cpu' } = {
-      dtype: 'fp32', // Full precision for better quality
-      device: 'wasm', // WASM is more reliable than WebGPU for now
+      dtype: 'q8', // Quantized for speed and reliability
+      device: 'wasm', 
     };
 
     postResponse({

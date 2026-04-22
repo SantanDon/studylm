@@ -1,7 +1,8 @@
 import jwt from 'jsonwebtoken';
 import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { dbHelpers, getDatabase } from '../db/database.js';
+import { dbHelpers, getDatabase, schema } from '../db/database.js';
+import { eq, asc } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -15,29 +16,44 @@ export function hashApiKey(rawKey) {
 
 export async function authenticateToken(req, res, next) {
    const authHeader = req.headers['authorization'];
-   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+   let token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+   
+   // If token is a cookie-sentinel, treat it as no token so the cookie fallback executes
+   const SENTINELS = ['COOKIE_SESSION', 'SESSION_MANAGED_BY_COOKIE', 'managed_by_cookie'];
+   if (SENTINELS.includes(token)) {
+     token = null;
+   }
+   
+   // Cookie fallback for Web App
+   if (!token && req.cookies && req.cookies.accessToken) {
+     token = req.cookies.accessToken;
+   }
  
    // ZERO-FRICTION DEV BYPASS:
-   // If running in development and requested via localhost, auto-login the primary user.
-   if (process.env.DEV_AUTO_LOGIN === 'true' && (req.hostname === 'localhost' || req.hostname === '127.0.0.1')) {
-     console.log('🛡️ [AUTH] Zero-Friction Dev Bypass active. Auto-login for localhost...');
-     // Attempt to get the first human user in the system (typically the developer)
+   // Only active in non-production environments for local development.
+   if (process.env.NODE_ENV !== 'production' && process.env.DEV_AUTO_LOGIN === 'true' && (req.hostname === 'localhost' || req.hostname === '127.0.0.1')) {
+     console.log('🛡️ [AUTH] Zero-Friction Dev Bypass active. Mapping to primary user...');
      try {
         const db = await getDatabase();
-        const result = await db.execute('SELECT id, email, display_name FROM users ORDER BY created_at ASC LIMIT 1');
-        const primaryUser = result.rows[0];
+        // Look for the first human user to recover existing notebooks
+        const result = await db.select().from(schema.users).where(eq(schema.users.accountType, 'human')).orderBy(asc(schema.users.createdAt)).limit(1);
+        let primaryUser = result[0];
         
-        if (primaryUser) {
-          req.user = { userId: primaryUser.id, email: primaryUser.email, displayName: primaryUser.display_name };
-          return next();
-        } else {
-          // Fallback if no users exist yet
-          req.user = { userId: 'dev-zero-friction', email: 'dev@studypod.local', displayName: 'Local Developer' };
-          return next();
+        if (!primaryUser) {
+          console.log('🛠️ [AUTH] No human users found. Auto-provisioning dev-zero-friction...');
+          const devId = 'dev-zero-friction';
+          const devEmail = 'dev@studypod.local';
+          await dbHelpers.createUser(devId, devEmail, 'DEV_PASSWORD_UNSET', 'Local Developer', 'human');
+          primaryUser = { id: devId, email: devEmail, displayName: 'Local Developer' };
         }
+        
+        req.user = { userId: primaryUser.id, email: primaryUser.email, displayName: primaryUser.displayName };
+        console.log(`✅ [AUTH] Zero-Friction success: Logged in as ${req.user.email} (${req.user.userId})`);
+        return next();
      } catch (dbError) {
-        console.warn('⚠️ [AUTH] Zero-Friction Bypass failed to query DB (Providing Mock User):', dbError.message);
-        req.user = { userId: 'dev-zero-friction', email: 'dev@studypod.local', displayName: 'Local Developer' };
+        console.error('❌ [AUTH] Zero-Friction Bypass failed critically:', dbError.message);
+        // We MUST NOT proceed with a 401 if we promised zero-friction
+        req.user = { userId: 'dev-recovery-emergency', email: 'recovery@studypod.local', displayName: 'Emergency Dev' };
         return next();
      }
    }

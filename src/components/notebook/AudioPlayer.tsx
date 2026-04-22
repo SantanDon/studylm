@@ -19,6 +19,7 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
+  FastForward,
 } from "lucide-react";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
 
@@ -63,13 +64,15 @@ const AudioPlayer = ({
     isDeleting,
     isDownloading,
     audioError,
-    autoRetryInProgress
+    autoRetryInProgress,
+    playbackRate
   } = state;
   const { audioRef } = refs;
   const {
     togglePlayPause,
     handleSeek,
     handleVolumeChange,
+    handlePlaybackRateChange,
     restart,
     retryLoad,
     downloadAudio,
@@ -190,6 +193,25 @@ const AudioPlayer = ({
               <Play className="h-4 w-4" />
             )}
           </Button>
+          
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-16 px-1 text-xs font-mono">
+                {playbackRate}x
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-20">
+              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                <DropdownMenuItem 
+                  key={rate} 
+                  onClick={() => handlePlaybackRateChange(rate)}
+                  className={playbackRate === rate ? "bg-accent" : ""}
+                >
+                  {rate}x
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Volume Control */}

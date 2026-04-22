@@ -28,7 +28,8 @@ router.get('/profile', async (req, res) => {
         avatarUrl: user.avatar_url,
         bio: user.bio,
         createdAt: user.created_at,
-        updatedAt: user.updated_at
+        updatedAt: user.updated_at,
+        twoFactorEnabled: !!user.two_factor_enabled
       },
       preferences,
       stats
@@ -64,7 +65,8 @@ router.put('/profile', async (req, res) => {
         displayName: user.display_name,
         avatarUrl: user.avatar_url,
         bio: user.bio,
-        updatedAt: user.updated_at
+        updatedAt: user.updated_at,
+        twoFactorEnabled: !!user.two_factor_enabled
       }
     });
   } catch (error) {

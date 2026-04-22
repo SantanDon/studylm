@@ -18,8 +18,6 @@ export interface LocalUser {
 }
 
 export interface LocalSession {
-  access_token: string;
-  refresh_token: string;
   user: LocalUser;
   expires_at: number;
 }

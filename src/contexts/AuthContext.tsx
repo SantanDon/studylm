@@ -31,6 +31,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [session, setSession] = useState<LocalSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
 
   const updateAuthState = useCallback(
     (newUser: LocalUser | null, newSession: LocalSession | null) => {
@@ -52,24 +54,28 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setError(null);
   }, []);
 
-  const signIn = (user: LocalUser, session: LocalSession) => {
-    console.log("AuthContext: Starting sign in process...", user.email);
-
+  const signIn = async (credentials: any) => {
+    console.log("AuthContext: Starting sign in process...");
+    setError(null);
     try {
-      localStorage.setItem("currentSession", JSON.stringify(session));
-      localStorageService.setCurrentUser(user);
-      updateAuthState(user, session);
-      console.log("AuthContext: Sign in successful for", user.email);
+      const data = await ApiService.signin(credentials);
+      
+      if (data.mfaRequired) {
+        setMfaRequired(true);
+        setMfaToken(data.mfaToken);
+        return;
+      }
+
+      signInWithCloud(data.user);
     } catch (err) {
       console.error("AuthContext: Sign in error:", err);
       setError(err instanceof Error ? err.message : "Sign in error");
     }
   };
 
-  const signInWithCloud = (userData: { id: string; email?: string; displayName?: string; account_type?: string; createdAt: string }, sessionData: { accessToken: string; refreshToken: string }) => {
+  const signInWithCloud = (userData: { id: string; email?: string; displayName?: string; account_type?: string; createdAt: string }) => {
     console.log("AuthContext: Cloud sign in successful", userData.displayName);
     const { setUnlockedOnly } = useEncryptionStore.getState();
-    const guestId = localStorage.getItem("guest_id");
     
     try {
       const mappedUser: LocalUser = {
@@ -80,10 +86,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         created_at: userData.createdAt
       };
 
+      // In cookie mode, we don't store tokens in LocalSession
       const mappedSession: LocalSession = {
-        access_token: sessionData.accessToken,
-        refresh_token: sessionData.refreshToken,
-        expires_at: Date.now() + 3600000, // 1 hour
+        access_token: "SESSION_MANAGED_BY_COOKIE",
+        refresh_token: "SESSION_MANAGED_BY_COOKIE",
+        expires_at: Date.now() + 3600000, // Placeholder
         user: mappedUser
       };
 
@@ -91,22 +98,42 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       localStorageService.setCurrentUser(mappedUser);
       setUnlockedOnly(userData.id);
       updateAuthState(mappedUser, mappedSession);
+      setMfaRequired(false);
+      setMfaToken(null);
 
-      // Trigger migration of Guest data to Cloud backend asynchronously
-      if (guestId) {
-        migrateLocalToCloud(guestId, sessionData.accessToken).catch(err => {
-          console.error("Local-to-Cloud migration failed:", err);
-        });
-      }
     } catch (err) {
       console.error("AuthContext: Cloud sign in mapping error:", err);
       setError("Cloud sign in failed");
     }
   };
 
+  const verifyMfa = async (code: string) => {
+    if (!mfaToken) {
+      setError("MFA session expired. Please sign in again.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await ApiService.mfaVerify(mfaToken, code);
+      signInWithCloud(data.user);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "MFA verification failed";
+      setError(msg);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const signOut = async () => {
     try {
       console.log("AuthContext: Starting logout process...");
+
+      // Call backend to clear cookies
+      await ApiService.signout().catch(err => console.warn("Signout request failed, continuing local clear", err));
 
       // Clear local storage
       localStorageService.setCurrentUser(null);
@@ -118,29 +145,51 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       console.log("AuthContext: Logout successful");
     } catch (err) {
       console.error("AuthContext: Unexpected logout error:", err);
-
-      // Even if there's an error, try to clear local session
-      try {
-        localStorageService.setCurrentUser(null);
-        localStorage.removeItem("currentSession");
-        clearAuthState();
-      } catch (localError) {
-        console.error(
-          "AuthContext: Failed to clear local session:",
-          localError,
-        );
-      }
+      // ... same cleanup
+      localStorageService.setCurrentUser(null);
+      localStorage.removeItem("currentSession");
+      clearAuthState();
     }
   };
 
   useEffect(() => {
     let mounted = true;
 
-    const initializeAuth = () => {
+    const initializeAuth = async () => {
       try {
         console.log("AuthContext: Initializing auth...");
 
-        // Get user from local storage
+        // In cookie mode, we verify by calling /api/user/profile
+        // This is safer than trusting localStorage
+        try {
+          const profileData = await ApiService.getUser("COOKIE_SESSION");
+          if (mounted && profileData.user) {
+            console.log("AuthContext: Verified session via cookie for", profileData.user.email);
+            
+            const mappedUser: LocalUser = {
+              id: profileData.user.id,
+              email: profileData.user.email,
+              displayName: profileData.user.displayName,
+              account_type: profileData.user.account_type || 'cloud',
+              created_at: profileData.user.createdAt
+            };
+
+            const mappedSession: LocalSession = {
+              access_token: "SESSION_MANAGED_BY_COOKIE",
+              refresh_token: "SESSION_MANAGED_BY_COOKIE",
+              expires_at: Date.now() + 3600000,
+              user: mappedUser
+            };
+
+            updateAuthState(mappedUser, mappedSession);
+            setLoading(false);
+            return;
+          }
+        } catch (authErr) {
+          console.warn("AuthContext: No active cookie session or verification failed", authErr);
+        }
+
+        // Fallback for Guest/Local only if no cookie session
         const currentUser = localStorageService.getCurrentUser();
         const sessionData = safeGetItem("currentSession");
 
@@ -148,23 +197,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           try {
             const session = safeParseJSON<LocalSession>(sessionData);
             if (mounted) {
-              console.log(
-                "AuthContext: Found existing session:",
-                currentUser.email,
-              );
+              console.log("AuthContext: Found existing local/guest session:", currentUser.email);
               updateAuthState(currentUser, session);
             }
           } catch (parseError) {
-            console.error("Error parsing session data:", parseError);
-            if (mounted) {
-              // Clear corrupted session data
-              localStorage.removeItem("currentSession");
-              updateAuthState(null, null);
-            }
+            console.error("Error parsing local session data:", parseError);
           }
-        } else if (mounted) {
-          console.log("AuthContext: No existing session found");
-          updateAuthState(null, null);
         }
 
         if (mounted) {
@@ -193,9 +231,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     loading,
     error,
     isAuthenticated: !!user && !!session,
+    mfaRequired,
+    mfaToken,
     signOut,
     signIn,
     signInWithCloud,
+    verifyMfa,
     recoverAccount: async (displayName: string, recoveryKey: string) => {
       setError(null);
       try {
@@ -210,9 +251,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setError(null);
       try {
         const data = await ApiService.resetPassphrase(resetToken, newPassphrase);
-        if (data.accessToken && data.refreshToken && data.user) {
+        if (data.user) {
           // Auto-login after reset
-          signInWithCloud(data.user, { accessToken: data.accessToken, refreshToken: data.refreshToken });
+          signInWithCloud(data.user);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Reset failed";

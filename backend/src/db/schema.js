@@ -15,6 +15,8 @@ export const users = sqliteTable('users', {
     emailConsent: integer('email_consent', { mode: 'boolean' }).default(false),
     emailConsentAt: integer('email_consent_at', { mode: 'timestamp' }),
     recoveryHash: text('recovery_hash'),
+    twoFactorSecret: text('two_factor_secret'),
+    twoFactorEnabled: integer('two_factor_enabled', { mode: 'boolean' }).default(false),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
@@ -42,8 +44,8 @@ export const notebookMembers = sqliteTable('notebook_members', {
     id: text('id').primaryKey(),
     notebookId: text('notebook_id').notNull().references(() => notebooks.id, { onDelete: 'cascade' }),
     userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    role: text('role', { enum: ['owner', 'editor', 'viewer'] }).default('viewer'),
-    joinedAt: integer('joined_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+    role: text('role').default('viewer'),
+    joinedAt: integer('joined_at'),
 });
 export const sources = sqliteTable('sources', {
     id: text('id').primaryKey(),
@@ -96,6 +98,29 @@ export const sync_data = sqliteTable('sync_data', {
   encryptedData: text('encrypted_data').notNull(),
   checksum: text('checksum').notNull(),
   version: integer('version').default(1),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+// RAIPH LOOP INJECTIONS: TAGS AND TASKS
+export const tags = sqliteTable('tags', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  notebookId: text('notebook_id').references(() => notebooks.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  color: text('color').default('#6366f1'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const tasks = sqliteTable('tasks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  notebookId: text('notebook_id').notNull().references(() => notebooks.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').references(() => sources.id, { onDelete: 'set null' }),
+  content: text('content').notNull(),
+  status: text('status', { enum: ['pending', 'completed'] }).default('pending'),
+  priority: text('priority', { enum: ['low', 'medium', 'high'] }).default('medium'),
+  dueDate: integer('due_date', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 export default async (req, res) => {
   try {
     const rootDir = process.cwd();
-    const serverPath = path.resolve(rootDir, 'api/_backend/server.js');
+    const serverPath = path.resolve(rootDir, 'backend/src/server.js');
     
     if (!fs.existsSync(serverPath)) {
       return res.status(500).json({

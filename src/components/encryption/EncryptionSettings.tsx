@@ -11,6 +11,7 @@ import { SyncStatus } from './SyncStatus';
 import { SelectiveSync } from './SelectiveSync';
 import { DataExport } from './DataExport';
 import { SecurityLogs } from './SecurityLogs';
+import { MfaSettings } from './MfaSettings';
 import { DeveloperSettings } from '../settings/DeveloperSettings';
 import { Shield, Cloud, Download, ScrollText, Code2 } from 'lucide-react';
 
@@ -27,10 +28,14 @@ export function EncryptionSettings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="sync" className="flex items-center gap-2">
             <Cloud className="w-4 h-4" />
             <span className="hidden sm:inline">Sync</span>
+          </TabsTrigger>
+          <TabsTrigger value="security" className="flex items-center gap-2">
+            <Shield className="w-4 h-4" />
+            <span className="hidden sm:inline">Security</span>
           </TabsTrigger>
           <TabsTrigger value="selective" className="flex items-center gap-2">
             <Shield className="w-4 h-4" />
@@ -62,6 +67,10 @@ export function EncryptionSettings() {
               <SyncStatus />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="security" className="space-y-6">
+          <MfaSettings />
         </TabsContent>
 
         <TabsContent value="selective" className="space-y-6">

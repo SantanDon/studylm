@@ -28,7 +28,9 @@ export function errorHandler(err, req, res, _next) {
 
   const statusCode = err.statusCode || 500;
   const code = err.code || 'INTERNAL_ERROR';
-  const message = statusCode < 500 ? err.message : 'Internal Server Error';
+  
+  // STABILITY PATCH v8: Unmask internal errors for bridge transparency
+  const message = err.message || 'Internal Server Error';
 
   // Log 5xx errors with full stack for debugging
   if (statusCode >= 500) {
@@ -38,6 +40,10 @@ export function errorHandler(err, req, res, _next) {
   res.status(statusCode).json({
     error: message,
     code,
-    details: statusCode >= 500 ? { originalMessage: err.message, stack: err.stack } : err.details
+    details: { 
+      originalMessage: err.message, 
+      stack: statusCode >= 500 ? err.stack : undefined,
+      isInternal: statusCode >= 500
+    }
   });
 }

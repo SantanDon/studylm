@@ -14,11 +14,6 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
  */
 async function handleResponse(response: Response) {
   if (response.status === 401 || response.status === 403) {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('currentSession');
-      localStorage.removeItem('users');
-      window.location.href = '/';
-    }
     throw new Error('Authentication expired or invalid. Please sign in again.');
   }
   if (!response.ok) {
@@ -40,6 +35,7 @@ export const ApiService = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(credentials),
+      credentials: 'include'
     });
 
     if (!response.ok) {
@@ -55,6 +51,7 @@ export const ApiService = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(credentials),
+      credentials: 'include'
     });
 
     if (!response.ok) {
@@ -117,16 +114,62 @@ export const ApiService = {
     return response.json();
   },
 
+  async signout(): Promise<void> {
+    await fetch(`${API_BASE_URL}/auth/signout`, { method: 'POST', credentials: 'include' });
+  },
+
+  // --- MFA Endpoints ---
+  async mfaSetup(token: string): Promise<{ secret: string; qrCode: string; message: string }> {
+    const response = await fetch(`${API_BASE_URL}/auth/mfa/setup`, { 
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async mfaEnable(code: string, token: string): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/auth/mfa/enable`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async mfaVerify(mfaToken: string, code: string): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/auth/mfa/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mfaToken, code }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async mfaDisable(code: string, token: string): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/auth/mfa/disable`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
   async getUser(token: string) {
     const response = await fetch(`${API_BASE_URL}/user/profile`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     return handleResponse(response);
   },
 
   async fetchNotebooks(token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     return handleResponse(response);
   },
@@ -135,7 +178,8 @@ export const ApiService = {
     const response = await fetch(`${API_BASE_URL}/notebooks`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, description, id })
+      body: JSON.stringify({ title, description, id }),
+      credentials: 'include'
     });
     return handleResponse(response);
   },
@@ -144,7 +188,8 @@ export const ApiService = {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates)
+      body: JSON.stringify(updates),
+      credentials: 'include'
     });
     return handleResponse(response);
   },
@@ -152,21 +197,37 @@ export const ApiService = {
   async deleteNotebook(notebookId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async batchDeleteNotebooks(ids: string[], token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/batch`, {
+      method: 'DELETE',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ids }),
+      credentials: 'include'
     });
     return handleResponse(response);
   },
 
   async fetchNotes(notebookId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/notes`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     return handleResponse(response);
   },
 
   async fetchSources(notebookId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/sources`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     return handleResponse(response);
   },
@@ -175,7 +236,8 @@ export const ApiService = {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/sources`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(sourceData)
+      body: JSON.stringify(sourceData),
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to create source');
     return response.json();
@@ -185,7 +247,8 @@ export const ApiService = {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/sources/${sourceId}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates)
+      body: JSON.stringify(updates),
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to update source');
     return response.json();
@@ -194,7 +257,8 @@ export const ApiService = {
   async deleteSource(notebookId: string, sourceId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/sources/${sourceId}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to delete source');
     return response.json();
@@ -205,7 +269,8 @@ export const ApiService = {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/notes`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content })
+      body: JSON.stringify({ content }),
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to create note');
     return response.json();
@@ -216,7 +281,8 @@ export const ApiService = {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/notes/${noteId}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content })
+      body: JSON.stringify({ content }),
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to update note');
     return response.json();
@@ -224,7 +290,8 @@ export const ApiService = {
 
   async getChatMessages(notebookId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/messages`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to fetch chat messages');
     return response.json();
@@ -234,7 +301,8 @@ export const ApiService = {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/chat`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      credentials: 'include'
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -248,7 +316,8 @@ export const ApiService = {
   async deleteNote(notebookId: string, noteId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/notes/${noteId}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to delete note');
     return response.json();
@@ -257,7 +326,8 @@ export const ApiService = {
   /** Retrieves pending agent uploads for the front-end to process */
   async getPendingAgentUploads(notebookId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/agent/pending-uploads?notebookId=${notebookId}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to fetch pending agent uploads');
     return response.json();
@@ -267,7 +337,8 @@ export const ApiService = {
   async deleteAgentUpload(uploadId: string, token: string) {
     const response = await fetch(`${API_BASE_URL}/agent/upload/${uploadId}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to delete pending agent upload');
     return response.json();
@@ -276,10 +347,64 @@ export const ApiService = {
   /** Downloads the raw Agent file as a Blob */
   async downloadAgentUpload(uploadId: string, token: string): Promise<Blob> {
     const response = await fetch(`${API_BASE_URL}/agent/download/${uploadId}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to download pending agent upload');
     return response.blob();
+  },
+
+  // Sovereign Startup Injections (RALPH LOOP 2)
+  async globalSearch(query: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async fetchTasks(notebookId: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/tasks/${notebookId}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async createTask(notebookId: string, content: string, priority: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/tasks`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notebookId, content, priority }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async generateSignal(notebookId: string, sourceId: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/signal/generate`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ notebookId, sourceId }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async syncToMemory(notebookId: string, sourceId: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/signal/memory-sync`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ notebookId, sourceId }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
   }
 };
 

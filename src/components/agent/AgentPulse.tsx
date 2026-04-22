@@ -16,7 +16,16 @@ export const AgentPulse: React.FC<AgentPulseProps> = ({ notebookId }) => {
   const [status, setStatus] = useState<string>("standby");
 
   useEffect(() => {
+    if (!notebookId) return;
+
     try {
+      // Safety check: is the document even ready?
+      const doc = (syncManager as any).docs?.get(notebookId);
+      if (!doc) {
+        console.log(`[AgentPulse] Waiting for notebook doc: ${notebookId}`);
+        return;
+      }
+
       const agentState = syncManager.getAgentState(notebookId);
       
       // Initial state

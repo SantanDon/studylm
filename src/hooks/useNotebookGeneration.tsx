@@ -191,8 +191,8 @@ export const useNotebookGeneration = () => {
                 {
                   role: 'system',
                   content: hasExtractionError 
-                    ? 'This source had content extraction errors. Provide a generic description related to the source type.' 
-                    : 'Generate a brief 1-sentence description of this content. Be concise.',
+                    ? 'This source had content extraction errors. Provide a generic description related to the source type. MUST NOT INCLUDE prefixes like "Here is a description:". OUTPUT EXACTLY the description ONLY.' 
+                    : 'Generate a brief 1-sentence description of this content. ABSOLUTELY NO CONVERSATIONAL FILLER. Do not include prefixes like "Here is a..." or "This content is...". JUST output the raw description sentence itself.',
                 },
                 {
                   role: 'user',

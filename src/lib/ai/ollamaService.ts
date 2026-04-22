@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Enhanced Ollama Service with Ultra-Fast Processing
  *
  * Features:
@@ -11,7 +11,7 @@
  */
 
 import { generateText, generateTextToString, listModels } from "./ollamaClient";
-import { DOCUMENT_PROMPTS, formatPrompt } from "@/config/prompts";
+import { DOCUMENT_PROMPTS, formatPrompt, IMMERSIVE_PROMPTS } from "@/config/prompts";
 import { getModelForTask } from "@/config/ollamaModels";
 import { isOllamaEnabled } from "@/config/ollamaConfig";
 import { generateGroqResponse, generateVoyageEmbeddings as voyageFallback } from "./cloudClient";

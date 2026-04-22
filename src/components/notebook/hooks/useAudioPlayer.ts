@@ -33,6 +33,7 @@ export function useAudioPlayer({
   const [audioError, setAudioError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [autoRetryInProgress, setAutoRetryInProgress] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const audioRef = useRef<HTMLAudioElement>(null);
   const { toast } = useToast();
 
@@ -93,6 +94,19 @@ export function useAudioPlayer({
       setAudioError(null);
       setRetryCount(0);
       setAutoRetryInProgress(false);
+      
+      // Persistence: Restore position on first load
+      if (notebookId && audio.currentTime === 0) {
+        const savedTime = localStorage.getItem(`podcast_pos_${notebookId}`);
+        if (savedTime) {
+          const time = parseFloat(savedTime);
+          if (time > 0 && time < audio.duration - 5) {
+            audio.currentTime = time;
+            setCurrentTime(time);
+            console.log(`🎙️ Resumed podcast for ${notebookId} at ${time}s`);
+          }
+        }
+      }
     };
 
     const handleLoadStart = () => {
@@ -100,6 +114,13 @@ export function useAudioPlayer({
         setLoading(true);
       }
     };
+
+    // Persistence: Save position every 5 seconds
+    const persistenceInterval = setInterval(() => {
+        if (notebookId && audio.currentTime > 0) {
+            localStorage.setItem(`podcast_pos_${notebookId}`, audio.currentTime.toString());
+        }
+    }, 5000);
 
     audio.addEventListener("timeupdate", updateTime);
     audio.addEventListener("loadedmetadata", updateDuration);
@@ -109,6 +130,7 @@ export function useAudioPlayer({
     audio.addEventListener("error", handleError);
 
     return () => {
+      clearInterval(persistenceInterval);
       audio.removeEventListener("timeupdate", updateTime);
       audio.removeEventListener("loadedmetadata", updateDuration);
       audio.removeEventListener("canplay", handleCanPlay);
@@ -176,6 +198,16 @@ export function useAudioPlayer({
 
     audio.currentTime = 0;
     setCurrentTime(0);
+    if (notebookId) {
+        localStorage.removeItem(`podcast_pos_${notebookId}`);
+    }
+  };
+
+  const handlePlaybackRateChange = (rate: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.playbackRate = rate;
+    setPlaybackRate(rate);
   };
 
   const retryLoad = () => {
@@ -284,13 +316,15 @@ export function useAudioPlayer({
       isDeleting,
       isDownloading,
       audioError,
-      autoRetryInProgress
+      autoRetryInProgress,
+      playbackRate
     },
     refs: { audioRef },
     handlers: {
       togglePlayPause,
       handleSeek,
       handleVolumeChange,
+      handlePlaybackRateChange,
       restart,
       retryLoad,
       downloadAudio,

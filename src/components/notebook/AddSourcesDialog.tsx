@@ -120,14 +120,14 @@ const AddSourcesDialog = ({
                   </p>
                 </div>
                 <p className="text-xs text-gray-500">
-                  Supported file types: PDF, txt, Markdown, Audio (e.g. mp3)
+                  Supported file types: PDF, Images (JPG, PNG, WebP), txt, Markdown, Audio
                 </p>
                 <input
                   id="file-upload"
                   type="file"
                   multiple
                   className="hidden"
-                  accept=".pdf,.txt,.md,.mp3,.wav,.m4a"
+                  accept=".pdf,.txt,.md,.mp3,.wav,.m4a,.jpg,.jpeg,.png,.webp"
                   onChange={handleFileSelect}
                   disabled={isProcessingFiles}
                 />
@@ -165,14 +165,30 @@ const AddSourcesDialog = ({
 
             {/* Additional Options Row */}
             <div className="grid grid-cols-1 gap-4 mt-4">
-              <Button
+              {/* Image Upload Vaulted until extraction pipeline is stable */}
+              {/* <Button
                 variant="outline"
                 className="h-auto p-4 flex flex-col items-center space-y-2"
+                onClick={() => document.getElementById("file-upload")?.click()}
+                disabled={isProcessingFiles}
+              >
+                <div className="w-6 h-6 flex items-center justify-center">
+                  <i className="fi fi-rr-picture h-6 w-6 text-blue-600"></i>
+                </div>
+                <span className="font-medium">Image</span>
+                <span className="text-sm text-gray-500">
+                  Photos, charts, diagrams
+                </span>
+              </Button> */}
+
+              <Button
+                variant="outline"
+                className="h-auto p-4 flex flex-col items-center space-y-2 w-full"
                 onClick={() => setShowYouTubeDialog(true)}
                 disabled={isProcessingFiles}
               >
                 <div className="w-6 h-6 flex items-center justify-center">
-                    <i className="fi fi-rr-youtube h-6 w-6 text-red-600"></i>
+                    <i className="fi fi-brands-youtube h-6 w-6 text-red-600"></i>
                 </div>
                 <span className="font-medium">YouTube Video</span>
                 <span className="text-sm text-gray-500">

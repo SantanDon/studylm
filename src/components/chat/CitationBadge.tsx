@@ -53,7 +53,7 @@ export const CitationBadge = ({
       {showTooltip && citation && (
         <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 z-50 pointer-events-none">
           <div className="bg-gray-900 text-white text-xs rounded-lg shadow-xl px-3 py-2 whitespace-nowrap max-w-xs">
-            <div className="font-medium truncate">{citation.source_title}</div>
+              <div className="font-medium truncate">{citation?.source_title || 'Unknown Source'}</div>
             {citation.chunk_lines_from && citation.chunk_lines_to && (
               <div className="text-gray-300 mt-0.5">
                 Lines {citation.chunk_lines_from}-{citation.chunk_lines_to}

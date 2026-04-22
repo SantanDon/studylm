@@ -10,8 +10,33 @@ import {
   hashApiKey,
 } from "../middleware/auth.js";
 import crypto, { randomBytes } from "crypto";
-import emailValidator from "deep-email-validator";
 import { AppError } from "../middleware/errorHandler.js";
+import * as otplib from 'otplib';
+const { authenticator } = otplib;
+import QRCode from 'qrcode';
+import jwt from 'jsonwebtoken';
+
+// Encryption for MFA secrets
+const MFA_ENCRYPTION_KEY = process.env.JWT_SECRET?.substring(0, 32).padEnd(32, '0');
+const encryptSecret = (text) => {
+  if (!text) return null;
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(MFA_ENCRYPTION_KEY), iv);
+  let encrypted = cipher.update(text);
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
+};
+
+const decryptSecret = (text) => {
+  if (!text) return null;
+  const textParts = text.split(':');
+  const iv = Buffer.from(textParts.shift(), 'hex');
+  const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(MFA_ENCRYPTION_KEY), iv);
+  let decrypted = decipher.update(encryptedText);
+  decrypted = Buffer.concat([decrypted, decipher.final()]);
+  return decrypted.toString();
+};
 
 const router = express.Router();
 
@@ -109,20 +134,13 @@ router.post("/signup", async (req, res, next) => {
       throw new AppError(400, 'USER_EXISTS', 'User already exists');
     }
 
-    // Real-time email validation bypassing Resend link confirmation
+    // Simple regex validation to replace problematic deep-email-validator
     if (!isVerified && !isLocalMode) {
-      const validationResult = await emailValidator.validate({
-        email: finalEmail,
-        validateRegex: true,
-        validateMx: true,
-        validateTypo: true,
-        validateDisposable: true,
-        validateSMTP: false // Disable SMTP to prevent Vercel Serverless timeout rejections on valid emails
-      });
-      if (!validationResult.valid) {
-        throw new AppError(400, 'INVALID_EMAIL', `Email address is unreachable or invalid: ${validationResult.reason}`);
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(finalEmail)) {
+        throw new AppError(400, 'INVALID_EMAIL', 'Email address is invalid');
       }
-      isVerified = 1; // Instant automated verification upon successful MX/SMTP lookup
+      isVerified = 1; // Instant automated verification
     }
 
     // Hash password
@@ -154,6 +172,17 @@ router.post("/signup", async (req, res, next) => {
     if (isVerified) {
       const accessToken = generateToken(userId, finalEmail);
       const refreshToken = generateRefreshToken(userId, finalEmail);
+
+      const cookieOptions = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      };
+
+      res.cookie('accessToken', accessToken, cookieOptions);
+      res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 * 1000 });
+
       return res.status(201).json({
         message: "User created and instantly verified",
         user: {
@@ -166,8 +195,6 @@ router.post("/signup", async (req, res, next) => {
         },
         preferences,
         stats,
-        accessToken,
-        refreshToken,
       });
     }
 
@@ -221,10 +248,37 @@ router.post("/signin", async (req, res, next) => {
       throw new AppError(400, 'MISSING_CREDENTIALS', 'Missing required credentials');
     }
 
+    // Check MFA requirement
+    if (user.twoFactorEnabled) {
+      console.log("--> MFA REQUIRED for user", user.id);
+      // Generate a short-lived pre-auth token (5 minutes)
+      const mfaToken = jwt.sign(
+        { userId: user.id, purpose: 'mfa_verification' },
+        process.env.JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+
+      return res.json({
+        mfaRequired: true,
+        mfaToken,
+        message: "MFA code required"
+      });
+    }
+
     console.log("--> Generating tokens for", user.email);
     // Generate tokens
     const accessToken = generateToken(user.id, user.email);
     const refreshToken = generateRefreshToken(user.id, user.email);
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    };
+
+    res.cookie('accessToken', accessToken, cookieOptions);
+    res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 * 1000 });
 
     console.log("--> Getting preferences and stats...");
     // Get user preferences and stats
@@ -244,9 +298,148 @@ router.post("/signin", async (req, res, next) => {
       },
       preferences,
       stats,
-      accessToken,
-      refreshToken,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// MFA Endpoints
+router.post("/mfa/setup", authenticateToken, async (req, res, next) => {
+  try {
+    const user = await dbHelpers.getUserById(req.user.userId);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    if (user.twoFactorEnabled) {
+      throw new AppError(400, 'MFA_ALREADY_ENABLED', 'MFA is already enabled');
+    }
+
+    const secret = authenticator.generateSecret();
+    const otpauth = authenticator.keyuri(user.email, 'StudyPod', secret);
+    const qrCode = await QRCode.toDataURL(otpauth);
+
+    // Save encrypted secret to database
+    await dbHelpers.updateUser(user.id, { twoFactorSecret: encryptSecret(secret) });
+
+    res.json({
+      secret,
+      qrCode,
+      message: "Scan this QR code with your authenticator app"
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/mfa/enable", authenticateToken, async (req, res, next) => {
+  try {
+    const { code } = req.body;
+    if (!code) throw new AppError(400, 'CODE_REQUIRED', 'MFA code is required');
+
+    const user = await dbHelpers.getUserById(req.user.userId);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+    if (!user.twoFactorSecret) throw new AppError(400, 'MFA_NOT_SETUP', 'MFA has not been set up');
+
+    const isValid = authenticator.verify({
+      token: code,
+      secret: decryptSecret(user.twoFactorSecret)
+    });
+
+    if (!isValid) {
+      throw new AppError(400, 'INVALID_MFA_CODE', 'Invalid MFA code');
+    }
+
+    await dbHelpers.updateUser(user.id, { twoFactorEnabled: true });
+
+    res.json({ message: "MFA enabled successfully" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/mfa/verify", async (req, res, next) => {
+  try {
+    const { mfaToken, code } = req.body;
+    if (!mfaToken || !code) throw new AppError(400, 'INVALID_PAYLOAD', 'MFA token and code required');
+
+    let decoded;
+    try {
+      decoded = jwt.verify(mfaToken, process.env.JWT_SECRET);
+    } catch (err) {
+      throw new AppError(401, 'MFA_TOKEN_EXPIRED', 'MFA session has expired');
+    }
+
+    if (decoded.purpose !== 'mfa_verification') {
+      throw new AppError(401, 'INVALID_MFA_TOKEN', 'Invalid MFA session');
+    }
+
+    const user = await dbHelpers.getUserById(decoded.userId);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    const isValid = authenticator.verify({
+      token: code,
+      secret: decryptSecret(user.twoFactorSecret)
+    });
+
+    if (!isValid) {
+      throw new AppError(401, 'INVALID_MFA_CODE', 'Invalid MFA code');
+    }
+
+    // Success! Issue full tokens
+    const accessToken = generateToken(user.id, user.email);
+    const refreshToken = generateRefreshToken(user.id, user.email);
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    };
+
+    res.cookie('accessToken', accessToken, cookieOptions);
+    res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 * 1000 });
+
+    const preferences = await dbHelpers.getUserPreferences(user.id);
+    const stats = await dbHelpers.getUserStats(user.id);
+
+    res.json({
+      message: "MFA verification successful",
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        bio: user.bio,
+        createdAt: user.createdAt,
+      },
+      preferences,
+      stats,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/mfa/disable", authenticateToken, async (req, res, next) => {
+  try {
+    const { code } = req.body;
+    if (!code) throw new AppError(400, 'CODE_REQUIRED', 'MFA code required');
+
+    const user = await dbHelpers.getUserById(req.user.userId);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    const isValid = authenticator.verify({
+      token: code,
+      secret: decryptSecret(user.twoFactorSecret)
+    });
+
+    if (!isValid) {
+      throw new AppError(400, 'INVALID_MFA_CODE', 'Invalid MFA code');
+    }
+
+    await dbHelpers.updateUser(user.id, { twoFactorEnabled: false, twoFactorSecret: null });
+
+    res.json({ message: "MFA disabled successfully" });
   } catch (error) {
     next(error);
   }
@@ -274,17 +467,28 @@ router.post("/refresh", async (req, res, next) => {
     const accessToken = generateToken(user.id, user.email);
     const newRefreshToken = generateRefreshToken(user.id, user.email);
 
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    };
+
+    res.cookie('accessToken', accessToken, cookieOptions);
+    res.cookie('refreshToken', newRefreshToken, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 * 1000 });
+
     res.json({
-      accessToken,
-      refreshToken: newRefreshToken,
+      success: true,
     });
   } catch (error) {
     next(error);
   }
 });
 
-// Sign Out (client-side only, but endpoint for consistency)
+// Sign Out
 router.post("/signout", (req, res) => {
+  res.clearCookie('accessToken');
+  res.clearCookie('refreshToken');
   res.json({ message: "Signed out successfully" });
 });
 

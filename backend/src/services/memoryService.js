@@ -16,8 +16,8 @@ async function getPipeline() {
     console.log('[MemoryEngine] Booting @xenova/transformers pipeline (Local)...');
     try {
       const { pipeline: transformersPipeline, env } = await import('@xenova/transformers');
-      // Use local files instead of attempting browser-cache on server
-      env.cacheDir = './.cache/transformers';
+      // Use /tmp for serverless environments (Vercel is read-only elsewhere)
+      env.cacheDir = process.env.VERCEL ? '/tmp/transformers' : './.cache/transformers';
       pipeline = await transformersPipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
         quantized: true // Use INT8 quantization for speed on VPS/Vercel
       });

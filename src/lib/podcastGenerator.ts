@@ -1,14 +1,16 @@
-﻿import { chatCompletion } from "@/lib/ai/ollamaService";
+import { chatCompletion } from "@/lib/ai/ollamaService";
 import { getModelForTask } from "@/config/ollamaModels";
 
-// Host names for the podcast
+// Host names for the podcast - initialized with defaults, but will be overridden by store
 export const HOST_NAMES = {
   host1: "Alex",
   host2: "Sarah",
 };
 
+export type PodcastType = 'brief' | 'standard' | 'deep-dive';
+
 export interface PodcastSegment {
-  speaker: "Alex" | "Sarah";
+  speaker: string; // Dynamic host name
   text: string;
 }
 
@@ -16,42 +18,49 @@ export interface PodcastScript {
   title: string;
   segments: PodcastSegment[];
   estimatedDuration?: number; // in seconds
+  metadata?: {
+    host1Name: string;
+    host2Name: string;
+    type: PodcastType;
+  };
 }
 
 // Target: 7-10 minutes = 420-600 seconds
 // Average speaking rate: ~150 words per minute = 2.5 words per second
 // So we need: 1050-1500 words total, or about 50-75 segments of 15-25 words each
 
-const PODCAST_SYSTEM_PROMPT = `You are an expert podcast script writer creating an educational, engaging conversation between two hosts about the provided content.
+function getSystemPrompt(host1: string, host2: string, type: PodcastType): string {
+  const lengthTargets = {
+    'brief': { time: '2-3 minutes', segments: '10-15', exchanges: '10-15' },
+    'standard': { time: '7-10 minutes', segments: '40-60', exchanges: '40-60' },
+    'deep-dive': { time: '15-20 minutes', segments: '80-120', exchanges: '80-120' },
+  };
+
+  const target = lengthTargets[type];
+
+  return `You are an expert podcast script writer creating an educational, engaging conversation between two hosts about the provided content.
 
 HOSTS:
-- Alex (male): The knowledgeable main host who explains concepts clearly and thoroughly. He breaks down complex ideas, provides examples, and shares insights.
-- Sarah (female): The curious, relatable co-host who asks thoughtful questions, seeks clarification, relates topics to real-world applications, and keeps the conversation engaging.
+- ${host1} (Host 1): The knowledgeable main host who explains concepts clearly and thoroughly. 
+- ${host2} (Host 2): The curious, relatable co-host who asks thoughtful questions and relates topics to real-world applications.
 
 YOUR TASK:
-Create a detailed, informative podcast script that thoroughly covers the source material. The podcast should be 7-10 minutes long when spoken aloud.
+Create a detailed, informative podcast script that thoroughly covers the source material. The podcast should be ${target.time} long.
 
 CRITICAL REQUIREMENTS:
-1. Generate 40-60 dialogue exchanges (segments) between Alex and Sarah
+1. Generate ${target.segments} dialogue exchanges (segments) between ${host1} and ${host2}
 2. Each segment should be 2-4 sentences (20-40 words)
 3. Cover ALL key points from the source material
-4. Expand on ideas with examples, analogies, and explanations
-5. Include natural conversation flow with questions, reactions, and transitions
+4. Use the specific names "${host1}" and "${host2}" for the speakers
+5. Return ONLY valid JSON in the specified format
 
-STRUCTURE:
-- Opening (3-4 exchanges): Warm welcome, introduce the topic excitingly
-- Main Content (30-45 exchanges): Deep dive into the material, explain concepts, discuss implications
-- Key Insights (5-8 exchanges): Highlight the most important takeaways
-- Closing (3-4 exchanges): Summarize, thank listeners, tease future content
+${host1} and ${host2} should ALWAYS prioritize and emphasize any specific points mentioned in the "USER'S NOTES" section if provided. These notes represent the focus of the study session.
 
-OUTPUT FORMAT - Return ONLY valid JSON:
-{"title":"Episode Title","segments":[{"speaker":"Alex","text":"..."},{"speaker":"Sarah","text":"..."}]}
+OUTPUT FORMAT:
+{"title":"Episode Title","segments":[{"speaker":"${host1}","text":"..."},{"speaker":"${host2}","text":"..."}]}
 
-IMPORTANT: 
-- Do NOT use markdown formatting
-- Do NOT include any text before or after the JSON
-- Make the conversation feel natural and educational
-- Each speaker turn should be substantive, not just "Yes" or "Right"`;
+IMPORTANT: Ensure the tone matches the identities of ${host1} and ${host2}. If the content is complex, have ${host2} ask for analogies.`;
+}
 
 /**
  * Extract key topics and concepts from content for better podcast generation
@@ -94,10 +103,18 @@ function extractKeyTopics(content: string): string[] {
  */
 export async function generatePodcastScript(
   content: string,
-  modelName?: string,
-  userNotes?: string
+  options?: {
+    modelName?: string;
+    userNotes?: string;
+    host1Name?: string;
+    host2Name?: string;
+    type?: PodcastType;
+  }
 ): Promise<PodcastScript> {
-  const model = modelName || getModelForTask("chat");
+  const model = options?.modelName || getModelForTask("chat");
+  const host1Name = options?.host1Name || "Alex";
+  const host2Name = options?.host2Name || "Sarah";
+  const podcastType = options?.type || "standard";
   
   // Use more content for better context (up to 12000 chars)
   const truncatedContent = content.substring(0, 12000);
@@ -116,24 +133,24 @@ KEY TOPICS TO COVER:
 ${keyTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}`;
   }
 
-  if (userNotes) {
+  if (options?.userNotes) {
     userPrompt += `
 
 USER'S NOTES (emphasize these points):
-${userNotes.substring(0, 2000)}`;
+${options.userNotes.substring(0, 2000)}`;
   }
 
   userPrompt += `
 
-Remember: Generate 40-60 exchanges, each 2-4 sentences long. Return ONLY the JSON object.`;
+Remember: Generate dialogue exchanges according to the requested style: ${podcastType}. Use the names ${host1Name} and ${host2Name}. Return ONLY the JSON object.`;
 
   try {
-    console.log("🎙️ Generating comprehensive podcast script...");
+    console.log(`🎙️ Generating ${podcastType} podcast script for ${host1Name} & ${host2Name}...`);
     console.log(`📊 Content length: ${truncatedContent.length} chars, ${keyTopics.length} key topics`);
 
     const response = await chatCompletion({
       messages: [
-        { role: "system", content: PODCAST_SYSTEM_PROMPT },
+        { role: "system", content: getSystemPrompt(host1Name, host2Name, podcastType) },
         { role: "user", content: userPrompt },
       ],
       model,

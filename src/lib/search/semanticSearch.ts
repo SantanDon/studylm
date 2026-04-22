@@ -650,14 +650,14 @@ async function searchSources(
         }
       }
 
-      console.log(
-        `🔤 Keyword score for "${source.title}": ${score.toFixed(3)}`,
-      );
-
-      if (score >= (options.minScore || 0.05)) { // Lowered threshold for keyword search too
-        console.log(
-          `✨ Adding "${source.title}" via keyword search (score: ${score.toFixed(3)})`,
-        );
+      const effectiveMinScore = isSemanticDisabled ? 0.001 : (options.minScore || 0.02);
+      
+      if (score >= effectiveMinScore) {
+        if (isSemanticDisabled) {
+          console.log(`✨ Adding "${source.title}" via aggressive keyword fallback (score: ${score.toFixed(3)})`);
+        } else {
+          console.log(`✨ Adding "${source.title}" via keyword search (score: ${score.toFixed(3)})`);
+        }
         results.push({
           id: source.id,
           type: "source",

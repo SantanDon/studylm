@@ -96,7 +96,7 @@ export async function generateVoyageEmbeddings(text: string, model: string = "vo
 
   if (healthyKeys.length === 0) {
      if (attempt === 0) {
-         console.warn(`🛑 All ${farmKeys.length} Voyage AI keys are currently exhausted (429). Falling back to keyword search for this query.`);
+         console.warn(`🛑 VOYAGE EXHAUSTED: All ${farmKeys.length} keys hit rate limits (429). Check your .env file or VITE_VOYAGE_API_KEYS. Falling back to keyword search for this query.`);
      }
      return [];
   }

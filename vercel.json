@@ -21,12 +21,14 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.js"
+      "destination": "/api/[...route].js"
     }
   ],
   "functions": {
     "api/**/*.js": {
       "includeFiles": "backend/**"
     }
-  }
+  },
+  "outputDirectory": "dist",
+  "installCommand": "npm install"
 }

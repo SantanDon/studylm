@@ -52,14 +52,21 @@ export function useAddSourcesHandlers(
 
       const processFileAsync = async (file: File, sourceId: string, notebookId: string) => {
         try {
-          const fileType = file.type.includes("pdf") ? "pdf" : file.type.includes("audio") ? "audio" : "text";
+          const fileType = file.type.includes("pdf") ? "pdf" : file.type.includes("audio") ? "audio" : file.type.includes("image") ? "image" : "text";
 
           updateSource({ sourceId, updates: { processing_status: "uploading" } });
 
-          const filePath = await uploadFile(file, notebookId, sourceId);
-          if (!filePath) throw new Error("File upload failed - no file path returned");
+          const uploadResult = await uploadFile(file, notebookId, sourceId);
+          
+          if (!uploadResult || !uploadResult.success) {
+            const errorContext = uploadResult?.error || 'File upload failed - no result returned by hook';
+            console.error(`[SourcePipeline] Upload failed for ${file.name}:`, errorContext);
+            throw new Error(`Upload Error: ${errorContext}`);
+          }
 
-          updateSource({ sourceId, updates: { file_path: filePath, processing_status: "processing" } });
+          const { filePath, content } = uploadResult;
+
+          updateSource({ sourceId, updates: { file_path: filePath, processing_status: "processing", content } });
 
           try {
             await processDocumentAsync({ sourceId, filePath, sourceType: fileType, notebookId });
@@ -88,12 +95,12 @@ export function useAddSourcesHandlers(
 
       try {
         const firstFile = files[0];
-        const firstFileType = firstFile.type.includes("pdf") ? "pdf" : firstFile.type.includes("audio") ? "audio" : "text";
+        const firstFileType = firstFile.type.includes("pdf") ? "pdf" : firstFile.type.includes("audio") ? "audio" : firstFile.type.includes("image") ? "image" : "text";
         
         const firstSource = await addSourceAsync({
           notebookId,
           title: firstFile.name,
-          type: firstFileType as "pdf" | "text" | "website" | "youtube" | "audio",
+          type: firstFileType as "pdf" | "text" | "website" | "youtube" | "audio" | "image",
           file_size: firstFile.size,
           processing_status: "pending",
           metadata: { fileName: firstFile.name, fileType: firstFile.type },
@@ -106,11 +113,11 @@ export function useAddSourcesHandlers(
           await new Promise((resolve) => setTimeout(resolve, 150));
           remainingSources = await Promise.all(
             files.slice(1).map(async (file) => {
-              const fileType = file.type.includes("pdf") ? "pdf" : file.type.includes("audio") ? "audio" : "text";
+              const fileType = file.type.includes("pdf") ? "pdf" : file.type.includes("audio") ? "audio" : file.type.includes("image") ? "image" : "text";
               return await addSourceAsync({
                 notebookId,
                 title: file.name,
-                type: fileType as "pdf" | "text" | "website" | "youtube" | "audio",
+                type: fileType as "pdf" | "text" | "website" | "youtube" | "audio" | "image",
                 file_size: file.size,
                 processing_status: "pending",
                 metadata: { fileName: file.name, fileType: file.type },

@@ -37,16 +37,16 @@ export const useChatMessages = (notebookId?: string) => {
           // Cloud account - fetch from backend API
           const dbMessages = await ApiService.getChatMessages(notebookId, session.access_token);
           
-          expandedMessages = dbMessages.map((msg: { id: string; notebook_id: string; role: string; content: string; created_at: string; sources?: string }) => ({
+          expandedMessages = dbMessages.map((msg: any) => ({
             id: msg.id,
-            notebook_id: msg.notebook_id,
+            notebook_id: msg.notebookId || msg.notebook_id,
             message: { 
               type: msg.role === 'user' ? 'human' : 'ai', 
               content: msg.content 
             },
-            created_at: msg.created_at,
+            created_at: msg.createdAt || msg.created_at,
             // Add sources if we implement citation support in backend later
-            sources: msg.sources ? JSON.parse(msg.sources) : undefined
+            sources: msg.groundedSources ? (typeof msg.groundedSources === 'string' ? JSON.parse(msg.groundedSources) : msg.groundedSources) : undefined
           }));
         } else {
           // Guest account - fetch from localStorage

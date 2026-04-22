@@ -44,10 +44,10 @@ export const notebooks = sqliteTable('notebooks', {
 
 export const notebookMembers = sqliteTable('notebook_members', {
   id: text('id').primaryKey(),
-  notebookId: text('notebook_id').notNull().references(() => notebooks.id, { onDelete: 'cascade' }),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  role: text('role', { enum: ['owner', 'editor', 'viewer'] }).default('viewer'),
-  joinedAt: integer('joined_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  notebookId: text('notebook_id').notNull(),
+  userId: text('user_id').notNull(),
+  role: text('role').default('viewer'),
+  joinedAt: integer('joined_at'),
 });
 
 export const sources = sqliteTable('sources', {

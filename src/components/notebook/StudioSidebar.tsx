@@ -7,6 +7,7 @@ import { Note } from '@/hooks/useNotes';
 import { useStudioSidebar } from './hooks/useStudioSidebar';
 import NoteEditor from './NoteEditor';
 import PodcastView from './PodcastView';
+import TaskPulse from './TaskPulse';
 import FlashcardDeckComponent from './FlashcardDeck';
 import ConceptMapView from './ConceptMapView';
 import SourceComparisonView from './SourceComparisonView';
@@ -104,6 +105,11 @@ const StudioSidebar = ({
         {/* Audio Overview */}
         <div className="mb-6">
           {notebookId && <PodcastView notebookId={notebookId} />}
+        </div>
+
+        {/* Actionable Tasks (RALPH LOOP 2) */}
+        <div className="mb-6">
+          {notebookId && <TaskPulse notebookId={notebookId} />}
         </div>
 
         {/* Notes Section */}

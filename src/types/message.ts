@@ -1,6 +1,7 @@
 export interface MessageSegment {
   text: string;
   citation_id?: number;
+  type?: 'text' | 'fragment';
 }
 
 export type ChatRole = "system" | "user" | "assistant";
@@ -15,6 +16,9 @@ export interface Citation {
   chunk_lines_to?: number;
   chunk_index?: number;
   excerpt?: string;
+  prefetched_content?: string;
+  neural_observation?: string;
+  pathway?: any;
 }
 
 /**

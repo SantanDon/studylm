@@ -32,7 +32,18 @@ export const useSources = (notebookId?: string) => {
       
       if (session?.access_token) {
         console.log("useSources: Fetching from cloud...");
-        sources = await ApiService.fetchSources(notebookId, session.access_token);
+        const rawSources = await ApiService.fetchSources(notebookId, session.access_token);
+        // Map Drizzle camelCase to Supabase-style snake_case the frontend expects
+        sources = rawSources.map((s: any) => ({
+          ...s,
+          created_at: s.createdAt || s.created_at,
+          updated_at: s.updatedAt || s.updated_at,
+          file_path: s.filePath || s.file_path,
+          file_size: s.fileSize || s.file_size,
+          processing_status: s.processingStatus || s.processing_status,
+          notebook_id: s.notebookId || s.notebook_id,
+          user_id: s.userId || s.user_id,
+        }));
       } else {
         console.log("useSources: Fetching from local storage...");
         sources = await localStorageService.getSources(notebookId) as Source[];
@@ -45,6 +56,7 @@ export const useSources = (notebookId?: string) => {
       );
     },
     enabled: !!notebookId,
+    refetchInterval: isAuthenticated ? 5000 : false,
   });
 
   // Refresh sources when notebook or user changes
@@ -61,7 +73,7 @@ export const useSources = (notebookId?: string) => {
     mutationFn: async (sourceData: {
       notebookId: string;
       title: string;
-      type: "pdf" | "text" | "website" | "youtube" | "audio";
+      type: "pdf" | "text" | "website" | "youtube" | "audio" | "image";
       content?: string;
       url?: string;
       file_path?: string;
@@ -85,7 +97,7 @@ export const useSources = (notebookId?: string) => {
         const apiPayload = {
           id: newId,
           title,
-          type: sourceData.type,
+          type: sourceData.type as "pdf" | "text" | "website" | "youtube" | "audio" | "image",
           content: sourceData.content,
           url: sourceData.url,
           file_path: sourceData.file_path,
@@ -152,9 +164,13 @@ export const useSources = (notebookId?: string) => {
           if (canGenerate) {
             try {
               // Mark as generating so UI shows spinner
-              localStorageService.updateNotebook(notebookId, {
-                generation_status: "processing",
-              });
+              if (session?.access_token) {
+                await ApiService.updateNotebook(notebookId, { generation_status: "processing" }, session.access_token);
+              } else {
+                localStorageService.updateNotebook(notebookId, {
+                  generation_status: "processing",
+                });
+              }
               // Invalidate notebook query to show generating state
               queryClient.invalidateQueries({ queryKey: ["notebooks"] });
 
@@ -166,9 +182,13 @@ export const useSources = (notebookId?: string) => {
             } catch (error) {
               console.error("Failed to generate notebook content:", error);
               // Still mark as completed on error so UI isn't stuck
-              localStorageService.updateNotebook(notebookId, {
-                generation_status: "completed",
-              });
+              if (session?.access_token) {
+                await ApiService.updateNotebook(notebookId, { generation_status: "completed" }, session.access_token).catch(() => {});
+              } else {
+                localStorageService.updateNotebook(notebookId, {
+                  generation_status: "completed",
+                });
+              }
             }
           } else {
             console.log(
@@ -239,9 +259,13 @@ export const useSources = (notebookId?: string) => {
 
           try {
             // Mark as generating so UI shows spinner
-            localStorageService.updateNotebook(notebookId, {
-              generation_status: "processing",
-            });
+            if (session?.access_token) {
+              await ApiService.updateNotebook(notebookId, { generation_status: "processing" }, session.access_token);
+            } else {
+              localStorageService.updateNotebook(notebookId, {
+                generation_status: "processing",
+              });
+            }
             queryClient.invalidateQueries({ queryKey: ["notebooks"] });
 
             await generateNotebookContentAsync({
@@ -252,9 +276,13 @@ export const useSources = (notebookId?: string) => {
           } catch (error) {
             console.error("Failed to generate notebook content:", error);
             // Still mark as completed on error so UI isn't stuck
-            localStorageService.updateNotebook(notebookId, {
-              generation_status: "completed",
-            });
+            if (session?.access_token) {
+              await ApiService.updateNotebook(notebookId, { generation_status: "completed" }, session.access_token).catch(() => {});
+            } else {
+              localStorageService.updateNotebook(notebookId, {
+                generation_status: "completed",
+              });
+            }
           }
         }
       }

@@ -1,97 +1,76 @@
 import express from 'express';
 import multer from 'multer';
-import path from 'path';
-import { promises as fs } from 'fs';
-import pdfParse from 'pdf-parse';
 import { AppError } from '../middleware/errorHandler.js';
 
+// STABILITY PATCH v7: pdf-parse PURGED. 
+// This library causes fatal "DOMMatrix is not defined" errors in Node/Vercel.
+// We are temporarily disabling PDF parsing to ensure entire API bridge stability.
+
 const router = express.Router();
-
-// Configure multer for memory storage (Serverless Safe)
 const storage = multer.memoryStorage();
-
 const upload = multer({ 
   storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  },
-  fileFilter: function (req, file, cb) {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are allowed'));
-    }
+  limits: { fileSize: 50 * 1024 * 1024 }, // Increased to 50MB for Study Guides
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Only PDF files are allowed'));
   }
 });
 
-// PDF processing endpoint
+import geminiPool from '../services/geminiPool.js';
+
 router.post('/process-pdf', upload.single('file'), async (req, res, next) => {
-    if (!req.file) {
-      return next(new AppError(400, 'NO_FILE_UPLOADED', 'No file uploaded'));
-    }
-
   try {
-    // Parse the PDF to extract text directly from memory buffer
-    const pdfData = await pdfParse(req.file.buffer);
+    if (!req.file) throw new AppError(400, 'NO_FILE', 'No file uploaded');
 
-    // Create chunks for better processing
-    const chunks = createChunks(pdfData.text, 1000);
+    console.log(`[VaultVision] Processing PDF: ${req.file.originalname} (${req.file.size} bytes)`);
 
-    res.json({
-      success: true,
-      content: pdfData.text,
-      chunks: chunks,
-      metadata: {
-        pageCount: pdfData.numpages || 0,
-        wordCount: pdfData.text.split(/\s+/).filter(word => word.length > 0).length,
-        charCount: pdfData.text.length,
-        extractionMethod: 'server-pdf-parse'
-      }
-    });
+    // ── Step 1: Multimodal Extraction via Gemini 1.5 Flash ───────────────────
+    console.log(`[VaultVision] Requesting Gemini Multimodal Extraction for ${req.file.originalname}`);
+    
+    const prompt = [
+      {
+        inlineData: {
+          data: req.file.buffer.toString('base64'),
+          mimeType: 'application/pdf'
+        }
+      },
+      { text: "ACT AS A RESEARCH SCRIBE. EXTRACT THE FULL CONTENT OF THIS PDF SOURCE INTO CLEAN, STRUCTURAL MARKDOWN. PRESERVE TABLES, HEADERS, AND HIERARCHY. IF IT IS A SCANNED DOCUMENT, PERFORM HIGH-FIDELITY OCR. DO NOT SUMMARIZE; EXTRACT ALL RELEVANT KNOWLEDGE." }
+    ];
+
+    try {
+      const result = await geminiPool.generateContent(
+        'gemini-1.5-flash',
+        prompt,
+        "You are a Sovereign Research Scribe. Your task is to transcribe documents with perfect fidelity into markdown format."
+      );
+
+      console.log(`[VaultVision] Successfully extracted ${result.text?.length || 0} characters using Gemini.`);
+
+      res.json({
+        success: true,
+        content: result.text,
+        metadata: {
+          method: 'vault-vision-multimodal',
+          fileName: req.file.originalname,
+          usage: result.usageMetadata
+        }
+      });
+    } catch (geminiError) {
+      console.error('[VaultVision] Gemini Pool Failure:', geminiError.message);
+      // Fallback: Return success false with a clear reason so the frontend can handle local extraction gracefully
+      return res.status(200).json({
+        success: false,
+        error: 'VaultVision extraction failed',
+        reason: geminiError.message,
+        method: 'vault-vision-failed'
+      });
+    }
 
   } catch (error) {
-    console.error('PDF processing error:', error);
-    if (error instanceof AppError) {
-      return next(error);
-    }
-    return next(new AppError(500, 'PDF_PROCESSING_FAILED', error.message));
+    console.error('[VaultVision] PDF Extract Route Error:', error);
+    next(error instanceof AppError ? error : new AppError(500, 'PDF_EXTRACTION_FAILED', error.message));
   }
 });
 
-/**
- * Create chunks of text for better processing and search
- */
-function createChunks(text, maxChunkSize = 1000) {
-  if (text.length <= maxChunkSize) {
-    return [text];
-  }
-
-  const chunks = [];
-  const paragraphs = text.split(/\n\s*\n/);
-
-  let currentChunk = '';
-
-  for (const paragraph of paragraphs) {
-    if (currentChunk.length + paragraph.length > maxChunkSize && currentChunk.length > 0) {
-      chunks.push(currentChunk.trim());
-      currentChunk = paragraph + '\n\n';
-    } else {
-      currentChunk += paragraph + '\n\n';
-    }
-  }
-
-  if (currentChunk.trim().length > 0) {
-    chunks.push(currentChunk.trim());
-  }
-
-  // If no chunks were created, split by character count
-  if (chunks.length === 0) {
-    for (let i = 0; i < text.length; i += maxChunkSize) {
-      chunks.push(text.substring(i, Math.min(i + maxChunkSize, text.length)));
-    }
-  }
-
-  return chunks;
-}
-
-export default router;
+export default router;

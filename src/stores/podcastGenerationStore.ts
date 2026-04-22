@@ -18,6 +18,11 @@ interface PodcastGenerationState {
   progress: StreamingProgress | null;
   script: PodcastScript | null;
   
+  // Customization state
+  host1Name: string;
+  host2Name: string;
+  podcastType: 'brief' | 'standard' | 'deep-dive';
+  
   // Audio state
   audioUrl: string | null;
   partialAudioUrls: string[];
@@ -27,10 +32,12 @@ interface PodcastGenerationState {
   notebookId: string | null;
   
   // Actions
-  startGeneration: (notebookId: string, script: PodcastScript) => void;
+  startGeneration: (notebookId: string, script: PodcastScript, options?: { host1Name?: string, host2Name?: string, type?: 'brief' | 'standard' | 'deep-dive' }) => void;
   updateProgress: (progress: StreamingProgress) => void;
   setAudioReady: (audioUrls: string[]) => void;
   setFinalAudio: (audioUrl: string) => void;
+  saveIntermediateState: () => void;
+  rehydrateState: (notebookId: string) => boolean;
   cancelGeneration: () => void;
   reset: () => void;
 }
@@ -40,17 +47,23 @@ export const usePodcastGenerationStore = create<PodcastGenerationState>((set, ge
   isGenerating: false,
   progress: null,
   script: null,
+  host1Name: 'Alex',
+  host2Name: 'Sarah',
+  podcastType: 'standard',
   audioUrl: null,
   partialAudioUrls: [],
   canPlayPartial: false,
   notebookId: null,
 
   // Start generation
-  startGeneration: (notebookId, script) => {
+  startGeneration: (notebookId, script, options) => {
     set({
       isGenerating: true,
       notebookId,
       script,
+      host1Name: options?.host1Name || 'Alex',
+      host2Name: options?.host2Name || 'Sarah',
+      podcastType: options?.type || 'standard',
       audioUrl: null,
       partialAudioUrls: [],
       canPlayPartial: false,
@@ -63,6 +76,9 @@ export const usePodcastGenerationStore = create<PodcastGenerationState>((set, ge
         canPlay: false,
       },
     });
+    
+    // Save initial state to localStorage to prevent loss on refresh
+    get().saveIntermediateState();
   },
 
   // Update progress
@@ -92,6 +108,63 @@ export const usePodcastGenerationStore = create<PodcastGenerationState>((set, ge
       audioUrl,
       isGenerating: false,
     });
+    // Final clear of intermediate state as it's now in history
+    localStorage.removeItem(`active_podcast_${get().notebookId}`);
+  },
+
+  // Rehydrate state from localStorage
+  rehydrateState: (notebookId) => {
+    const saved = localStorage.getItem(`active_podcast_${notebookId}`);
+    if (!saved) return false;
+
+    try {
+      const data = JSON.parse(saved);
+      // Only rehydrate if it was recent (within 30 mins)
+      if (Date.now() - data.timestamp > 30 * 60 * 1000) {
+        localStorage.removeItem(`active_podcast_${notebookId}`);
+        return false;
+      }
+
+      set({
+        isGenerating: true,
+        notebookId: data.notebookId,
+        script: data.script,
+        host1Name: data.host1Name || 'Alex',
+        host2Name: data.host2Name || 'Sarah',
+        podcastType: data.podcastType || 'standard',
+        partialAudioUrls: data.partialAudioUrls || [],
+        progress: {
+          phase: 'generating',
+          currentSegment: data.partialAudioUrls?.length || 0,
+          totalSegments: data.script?.segments.length || 0,
+          percentage: Math.round(((data.partialAudioUrls?.length || 0) / (data.script?.segments.length || 1)) * 100),
+          message: 'Recovering session...',
+          canPlay: data.partialAudioUrls?.length > 0,
+        }
+      });
+      return true;
+    } catch (e) {
+      console.error('Failed to rehydrate podcast state:', e);
+      return false;
+    }
+  },
+
+  // Save state to localStorage for persistence across reloads/crashes
+  saveIntermediateState: () => {
+    const state = get();
+    if (!state.notebookId || !state.isGenerating) return;
+
+    const data = {
+      notebookId: state.notebookId,
+      script: state.script,
+      host1Name: state.host1Name,
+      host2Name: state.host2Name,
+      podcastType: state.podcastType,
+      partialAudioUrls: state.partialAudioUrls,
+      timestamp: Date.now(),
+    };
+
+    localStorage.setItem(`active_podcast_${state.notebookId}`, JSON.stringify(data));
   },
 
   // Cancel generation

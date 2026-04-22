@@ -261,16 +261,12 @@ export async function extractContent(file: File): Promise<ExtractionResult> {
       return await extractHTML(file);
     }
 
-    // Plain text (default)
-    if (
-      fileType === "text/plain" ||
-      fileType === "text/markdown" ||
-      fileName.endsWith(".txt") ||
-      fileName.endsWith(".md") ||
-      fileName.endsWith(".json") ||
-      fileName.endsWith(".xml")
-    ) {
-      return await extractText(file);
+    // Images
+    if (fileType.startsWith("image/") || fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || fileName.endsWith(".png") || fileName.endsWith(".webp")) {
+      return {
+        content: "Processing image content...",
+        metadata: { wordCount: 0, charCount: 0, extractionMethod: "image-ready" }
+      };
     }
 
     // Fallback: try as text
@@ -492,7 +488,7 @@ export function getFileCategory(file: File): string {
   )
     return "spreadsheet";
   if (fileName.endsWith(".html") || fileName.endsWith(".htm")) return "html";
-  if (fileName.endsWith(".md")) return "markdown";
+  if (fileType.startsWith("image/") || fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || fileName.endsWith(".png") || fileName.endsWith(".webp")) return "image";
 
   return "text";
 }

@@ -1,9 +1,9 @@
 import React from 'react';
-import { MessageSegment, Citation } from '@/types/message';
 import CitationButton from './CitationButton';
-import { CitationBadge } from './CitationBadge';
+import LiquidCitation from './LiquidCitation';
 
 const CITATION_MARKER_PATTERN = /\[(\d+)\]/g;
+const FRAGMENT_PATTERN = /\[FRAGMENT:\s*(.*?)\]([\s\S]*?)(?=\[FRAGMENT:|$)/g;
 
 export const processInlineMarkdown = (text: string) => {
   const parts = text.split(/(\*\*.*?\*\*|__.*?__)/g);
@@ -75,18 +75,11 @@ export const processTextWithMarkdownAndCitations = (
         );
         
         return (
-          <CitationBadge
+          <LiquidCitation
             key={`${lineIndex}-${partIndex}-citation`}
             index={citationIndex}
-            citation={citation}
-            isHovered={hoveredCitation === citationIndex}
-            onClick={() => {
-              if (citation && onCitationClick) {
-                onCitationClick(citation);
-              }
-            }}
-            onMouseEnter={() => onHover?.(citationIndex)}
-            onMouseLeave={() => onHover?.(null)}
+            citation={citation!}
+            triggerType="hover"
           />
         );
       } else {
@@ -165,66 +158,6 @@ export const processMarkdownWithCitations = (
           continue;
         }
 
-        // Updated Heading detection: ## or ###
-        if (/^#{1,3}\s+/.test(line)) {
-          const level = line.match(/^#+/)?.[0].length || 2;
-          const headingText = line.replace(/^#+\s+/, '');
-          const Tag = level === 1 ? 'h2' : level === 2 ? 'h3' : 'h4';
-          const className = level === 1 
-            ? "font-bold text-lg text-gray-900 mt-2 mb-1" 
-            : level === 2 
-              ? "font-bold text-base text-gray-900 mt-2 mb-1" 
-              : "font-semibold text-sm text-gray-900 mt-1 mb-1";
-          
-          elements.push(
-            <Tag key={`${segmentIndex}-${blockIndex}-${i}`} className={className}>
-              {processTextWithMarkdownAndCitations(headingText, citations, onCitationClick, hoveredCitation, onHover)}
-            </Tag>
-          );
-          i++;
-          continue;
-        }
-        
-        // Bullet list detection: - or *
-        if (/^[-*](\s+|$)/.test(line)) {
-          const listItems: JSX.Element[] = [];
-          while (i < lines.length && /^[-*](\s+|$)/.test(lines[i].trim())) {
-            const itemText = lines[i].trim().replace(/^[-*]\s*/, '');
-            listItems.push(
-              <li key={`li-${i}`} className="mb-0.5 leading-relaxed text-gray-700">
-                {processTextWithMarkdownAndCitations(itemText, citations, onCitationClick, hoveredCitation, onHover)}
-              </li>
-            );
-            i++;
-          }
-          elements.push(
-            <ul key={`${segmentIndex}-${blockIndex}-ul-${i}`} className="list-disc pl-5 my-1 space-y-0 text-gray-800">
-              {listItems}
-            </ul>
-          );
-          continue;
-        }
-        
-        // Numbered list detection: 1. 2. etc.
-        if (/^\d+[.)]\s*/.test(line)) {
-          const listItems: JSX.Element[] = [];
-          while (i < lines.length && /^\d+[.)]\s*/.test(lines[i].trim())) {
-            const itemText = lines[i].trim().replace(/^\d+[.)]\s*/, '');
-            listItems.push(
-              <li key={`li-${i}`} className="mb-0.5 leading-relaxed text-gray-700">
-                {processTextWithMarkdownAndCitations(itemText, citations, onCitationClick, hoveredCitation, onHover)}
-              </li>
-            );
-            i++;
-          }
-          elements.push(
-            <ol key={`${segmentIndex}-${blockIndex}-ol-${i}`} className="list-decimal pl-5 my-1 space-y-0 text-gray-800">
-              {listItems}
-            </ol>
-          );
-          continue;
-        }
-        
         // Regular paragraph
         if (line.length > 0) {
           const processedContent = processTextWithMarkdownAndCitations(
@@ -282,18 +215,11 @@ export const renderTextWithCitationMarkers = (
     );
     
     parts.push(
-      <CitationBadge
+      <LiquidCitation
         key={`citation-${match.index}`}
         index={citationIndex}
-        citation={citation}
-        isHovered={hoveredCitation === citationIndex}
-        onClick={() => {
-          if (citation && onCitationClick) {
-            onCitationClick(citation);
-          }
-        }}
-        onMouseEnter={() => onHover?.(citationIndex)}
-        onMouseLeave={() => onHover?.(null)}
+        citation={citation!}
+        triggerType="hover"
       />
     );
     

@@ -75,6 +75,41 @@ export const useFileUpload = () => {
           }
         }
 
+        // 1b. If it's an image and user is authenticated, use Gemini Vision extraction
+        const isImage = file.type.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(fileExtension.toLowerCase());
+        if (isImage && session?.access_token) {
+          console.log("🔄 Attempting server-side image extraction (Vision)...");
+          try {
+            const formData = new FormData();
+            formData.append("image", file);
+
+            const backendUrl = import.meta.env.VITE_BACKEND_URL || "";
+            const response = await fetch(`${backendUrl}/api/images/extract-image`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${session.access_token}` },
+              body: formData,
+            });
+
+            if (response.ok) {
+              const result = await response.json();
+              if (result.success && result.content) {
+                console.log(`✅ Server-side Vision extraction successful: ${result.content.length} chars`);
+                content = result.content;
+                metadata = {
+                  ...metadata,
+                  extractionMethod: "vault-vision-image",
+                  ...result.metadata
+                };
+                serverExtractionSuccess = true;
+              }
+            } else {
+              console.warn(`Server-side image extraction returned ${response.status}`);
+            }
+          } catch (serverErr) {
+            console.error("Server-side image extraction failed:", serverErr);
+          }
+        }
+
         // 2. If server extraction wasn't attempted or failed, try client-side
         if (!serverExtractionSuccess) {
           console.log("🔄 Attempting client-side extraction...");
@@ -84,12 +119,17 @@ export const useFileUpload = () => {
           chunks = extractionResult.chunks || [];
 
           // Check if the content is actually an error message from the client extractor
-          if (content && (
-              content.toLowerCase().includes("server error") ||
-              content.toLowerCase().includes("pdf processing error") ||
-              content.toLowerCase().includes("failed") ||
-              content.toLowerCase().includes("unable to extract text from"))) {
-            
+          // We look for common error phrases but only if the content is suspiciously short
+          // This prevents legitimate legal documents (which contain "failure" or "failed") from being blocked.
+          const isProbablyAnError = content && content.length < 300 && (
+            content.toLowerCase().includes("server error") ||
+            content.toLowerCase().includes("pdf processing error") ||
+            content.toLowerCase().includes("extraction failed") ||
+            content.toLowerCase().includes("unable to extract text from") ||
+            content.toLowerCase().includes("failed to process")
+          );
+
+          if (isProbablyAnError) {
             toast({
               title: "Extraction Error",
               description: `Failed to extract content from ${file.name}. The file may be password-protected, encrypted, or corrupted.`,
@@ -101,15 +141,21 @@ export const useFileUpload = () => {
             console.log(`📦 Created ${chunks.length} chunks for better search`);
           }
         }
-      } catch (extractionError) {
-        console.error("⚠️ Content extraction failed:", extractionError);
+      } catch (extractionError: any) {
+        console.error("⚠️ Content extraction failed detail:", {
+          message: extractionError.message,
+          stack: extractionError.stack,
+          raw: extractionError
+        });
         throw extractionError;
       }
 
       // Validate extracted content using comprehensive validation
       // If this is a PDF file, we may need to be more lenient with certain formatting artifacts
       const isPdfFile = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const isImageFile = file.type.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(fileExtension.toLowerCase());
       const validation = await validateDocumentContent(content, file.name);
+      console.log(`[Validator] Final result for ${file.name}:`, validation);
 
       if (!validation.isValid) {
         console.error(`❌ Content validation failed for file: ${file.name}`, validation.issues);
@@ -135,32 +181,38 @@ export const useFileUpload = () => {
             issue.includes("encoded data")
           );
 
-          // If this is a PDF file, filter out formatting-specific issues since
-          // PDF conversion can introduce these artifacts
-          if (isPdfFile) {
-            const formattingIssues = ["excessive length", "average word length", "special characters"];
+          // If this is a PDF file or an Image, be extremely lenient with formatting-related issues 
+          // since conversion often introduces artifacts that shouldn't block ingestion
+          if (isPdfFile || isImageFile) {
+            const formattingIssues = ["excessive length", "average word length", "special characters", "low character diversity", "no content"];
             criticalIssues = criticalIssues.filter(issue =>
               !formattingIssues.some(formatIssue => issue.includes(formatIssue))
             );
+            
+            console.log(`[useFileUpload] PDF/Image detected. Filtered ${validation.issues.length - criticalIssues.length} formatting artifacts. Remaining critical issues: ${criticalIssues.length}`);
           }
 
           if (criticalIssues.length > 0) {
-            // If there are serious readability issues, fail the upload
-            console.error(`❌ Content has serious readability issues for file: ${file.name}`, criticalIssues);
+            // If there are still serious structural issues (like binary or encoded junk), fail the upload
+            console.error(`❌ Content has serious structural issues for file: ${file.name}`, criticalIssues);
             toast({
               title: "Content Quality Error",
-              description: `Content from ${file.name} has serious readability issues: ${criticalIssues.join('; ')}. ${validation.suggestions[0] || 'The file may not contain readable text.'}`,
+              description: `Content from ${file.name} has serious structural issues: ${criticalIssues.join('; ')}.`,
               variant: "destructive",
             });
             throw new Error(`Content quality issues for ${file.name}: ${criticalIssues.join(', ')}`);
           } else {
-            // For less serious quality issues (especially for PDFs), warn but continue
-            console.warn(`⚠️ Content quality issues detected for file: ${file.name}`, validation.issues);
-            toast({
-              title: "Content Quality Warning",
-              description: `Content extracted from ${file.name} has quality issues: ${validation.issues.join(', ')}. ${validation.suggestions[0] || ''}`,
-              variant: "destructive",
-            });
+            // If the only issues left are "non-critical" or filtered formatting artifacts, warn but continue
+            console.warn(`⚠️ Content quality warnings detected (continuing) for: ${file.name}`, validation.issues);
+            
+            // Only show toast if it's actually interesting, otherwise it's just noise
+            if (validation.issues.some(i => i.includes("short") || i.includes("repetitive"))) {
+              toast({
+                title: "Content Quality Warning",
+                description: `Ingestion continuing despite quality notes: ${validation.issues.slice(0, 2).join('; ')}...`,
+                variant: "default",
+              });
+            }
             // Continue with the upload but mark as lower quality
           }
         }
@@ -240,15 +292,33 @@ export const useFileUpload = () => {
         `🔍 Verification - Source has content: ${!!verifySource?.content}, Length: ${verifySource?.content?.length || 0}`,
       );
 
-      return blobUrl;
-    } catch (error) {
-      console.error("File upload failed:", error);
+      return {
+        filePath: blobUrl,
+        content: content,
+        chunks: chunks,
+        metadata: metadata,
+        success: true
+      };
+    } catch (error: any) {
+      console.error("File upload critical failure:", {
+        message: error.message,
+        stack: error.stack,
+        error
+      });
+      
+      const errorMessage = error.message || (typeof error === 'string' ? error : JSON.stringify(error)) || 'Unknown upload failure';
+      
       toast({
         title: "Upload Error",
-        description: `Failed to upload ${file.name}. Please try again.`,
+        description: `Failed to upload ${file.name}. ${errorMessage}`,
         variant: "destructive",
       });
-      return null;
+      
+      return { 
+        success: false, 
+        error: errorMessage,
+        fileName: file.name
+      };
     } finally {
       setIsUploading(false);
     }

@@ -3,10 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/contexts/AuthContext";
 import { ApiService } from "@/services/apiService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Globe, Mail } from "lucide-react";
+import { Loader2, Globe, Mail, Smartphone, Shield, RefreshCw } from "lucide-react";
 
 interface CloudLoginProps {
   onSuccess?: () => void;
@@ -26,7 +26,9 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
   const [loading, setLoading] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   
-  const { signInWithCloud } = useAuth();
+  const { signIn, error, mfaRequired, verifyMfa } = useAuth();
+  const [mfaCode, setMfaCode] = useState("");
+  const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
   const { toast } = useToast();
 
   const handleCloudLogin = async (e: React.FormEvent) => {
@@ -66,19 +68,12 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
       } else {
         // --- SIGN IN ---
         console.log("Attempting cloud login for:", email);
-        const data = await ApiService.signin({ email, password });
+        await signIn({ email, password });
         
-        signInWithCloud(data.user, {
-          accessToken: data.accessToken,
-          refreshToken: data.refreshToken
-        });
-
-        toast({
-          title: "Cloud session active",
-          description: `Logged in as ${data.user.displayName}`,
-        });
-
-        onSuccess?.();
+        // Success toast is handled via the context flow or success check
+        if (!mfaRequired) {
+          onSuccess?.();
+        }
       }
     } catch (err) {
       console.error("Cloud auth error:", err);
@@ -100,27 +95,83 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
     }
   };
 
-  const handleResendVerification = async () => {
-    if (!unverifiedEmail) return;
-    setLoading(true);
-    try {
-      await ApiService.resendVerification(unverifiedEmail);
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (mfaCode.length !== 6) return;
+    
+    setIsVerifyingMfa(true);
+    const success = await verifyMfa(mfaCode);
+    setIsVerifyingMfa(false);
+    
+    if (success) {
       toast({
-        title: "Verification Sent",
-        description: `We've sent a new verification link to ${unverifiedEmail}.`,
+        title: "MFA Verified",
+        description: "Welcome back!",
       });
-      setUnverifiedEmail(null);
-    } catch (err) {
-      const error = err as { message?: string };
-      toast({
-        title: "Failed to resend",
-        description: error.message || "Could not send verification email.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
+      onSuccess?.();
     }
   };
+
+  if (mfaRequired) {
+    return (
+      <div className="space-y-6 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+        <div className="space-y-2 text-center">
+          <div className="mx-auto w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center mb-4">
+            <Shield className="w-6 h-6 text-blue-500" />
+          </div>
+          <h2 className="text-2xl font-semibold tracking-tight">Two-Factor Auth</h2>
+          <p className="text-sm text-muted-foreground">
+            Enter the 6-digit code from your authenticator app
+          </p>
+        </div>
+
+        <form onSubmit={handleMfaSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Input
+              type="text"
+              placeholder="000 000"
+              maxLength={6}
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
+              className="h-12 text-center text-2xl tracking-[0.3em] font-mono"
+              autoFocus
+              required
+            />
+          </div>
+
+          <Button
+            type="submit"
+            className="w-full h-11 premium-gradient-button"
+            disabled={isVerifyingMfa || mfaCode.length !== 6}
+          >
+            {isVerifyingMfa ? (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Verifying...
+              </>
+            ) : (
+              "Verify Securely"
+            )}
+          </Button>
+
+          {error && (
+            <p className="text-sm font-medium text-destructive text-center">
+              {error}
+            </p>
+          )}
+          
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full h-11"
+            onClick={() => window.location.reload()}
+          >
+            Back to Login
+          </Button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

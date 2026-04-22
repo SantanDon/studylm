@@ -52,7 +52,7 @@ export async function extractYoutubeTranscript(url: string): Promise<YoutubeTran
 
   try {
     console.log('📡 Fetching transcript and metadata via server API...');
-    const apiUrl = `/api/youtube-transcript?url=${encodeURIComponent(normalizedUrl)}`;
+    const apiUrl = `/api/youtube/youtube-transcript?url=${encodeURIComponent(normalizedUrl)}`;
     const transcriptResponse = await fetch(apiUrl);
 
     if (!transcriptResponse.ok) {
