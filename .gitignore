@@ -33,3 +33,9 @@ dist-ssr
 *.sqlite
 backend/src/db/*.sqlite
 backend/data/
+
+# IDE and CLI Ephemeral Artifacts
+.claude/
+.continue/
+.kiro/
+.opencode/
