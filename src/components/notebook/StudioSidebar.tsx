@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-// import { Plus, Edit, Bot, User, Brain, ChevronDown, ChevronUp, Layers, GitBranch, Loader2, Trash2, GitCompare } from 'lucide-react'; // Removed Lucide imports
 import { Note } from '@/hooks/useNotes';
 import { useStudioSidebar } from './hooks/useStudioSidebar';
 import NoteEditor from './NoteEditor';
@@ -18,6 +17,7 @@ import { Citation } from '@/types/message';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { GlareCard } from '@/components/ui/glare-card';
 import { useAuthState } from '@/hooks/useAuthState';
+import SovereignSignal from './SovereignSignal';
 
 interface StudioSidebarProps {
   notebookId?: string;
@@ -95,272 +95,253 @@ const StudioSidebar = ({
   const humanNotes = notes?.filter(n => !n.author_id || n.author_id === currentUserId) || [];
   const agentNotes = notes?.filter(n => n.author_id && n.author_id !== currentUserId) || [];
 
-  return <div className="w-full bg-gray-50 dark:bg-background border-l border-gray-200 dark:border-border flex flex-col h-full overflow-hidden">
-      <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0">
-        <h2 className="text-lg font-medium text-foreground">Studio</h2>
+  return <div className="w-full bg-black/40 backdrop-blur-xl border-l border-white/5 flex flex-col h-full overflow-hidden shadow-2xl">
+      <div className="p-6 border-b border-white/5 flex-shrink-0 bg-white/[0.02]">
+        <div className="flex items-center space-x-3 mb-1">
+          <div className="p-1.5 rounded bg-blue-500/10 border border-blue-500/20">
+            <i className="fi fi-rr-brain-circuit text-blue-500 text-xs"></i>
+          </div>
+          <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-white/40">Sovereign Core</h2>
+        </div>
+        <h2 className="text-2xl font-bold tracking-tight text-white bg-clip-text text-transparent bg-gradient-to-br from-white to-white/50">
+          Intelligence Hub
+        </h2>
       </div>
       
       <ScrollArea className="flex-1">
-        <div className="p-4">
-        {/* Audio Overview */}
-        <div className="mb-6">
-          {notebookId && <PodcastView notebookId={notebookId} />}
-        </div>
+        <div className="p-4 space-y-8">
+          {/* Sovereign Intelligence Feed */}
+          {notebookId && <SovereignSignal notebookId={notebookId} />}
 
-        {/* Actionable Tasks (RALPH LOOP 2) */}
-        <div className="mb-6">
-          {notebookId && <TaskPulse notebookId={notebookId} />}
-        </div>
-
-        {/* Notes Section */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-medium text-foreground">Notes</h3>
-            
+          {/* Audio Overview */}
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-2xl blur opacity-0 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
+            <div className="relative">
+              {notebookId && <PodcastView notebookId={notebookId} />}
+            </div>
           </div>
-          
-          <Button variant="outline" size="sm" className="w-full mb-4" onClick={handleCreateNote}>
-            <i className="fi fi-rr-plus mr-2"></i>
-            Add note
-          </Button>
-        </div>
 
-        {/* Quiz Section */}
-        <Collapsible open={isQuizSectionOpen} onOpenChange={setIsQuizSectionOpen}>
-          <CollapsibleTrigger className="flex items-center justify-between w-full py-2 hover:bg-gray-100 dark:hover:bg-accent rounded px-2 -mx-2">
-            <div className="flex items-center gap-2">
-              <i className="fi fi-rr-brain text-green-600"></i>
-              <h3 className="font-medium text-foreground">Quiz</h3>
+          {/* Actionable Tasks (RALPH LOOP 2) */}
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-2xl blur opacity-0 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
+            <div className="relative">
+              {notebookId && <TaskPulse notebookId={notebookId} />}
             </div>
-            {isQuizSectionOpen ? (
-              <i className="fi fi-rr-angle-small-up text-gray-500"></i>
-            ) : (
-              <i className="fi fi-rr-angle-small-down text-gray-500"></i>
-            )}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            {notebookId && sources && sources.length > 0 ? (
-              <QuizSelector
-                onStart={handleStartQuiz}
-                isGenerating={isGenerating}
-                error={generationError}
-                sourcesCount={sources.length}
-                availableModels={installedModels || []}
-              />
-            ) : (
-              <p className="text-xs text-gray-500 text-center py-2">
-                Add sources to generate a quiz
-              </p>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
+          </div>
 
-        {/* Flashcards Section */}
-        <Collapsible open={isFlashcardSectionOpen} onOpenChange={setIsFlashcardSectionOpen}>
-          <CollapsibleTrigger className="flex items-center justify-between w-full py-2 hover:bg-gray-100 dark:hover:bg-accent rounded px-2 -mx-2">
-            <div className="flex items-center gap-2">
-              <i className="fi fi-rr-layers text-purple-600"></i>
-              <h3 className="font-medium text-foreground">Flashcards</h3>
+          {/* Intelligence Synthesis Tools */}
+          <div className="space-y-1">
+            <div className="flex items-center space-x-3 mb-4 px-1">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-white/30">Synthesis</h3>
             </div>
-            {isFlashcardSectionOpen ? (
-              <i className="fi fi-rr-angle-small-up text-gray-500"></i>
-            ) : (
-              <i className="fi fi-rr-angle-small-down text-gray-500"></i>
-            )}
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            {notebookId && <FlashcardDeckComponent notebookId={notebookId} />}
-          </CollapsibleContent>
-        </Collapsible>
+            
+            {/* Quiz Section */}
+            <Collapsible open={isQuizSectionOpen} onOpenChange={setIsQuizSectionOpen} className="group/coll">
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white/[0.02] border border-white/5 rounded-xl hover:bg-white/[0.04] transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+                    <i className="fi fi-rr-brain text-green-500 text-xs"></i>
+                  </div>
+                  <span className="text-sm font-medium text-white/80">Active Retrieval</span>
+                </div>
+                <i className={`fi fi-rr-angle-small-down text-white/20 transition-transform duration-300 ${isQuizSectionOpen ? 'rotate-180' : ''}`}></i>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                {notebookId && sources && sources.length > 0 ? (
+                  <QuizSelector
+                    onStart={handleStartQuiz}
+                    isGenerating={isGenerating}
+                    error={generationError}
+                    sourcesCount={sources.length}
+                    availableModels={installedModels || []}
+                  />
+                ) : (
+                  <div className="p-8 text-center bg-white/[0.01] border border-dashed border-white/5 rounded-xl">
+                    <p className="text-xs text-white/20">Add sources to trigger synthesis</p>
+                  </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
 
-        {/* Concept Map Section */}
-        <Collapsible open={isConceptMapSectionOpen} onOpenChange={setIsConceptMapSectionOpen}>
-          <CollapsibleTrigger className="flex items-center justify-between w-full py-2 hover:bg-gray-100 dark:hover:bg-accent rounded px-2 -mx-2">
-            <div className="flex items-center gap-2">
-              <i className="fi fi-rr-code-branch text-blue-600"></i>
-              <h3 className="font-medium text-foreground">Concept Map</h3>
+            {/* Flashcards Section */}
+            <Collapsible open={isFlashcardSectionOpen} onOpenChange={setIsFlashcardSectionOpen}>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white/[0.02] border border-white/5 rounded-xl hover:bg-white/[0.04] transition-all mt-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+                    <i className="fi fi-rr-layers text-purple-500 text-xs"></i>
+                  </div>
+                  <span className="text-sm font-medium text-white/80">Spaced Repetition</span>
+                </div>
+                <i className={`fi fi-rr-angle-small-down text-white/20 transition-transform duration-300 ${isFlashcardSectionOpen ? 'rotate-180' : ''}`}></i>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                {notebookId && <FlashcardDeckComponent notebookId={notebookId} />}
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Concept Map Section */}
+            <Collapsible open={isConceptMapSectionOpen} onOpenChange={setIsConceptMapSectionOpen}>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white/[0.02] border border-white/5 rounded-xl hover:bg-white/[0.04] transition-all mt-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                    <i className="fi fi-rr-code-branch text-blue-500 text-xs"></i>
+                  </div>
+                  <span className="text-sm font-medium text-white/80">Causal Mapping</span>
+                </div>
+                <i className={`fi fi-rr-angle-small-down text-white/20 transition-transform duration-300 ${isConceptMapSectionOpen ? 'rotate-180' : ''}`}></i>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                {notebookId && (
+                  <div className="space-y-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full bg-white/[0.02] border-white/5 text-white/60 hover:bg-white/5"
+                      onClick={handleGenerateConceptMap}
+                      disabled={isGeneratingMap || !sources || sources.length === 0}
+                    >
+                      {isGeneratingMap ? (
+                        <>
+                          <i className="fi fi-rr-spinner mr-2 animate-spin"></i>
+                          {generatingProgress || 'Generating...'}
+                        </>
+                      ) : (
+                        <>
+                          <i className="fi fi-rr-code-branch mr-2"></i>
+                          Generate Map
+                        </>
+                      )}
+                    </Button>
+
+                    {conceptMaps.length > 0 && (
+                      <div className="space-y-2">
+                        {conceptMaps.map((map) => (
+                          <Card key={map.id} className="p-3 bg-white/[0.02] border-white/5">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-xs font-medium text-white/60 truncate">{map.title}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 hover:bg-red-500/10 hover:text-red-500"
+                                onClick={() => deleteMap(map.id)}
+                                disabled={isDeletingMap}
+                              >
+                                <i className="fi fi-rr-trash text-white/20 hover:text-inherit"></i>
+                              </Button>
+                            </div>
+                            <ConceptMapView conceptMap={map} />
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+
+          {/* Saved Intelligence Area */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-white/30">Findings</h3>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-6 px-2 text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:bg-blue-500/10"
+                onClick={handleCreateNote}
+              >
+                <i className="fi fi-rr-plus mr-1.5"></i>
+                Log Insight
+              </Button>
             </div>
-            {isConceptMapSectionOpen ? (
-              <i className="fi fi-rr-angle-small-up text-gray-500"></i>
-            ) : (
-              <i className="fi fi-rr-angle-small-down text-gray-500"></i>
-            )}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            {notebookId && (
-              <div className="space-y-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={handleGenerateConceptMap}
-                  disabled={isGeneratingMap || !sources || sources.length === 0}
-                >
-                  {isGeneratingMap ? (
-                    <>
-                      <i className="fi fi-rr-spinner mr-2 animate-spin"></i>
-                      {generatingProgress || 'Generating...'}
-                    </>
-                  ) : (
-                    <>
-                      <i className="fi fi-rr-code-branch mr-2"></i>
-                      Generate from sources
-                    </>
-                  )}
-                </Button>
 
-                {conceptMaps.length > 0 && (
-                  <div className="space-y-2">
-                    {conceptMaps.map((map) => (
-                      <Card key={map.id} className="p-2">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium truncate">{map.title}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={() => deleteMap(map.id)}
-                            disabled={isDeletingMap}
-                          >
-                            <i className="fi fi-rr-trash text-gray-500"></i>
-                          </Button>
+            {isLoading ? (
+              <div className="p-12 text-center bg-white/[0.01] border border-dashed border-white/5 rounded-2xl">
+                <i className="fi fi-rr-spinner animate-spin text-white/20 mb-3 block"></i>
+                <p className="text-xs text-white/20">Syncing repository...</p>
+              </div>
+            ) : notes && notes.length > 0 ? (
+              <div className="space-y-8 pb-12">
+                {/* Agent Intelligence Section */}
+                {agentNotes.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 px-1 mb-4">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div>
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Sovereign Intel</span>
+                    </div>
+                    {agentNotes.map(note => (
+                      <GlareCard 
+                        key={note.id} 
+                        className="p-4 border border-blue-500/10 bg-blue-500/[0.02] cursor-pointer group hover:bg-blue-500/[0.04] transition-all" 
+                        onClick={() => handleEditNote(note)}
+                      >
+                        <div className="flex flex-col space-y-2">
+                          <h4 className="text-sm font-semibold text-white/90 group-hover:text-blue-400 transition-colors truncate">
+                            {note.title}
+                          </h4>
+                          <p className="text-xs text-white/40 line-clamp-2 leading-relaxed">
+                            {getPreviewText(note)}
+                          </p>
+                          <div className="flex items-center justify-between pt-2">
+                            <span className="text-[8px] font-mono text-white/20 uppercase">
+                              {new Date(note.updated_at).toLocaleDateString()}
+                            </span>
+                            <div className="w-4 h-4 rounded bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                              <i className="fi fi-rr-robot text-[8px] text-blue-500"></i>
+                            </div>
+                          </div>
                         </div>
-                        <ConceptMapView conceptMap={map} />
-                      </Card>
+                      </GlareCard>
                     ))}
                   </div>
                 )}
 
-                {conceptMaps.length === 0 && !isGeneratingMap && (
-                  <p className="text-xs text-gray-500 text-center py-2">
-                    Generate a concept map to visualize relationships between ideas
-                  </p>
+                {/* Human Intelligence Section */}
+                {humanNotes.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 px-1 mb-4">
+                      <div className="w-1.5 h-1.5 rounded-full bg-white/20"></div>
+                      <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Personal Log</span>
+                    </div>
+                    {humanNotes.map(note => (
+                      <GlareCard 
+                        key={note.id} 
+                        className="p-4 border border-white/5 bg-white/[0.01] cursor-pointer group hover:bg-white/[0.03] transition-all" 
+                        onClick={() => handleEditNote(note)}
+                      >
+                        <div className="flex flex-col space-y-2">
+                          <h4 className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors truncate">
+                            {note.title}
+                          </h4>
+                          <p className="text-xs text-white/40 line-clamp-2 leading-relaxed">
+                            {getPreviewText(note)}
+                          </p>
+                          <div className="flex items-center justify-between pt-2">
+                            <span className="text-[8px] font-mono text-white/10 uppercase">
+                              {new Date(note.updated_at).toLocaleDateString()}
+                            </span>
+                            <div className="w-4 h-4 rounded bg-white/[0.02] border border-white/5 flex items-center justify-center">
+                              <i className={`fi ${note.source_type === 'ai_response' ? 'fi-rr-robot text-blue-500/50' : 'fi-rr-user text-white/20'} text-[8px]`}></i>
+                            </div>
+                          </div>
+                        </div>
+                      </GlareCard>
+                    ))}
+                  </div>
                 )}
               </div>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
-
-        {/* Source Comparison Section */}
-        <Collapsible open={isComparisonOpen} onOpenChange={setIsComparisonOpen}>
-          <CollapsibleTrigger className="flex items-center justify-between w-full py-2 hover:bg-gray-100 dark:hover:bg-accent rounded px-2 -mx-2">
-            <div className="flex items-center gap-2">
-              <i className="fi fi-rr-code-compare text-orange-600"></i>
-              <h3 className="font-medium text-foreground">Compare Sources</h3>
-            </div>
-            {isComparisonOpen ? (
-              <i className="fi fi-rr-angle-small-up text-gray-500"></i>
             ) : (
-              <i className="fi fi-rr-angle-small-down text-gray-500"></i>
-            )}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            {notebookId && sources && sources.length >= 2 ? (
-              <SourceComparisonView
-                sources={sources}
-                notebookId={notebookId}
-                onClose={() => setIsComparisonOpen(false)}
-              />
-            ) : (
-              <p className="text-xs text-gray-500 text-center py-2">
-                Add at least 2 sources to compare them
-              </p>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
-
-        {/* Saved Notes Area */}
-        <div className="mt-6 border-t border-gray-200 dark:border-border pt-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-medium text-foreground">Notes & Findings</h3>
-          </div>
-
-          {isLoading ? (
-            <div className="text-center py-8">
-              <p className="text-sm text-muted-foreground">Loading notes...</p>
-            </div>
-          ) : notes && notes.length > 0 ? (
-            <div className="space-y-6">
-              {/* Agent Notes Section */}
-              {agentNotes.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm text-blue-600 font-medium px-1">
-                    <i className="fi fi-rr-robot"></i>
-                    <h4>Agent Findings</h4>
-                  </div>
-                  {agentNotes.map(note => (
-                    <GlareCard key={note.id} className="p-3 border border-blue-200 dark:border-blue-900 bg-blue-50/30 dark:bg-blue-950/10 cursor-pointer group" onClick={() => handleEditNote(note)}>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center space-x-2 mb-1">
-                            <span className="text-xs text-blue-600 uppercase flex items-center gap-1">
-                              Agent Note
-                            </span>
-                          </div>
-                          <h4 className="font-medium text-foreground truncate">{note.title}</h4>
-                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                            {getPreviewText(note)}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">
-                            {new Date(note.updated_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                    </GlareCard>
-                  ))}
+              <div className="p-16 text-center bg-white/[0.01] border border-dashed border-white/5 rounded-2xl">
+                <div className="w-12 h-12 rounded-full bg-white/[0.02] border border-white/5 flex items-center justify-center mx-auto mb-4">
+                  <i className="fi fi-rr-document text-white/10 text-xl"></i>
                 </div>
-              )}
-
-              {/* Human Notes Section */}
-              {humanNotes.length > 0 && (
-                <div className="space-y-3">
-                  {agentNotes.length > 0 && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground font-medium px-1 pt-2">
-                      <i className="fi fi-rr-user"></i>
-                      <h4>Your Notes</h4>
-                    </div>
-                  )}
-                  {humanNotes.map(note => (
-                    <GlareCard key={note.id} className="p-3 border border-border cursor-pointer group" onClick={() => handleEditNote(note)}>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center space-x-2 mb-1">
-                            {note.source_type === 'ai_response' ? <i className="fi fi-rr-robot text-blue-600"></i> : <i className="fi fi-rr-document text-muted-foreground"></i>}
-                            <span className="text-xs text-muted-foreground uppercase flex items-center gap-1">
-                              {note.source_type === 'ai_response' ? 'Saved from Chat' : 'Manual Note'}
-                            </span>
-                          </div>
-                          <h4 className="font-medium text-foreground truncate">{note.title}</h4>
-                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                            {getPreviewText(note)}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">
-                            {new Date(note.updated_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        {note.source_type === 'user' && (
-                          <Button variant="ghost" size="sm" className="ml-2">
-                            <i className="fi fi-rr-edit"></i>
-                          </Button>
-                        )}
-                      </div>
-                    </GlareCard>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <div className="w-16 h-16 bg-muted rounded-lg mx-auto mb-4 flex items-center justify-center">
-                <span className="text-muted-foreground text-2xl">📄</span>
+                <h3 className="text-sm font-semibold text-white/40 mb-2">Workspace Primed</h3>
+                <p className="text-[10px] text-white/20 leading-relaxed max-w-[180px] mx-auto">
+                  Begin shared research to populate this intelligence node.
+                </p>
               </div>
-              <h3 className="text-lg font-medium text-foreground mb-2">Workspace is empty</h3>
-              <p className="text-sm text-muted-foreground">
-                When you or your AI agent save insights, they will appear here.
-              </p>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
         </div>
       </ScrollArea>
     </div>;

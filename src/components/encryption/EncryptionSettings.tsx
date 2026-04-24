@@ -13,7 +13,8 @@ import { DataExport } from './DataExport';
 import { SecurityLogs } from './SecurityLogs';
 import { MfaSettings } from './MfaSettings';
 import { DeveloperSettings } from '../settings/DeveloperSettings';
-import { Shield, Cloud, Download, ScrollText, Code2 } from 'lucide-react';
+import { ApiKeysSettings } from '../settings/ApiKeysSettings';
+import { Shield, Cloud, Download, ScrollText, Code2, KeyRound } from 'lucide-react';
 
 export function EncryptionSettings() {
   const [activeTab, setActiveTab] = useState('sync');
@@ -28,7 +29,7 @@ export function EncryptionSettings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="sync" className="flex items-center gap-2">
             <Cloud className="w-4 h-4" />
             <span className="hidden sm:inline">Sync</span>
@@ -52,6 +53,10 @@ export function EncryptionSettings() {
           <TabsTrigger value="developer" className="flex items-center gap-2">
             <Code2 className="w-4 h-4" />
             <span className="hidden sm:inline">Developer</span>
+          </TabsTrigger>
+          <TabsTrigger value="providers" className="flex items-center gap-2">
+            <KeyRound className="w-4 h-4" />
+            <span className="hidden sm:inline">Providers</span>
           </TabsTrigger>
         </TabsList>
 
@@ -117,6 +122,10 @@ export function EncryptionSettings() {
 
         <TabsContent value="developer" className="space-y-6">
           <DeveloperSettings />
+        </TabsContent>
+
+        <TabsContent value="providers" className="space-y-6">
+          <ApiKeysSettings />
         </TabsContent>
       </Tabs>
 

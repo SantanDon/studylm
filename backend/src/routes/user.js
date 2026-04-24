@@ -32,7 +32,11 @@ router.get('/profile', async (req, res) => {
         twoFactorEnabled: !!user.two_factor_enabled
       },
       preferences,
-      stats
+      stats: {
+        ...stats,
+        youtube_extractions_today: user.youtubeExtractionsToday || 0,
+        last_extraction_reset: user.lastExtractionReset
+      }
     });
   } catch (error) {
     console.error('Get profile error:', error);
@@ -255,6 +259,34 @@ router.delete('/account', async (req, res) => {
   } catch (error) {
     console.error('Delete account error:', error);
     res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
+// Update user API keys (BYOK)
+router.put('/api_keys', async (req, res) => {
+  try {
+    const { apiKeys } = req.body;
+    
+    if (!apiKeys || typeof apiKeys !== 'object') {
+      return res.status(400).json({ error: 'Valid apiKeys object is required' });
+    }
+
+    // Basic validation of key structure
+    const providers = ['gemini', 'groq', 'nvidia', 'openai', 'anthropic'];
+    const hasValidKey = Object.keys(apiKeys).some(provider => 
+      providers.includes(provider) && typeof apiKeys[provider] === 'string'
+    );
+
+    if (!hasValidKey) {
+      return res.status(400).json({ error: 'At least one valid provider key must be provided' });
+    }
+
+    await dbHelpers.updateUserApiKeys(req.user.userId, apiKeys);
+    
+    res.json({ message: 'API keys updated successfully' });
+  } catch (error) {
+    console.error('Update API keys error:', error);
+    res.status(500).json({ error: 'Failed to update API keys' });
   }
 });
 

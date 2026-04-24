@@ -29,34 +29,7 @@ export async function authenticateToken(req, res, next) {
      token = req.cookies.accessToken;
    }
  
-   // ZERO-FRICTION DEV BYPASS:
-   // Only active in non-production environments for local development.
-   if (process.env.NODE_ENV !== 'production' && process.env.DEV_AUTO_LOGIN === 'true' && (req.hostname === 'localhost' || req.hostname === '127.0.0.1')) {
-     console.log('🛡️ [AUTH] Zero-Friction Dev Bypass active. Mapping to primary user...');
-     try {
-        const db = await getDatabase();
-        // Look for the first human user to recover existing notebooks
-        const result = await db.select().from(schema.users).where(eq(schema.users.accountType, 'human')).orderBy(asc(schema.users.createdAt)).limit(1);
-        let primaryUser = result[0];
-        
-        if (!primaryUser) {
-          console.log('🛠️ [AUTH] No human users found. Auto-provisioning dev-zero-friction...');
-          const devId = 'dev-zero-friction';
-          const devEmail = 'dev@studypod.local';
-          await dbHelpers.createUser(devId, devEmail, 'DEV_PASSWORD_UNSET', 'Local Developer', 'human');
-          primaryUser = { id: devId, email: devEmail, displayName: 'Local Developer' };
-        }
-        
-        req.user = { userId: primaryUser.id, email: primaryUser.email, displayName: primaryUser.displayName };
-        console.log(`✅ [AUTH] Zero-Friction success: Logged in as ${req.user.email} (${req.user.userId})`);
-        return next();
-     } catch (dbError) {
-        console.error('❌ [AUTH] Zero-Friction Bypass failed critically:', dbError.message);
-        // We MUST NOT proceed with a 401 if we promised zero-friction
-        req.user = { userId: 'dev-recovery-emergency', email: 'recovery@studypod.local', displayName: 'Emergency Dev' };
-        return next();
-     }
-   }
+   // Authentication mandatory for all requests
 
    if (!token) {
      return res.status(401).json({ error: 'Access token required' });

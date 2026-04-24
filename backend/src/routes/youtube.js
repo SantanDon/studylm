@@ -1,6 +1,9 @@
 import express from 'express';
 import { AppError } from '../middleware/errorHandler.js';
 import { videoKeyPool } from '../services/videoKeyPool.js';
+import { getDatabase, dbHelpers } from '../db/database.js';
+import { users } from '../db/schema.js';
+import { eq, sql } from 'drizzle-orm';
 
 const router = express.Router();
 
@@ -158,9 +161,34 @@ router.get('/youtube-transcript', async (req, res) => {
 
     console.log(`[YouTube] Sovereign Extraction: ${videoId} (User: ${userType})`);
 
-    // ── Tier 0: Fair Use Check ─────────────────────────────
-    // NOTE: In production, we'd check Redis/DB. For now, we trust the client's generous throttle.
-    // If we're on Vercel, we need to be extra careful with farm usage.
+    // ── Tier 0: Fair Use Check (DB Backed) ───────────────────
+    const db = await getDatabase();
+    const userId = req.user?.id;
+    
+    if (userId) {
+      const user = await dbHelpers.getUserById(userId);
+      
+      if (user) {
+        const now = new Date();
+        const lastReset = user.lastExtractionReset ? new Date(user.lastExtractionReset) : new Date(0);
+        const isNewDay = now.toDateString() !== lastReset.toDateString();
+        
+        let currentUsage = isNewDay ? 0 : (user.youtubeExtractionsToday || 0);
+        const limit = user.accountType === 'agent' ? 50 : 10;
+        
+        if (currentUsage >= limit) {
+          throw new AppError(429, 'USAGE_LIMIT_REACHED', `You have reached your daily extraction limit of ${limit} videos.`);
+        }
+
+        // If it's a new day, update the reset timestamp immediately
+        if (isNewDay) {
+          await db.update(users).set({ 
+            youtubeExtractionsToday: 0, 
+            lastExtractionReset: now 
+          }).where(eq(users.id, userId));
+        }
+      }
+    }
 
     // ── Step 1: Initialize Stealth Bundle ──────────────────
     const { key: apiKey, identity } = videoKeyPool.getStealthBundle();
@@ -242,7 +270,26 @@ router.get('/youtube-transcript', async (req, res) => {
     const chapters = parseChaptersFromDescription(metadata.description);
     const structuredContent = buildStructuredContent({ transcript, metadata, chapters });
 
-    return res.status(200).json({ transcript, metadata, structuredContent });
+    // ── Tier 4: Persist Usage ──────────────────────────────
+    if (userId && structuredContent.length > 50) {
+      await db.update(users)
+        .set({ youtubeExtractionsToday: sql`${users.youtubeExtractionsToday} + 1` })
+        .where(eq(users.id, userId));
+      console.log(`[YouTube] Usage incremented for user ${userId}`);
+    }
+
+    return res.status(200).json({ 
+      transcript, 
+      metadata: {
+        ...metadata,
+        sovereign_signal: {
+          identity: identity.name,
+          farm_health: 'nominal',
+          timestamp: new Date().toISOString()
+        }
+      }, 
+      structuredContent 
+    });
 
   } catch (error) {
     console.error('[YouTube] Error:', error);

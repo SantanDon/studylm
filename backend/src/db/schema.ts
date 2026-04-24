@@ -16,6 +16,7 @@ export const users = sqliteTable('users', {
   emailConsent: integer('email_consent', { mode: 'boolean' }).default(false),
   emailConsentAt: integer('email_consent_at', { mode: 'timestamp' }),
   recoveryHash: text('recovery_hash'),
+  apiKeys: text('api_keys'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

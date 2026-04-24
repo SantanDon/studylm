@@ -15,8 +15,11 @@ export const users = sqliteTable('users', {
     emailConsent: integer('email_consent', { mode: 'boolean' }).default(false),
     emailConsentAt: integer('email_consent_at', { mode: 'timestamp' }),
     recoveryHash: text('recovery_hash'),
+    apiKeys: text('api_keys'), // BYOK dynamic key store
     twoFactorSecret: text('two_factor_secret'),
     twoFactorEnabled: integer('two_factor_enabled', { mode: 'boolean' }).default(false),
+    youtubeExtractionsToday: integer('youtube_extractions_today').default(0),
+    lastExtractionReset: integer('last_extraction_reset', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

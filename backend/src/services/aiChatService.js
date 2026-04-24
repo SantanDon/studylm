@@ -80,7 +80,7 @@ Caller: ${callerType}`;
 /**
  * Main chat function — the core of the AI-Human collaboration feature.
  */
-export async function chatWithNotebook({ notebook, sources, notes, message, history = [], callerType = 'human' }) {
+export async function chatWithNotebook({ notebook, sources, notes, message, history = [], callerType = 'human', userKeys = null }) {
   const notebookContext = buildNotebookContext(notebook, sources, notes);
   const systemPrompt = buildSystemPrompt(callerType);
 
@@ -102,7 +102,7 @@ export async function chatWithNotebook({ notebook, sources, notes, message, hist
   // --- Phase 4: Stochastic Insight Drift (JIT) ---
   const hasSeeds = sources.some(s => s.metadata && s.metadata.includes('seed_questions'));
   if (hasSeeds && Math.random() > 0.7) {
-      logger.info(`🕵️‍♀️ [STOCHASTIC DRIFT] Injected a latent immersion seed into the context.`);
+      // logger.info(`🕵️‍♀️ [STOCHASTIC DRIFT] Injected a latent immersion seed into the context.`);
       // We pull the most relevant seed from metadata if it exists, otherwise we generate a 'phantom' thought
       const seedSource = sources.find(s => s.metadata && s.metadata.includes('seed_questions'));
       const seeds = JSON.parse(seedSource.metadata).seed_questions || [];
@@ -118,12 +118,13 @@ export async function chatWithNotebook({ notebook, sources, notes, message, hist
     let { answer, tokensUsed, modelUsed } = await dispatchToTitan({ 
       messages, 
       priority, 
-      temperature: 0.7 
+      temperature: 0.7,
+      userKeys
     });
 
     // --- Phase 3: The O1 Pivot (Recursive Critique Loop) ---
     if (callerType === 'agent' || callerType === 'phantom-scholar') {
-      logger.info(`🕵️‍♀️ [O1 PIVOT] Initiating recursive critique loop for agent ${callerType}...`);
+      // logger.info(`🕵️‍♀️ [O1 PIVOT] Initiating recursive critique loop for agent ${callerType}...`);
       
       const critiquePrompt = `You are a Cold Librarian. Critique the answer you just wrote.
 Analyze its depth based on the provided sources. If it feels like a "hit-and-run" or "shallow summary," pinpoint exactly what is missing.
@@ -137,11 +138,11 @@ Output your critique starting with a score from 1-10.`;
       ];
 
       try {
-        const { answer: critique } = await dispatchToTitan({ messages: critiqueChat, priority: 'reasoning', temperature: 0.3 });
-        logger.debug(`[O1 PIVOT] Critique Received: ${critique.substring(0, 100)}...`);
+        const { answer: critique } = await dispatchToTitan({ messages: critiqueChat, priority: 'reasoning', temperature: 0.3, userKeys });
+        // logger.debug(`[O1 PIVOT] Critique Received: ${critique.substring(0, 100)}...`);
 
         if (!critique.startsWith('10') && !critique.startsWith('9')) {
-          logger.info(`🔄 [O1 PIVOT] Depth insufficient. Re-synthesizing based on critique...`);
+          // logger.info(`🔄 [O1 PIVOT] Depth insufficient. Re-synthesizing based on critique...`);
           const finalizePrompt = `Rewrite the final answer incorporating the improvements from your audit. 
 Ensure the literary, dark tone is maintained and that every factual claim is grounded in the sources.
 Internal Audit: ${critique}`;
@@ -152,12 +153,12 @@ Internal Audit: ${critique}`;
             { role: 'user', content: finalizePrompt }
           ];
 
-          const finalRes = await dispatchToTitan({ messages: finalChat, priority: 'context', temperature: 0.5 });
+          const finalRes = await dispatchToTitan({ messages: finalChat, priority: 'context', temperature: 0.5, userKeys });
           answer = finalRes.answer;
           tokensUsed += finalRes.tokensUsed;
         }
       } catch (critiqueError) {
-        logger.warn(`[O1 PIVOT] Critique loop failed, falling back to initial answer: ${critiqueError.message}`);
+        // logger.warn(`[O1 PIVOT] Critique loop failed, falling back to initial answer: ${critiqueError.message}`);
       }
     }
 

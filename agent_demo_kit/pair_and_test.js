@@ -86,6 +86,24 @@ async function main() {
     const err = await noteRes.json().catch(() => ({}));
     console.error('❌ Note creation failed:', err.error || noteRes.statusText);
   }
+  // 5. Test Sovereign BYOK Chat
+  console.log(`\n🧠 Testing Sovereign BYOK on notebook "${targetNotebook.title}"...`);
+  const chatRes = await fetch(`${API_BASE}/notebooks/${targetNotebook.id}/chat`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      message: "Are my sovereign provider keys active?",
+      saveAsNote: false
+    })
+  });
+
+  if (chatRes.ok) {
+    const chat = await chatRes.json();
+    console.log(`✅ BYOK chat success! Model says: ${chat.response?.substring(0, 50)}...`);
+  } else {
+    const err = await chatRes.json().catch(() => ({}));
+    console.error('❌ BYOK chat failed:', err.error || chatRes.statusText);
+  }
 
   console.log('\n🎉 Agent demo complete!');
 }

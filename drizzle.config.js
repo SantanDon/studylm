@@ -9,8 +9,8 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 export default defineConfig({
-  schema: './src/db/schema.js',
-  out: './drizzle',
+  schema: './backend/src/db/schema.js',
+  out: './backend/src/db/migrations',
   dialect: 'turso',
   dbCredentials: {
     url: process.env.TURSO_DATABASE_URL,

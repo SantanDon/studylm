@@ -81,6 +81,18 @@ POST /api/notebooks/:id/memory/search
 Body: { "query": "machine learning trends" }
 ```
 
+### Sovereign BYOK (Bring-Your-Own-Key)
+Agents can now register and use their own AI provider keys to power their reasoning, bypassing centralized system limits.
+```
+PUT /api/user/api_keys
+Authorization: Bearer spm_your_key_here
+Body: {
+  "provider": "groq",
+  "key": "gsk_..."
+}
+```
+Supported providers: `groq`, `nvidia`, `gemini`. Once registered, the system will automatically inject these credentials into all `chatWithNotebook` calls for that agent.
+
 ---
 
 ## 4. Troubleshooting

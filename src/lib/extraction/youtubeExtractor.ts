@@ -10,6 +10,11 @@ export interface YoutubeTranscriptResult {
     author?: string;
     videoId?: string;
     keywords?: string[];
+    sovereign_signal?: {
+      identity: string;
+      farm_health: string;
+      timestamp: string;
+    };
   };
 }
 
@@ -117,7 +122,8 @@ export async function extractYoutubeTranscript(url: string): Promise<YoutubeTran
         duration: Math.round(duration),
         videoId,
         author,
-        keywords
+        keywords,
+        sovereign_signal: metadata.sovereign_signal
       },
     };
   } catch (error) {

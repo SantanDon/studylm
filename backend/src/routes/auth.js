@@ -768,6 +768,8 @@ router.get("/me", authenticateToken, async (req, res) => {
       displayName: user.displayName,
       email: user.email,
       account_type: user.accountType,
+      youtube_extractions_today: user.youtubeExtractionsToday || 0,
+      last_extraction_reset: user.lastExtractionReset,
       createdAt: user.createdAt,
     });
   } catch (error) {

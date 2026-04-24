@@ -674,6 +674,17 @@ router.post("/:id/chat", async (req, res) => {
     const sources = await dbHelpers.getSourcesByNotebookId(notebookId, userId);
     const notes = await dbHelpers.getNotesByNotebookId(notebookId, userId);
     const messages = await dbHelpers.getChatMessagesByNotebookId(notebookId, userId);
+    const user = await dbHelpers.getUserById(userId);
+
+    // BYOK: Load user's private keys if they exist
+    let userKeys = null;
+    if (user && user.apiKeys) {
+      try {
+        userKeys = typeof user.apiKeys === 'string' ? JSON.parse(user.apiKeys) : user.apiKeys;
+      } catch (e) {
+        logger.warn(`Failed to parse apiKeys for user ${userId}:`, e.message);
+      }
+    }
 
     // Save the user's message to history
     const userMsgId = uuidv4();
@@ -687,7 +698,8 @@ router.post("/:id/chat", async (req, res) => {
         notes,
         message,
         history: messages,
-        callerType: agentId ? 'agent' : 'human'
+        callerType: agentId ? 'agent' : 'human',
+        userKeys
       });
 
       // Save the AI's response to history

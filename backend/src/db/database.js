@@ -116,6 +116,12 @@ export const dbHelpers = {
     return await db.update(schema.users).set(dbUpdates).where(eq(schema.users.id, id));
   },
 
+  async updateUserApiKeys(userId, apiKeys) {
+    const db = await getDatabase();
+    const keysJson = typeof apiKeys === 'string' ? apiKeys : JSON.stringify(apiKeys);
+    return await db.update(schema.users).set({ apiKeys: keysJson, updatedAt: new Date() }).where(eq(schema.users.id, userId));
+  },
+
   // User preferences (Dummy handles for legacy compatibility)
   async createUserPreferences(id, userId) {
     console.log(`[DB] Preferences creation skipped for ${userId} (Table not in schema)`);
