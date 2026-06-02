@@ -158,32 +158,46 @@ export async function initializeDatabase() {
       "status" text DEFAULT 'pending',
       "created_at" integer DEFAULT (strftime('%s', 'now'))
     )`);
-    // Signal Queue — staged social posts (LinkedIn, Twitter/X, Reddit)
-    await db.run(sql`CREATE TABLE IF NOT EXISTS "signal_queue" (
+    // Signal Queue + Research Goals schema is owned by Drizzle in ./schema.js.
+    // Idempotent ALTER TABLE guards backfill new columns for existing prod DBs.
+    const signalQueueAlters = [
+      ['tweet_source_id', 'text'],
+      ['updated_at', "integer DEFAULT (strftime('%s', 'now'))"],
+    ];
+    for (const [col, decl] of signalQueueAlters) {
+      try { await db.run(sql.raw(`ALTER TABLE signal_queue ADD COLUMN ${col} ${decl}`)); }
+      catch (e) { logger.debug(`Schema migration (signal_queue.${col}): ${e.message}`); }
+    }
+
+    const goalAlters = [
+      ['parent_goal_id', 'text'],
+      ['status', "text DEFAULT 'active'"],
+      ['priority', "text DEFAULT 'medium'"],
+      ['source_id', 'text'],
+      ['source_chunk_id', 'text'],
+      ['last_activity_at', 'integer'],
+      ['progress_pct', "integer DEFAULT 0"],
+      ['linked_task_ids', "text DEFAULT '[]'"],
+      ['linked_artifact_ids', "text DEFAULT '[]'"],
+      ['updated_at', 'integer'],
+    ];
+    for (const [col, decl] of goalAlters) {
+      try { await db.run(sql.raw(`ALTER TABLE research_goals ADD COLUMN ${col} ${decl}`)); }
+      catch (e) { logger.debug(`Schema migration (research_goals.${col}): ${e.message}`); }
+    }
+
+    // New: signal queue suggestions cache
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "signal_queue_suggestions" (
       "id" text PRIMARY KEY NOT NULL,
-      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      "notebook_id" text REFERENCES notebooks(id) ON DELETE CASCADE,
-      "source_id" text,
-      "tweet_source_id" text,
-      "platform" text NOT NULL,
-      "content" text NOT NULL,
-      "status" text DEFAULT 'draft',
-      "scheduled_for" integer,
-      "posted_at" integer,
-      "note_id" text,
-      "created_at" integer DEFAULT (strftime('%s', 'now')),
-      "updated_at" integer DEFAULT (strftime('%s', 'now'))
-    )`);
-    try { await db.run(sql`ALTER TABLE signal_queue ADD COLUMN tweet_source_id text`); } catch (e) { logger.debug(`Schema migration (signal_queue.tweet_source_id): ${e.message}`); }
-    
-    // Research Goals — user targets for closed-loop bookmark routing
-    await db.run(sql`CREATE TABLE IF NOT EXISTS "research_goals" (
-      "id" text PRIMARY KEY NOT NULL,
-      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "source_id" text NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
       "notebook_id" text NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       "title" text NOT NULL,
-      "description" text,
-      "created_at" text NOT NULL
+      "rationale" text,
+      "source_chunk_indices" text DEFAULT '[]',
+      "confidence" real DEFAULT 0.5,
+      "status" text DEFAULT 'pending',
+      "created_at" integer DEFAULT (strftime('%s', 'now'))
     )`);
 
     logger.info('Schema tables verified.');
@@ -718,6 +732,156 @@ export const dbHelpers = {
       .where(eq(schema.tasks.id, id));
   },
 
+  async getTaskById(id) {
+    const db = await getDatabase();
+    const result = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1);
+    return result[0] || null;
+  },
+
+  // Research Goals (v2 schema)
+  async createGoal({ id, userId, notebookId, title, description = null, parentGoalId = null, status = 'active', priority = 'medium', sourceId = null, sourceChunkId = null }) {
+    const db = await getDatabase();
+    const goalId = id || ("goal-" + Math.random().toString(36).substring(2, 12));
+    await db.insert(schema.researchGoals).values({
+      id: goalId, userId, notebookId, title, description,
+      parentGoalId, status, priority, sourceId, sourceChunkId,
+      linkedTaskIds: '[]', linkedArtifactIds: '[]', progressPct: 0,
+    });
+    return goalId;
+  },
+
+  async getGoalsByNotebookId(notebookId, { includeArchived = false, parentGoalId = null } = {}) {
+    const db = await getDatabase();
+    const conds = [eq(schema.researchGoals.notebookId, notebookId)];
+    if (!includeArchived) {
+      conds.push(sql`${schema.researchGoals.status} != 'archived'`);
+    }
+    if (parentGoalId === null) {
+      conds.push(sql`${schema.researchGoals.parentGoalId} IS NULL`);
+    } else if (parentGoalId === '*') {
+      // return all including children
+    } else {
+      conds.push(eq(schema.researchGoals.parentGoalId, parentGoalId));
+    }
+    const rows = await db.select().from(schema.researchGoals)
+      .where(and(...conds))
+      .orderBy(desc(schema.researchGoals.priority), desc(schema.researchGoals.lastActivityAt), desc(schema.researchGoals.createdAt));
+    return rows.map(r => ({
+      ...r,
+      linkedTaskIds: r.linkedTaskIds ? JSON.parse(r.linkedTaskIds) : [],
+      linkedArtifactIds: r.linkedArtifactIds ? JSON.parse(r.linkedArtifactIds) : [],
+    }));
+  },
+
+  async getGoalById(id) {
+    const db = await getDatabase();
+    const result = await db.select().from(schema.researchGoals).where(eq(schema.researchGoals.id, id)).limit(1);
+    if (!result[0]) return null;
+    const r = result[0];
+    return {
+      ...r,
+      linkedTaskIds: r.linkedTaskIds ? JSON.parse(r.linkedTaskIds) : [],
+      linkedArtifactIds: r.linkedArtifactIds ? JSON.parse(r.linkedArtifactIds) : [],
+    };
+  },
+
+  async updateGoal(id, updates) {
+    const db = await getDatabase();
+    const patch = { updatedAt: new Date() };
+    const allowed = ['title', 'description', 'parentGoalId', 'status', 'priority', 'sourceId', 'sourceChunkId', 'lastActivityAt', 'progressPct'];
+    for (const k of allowed) if (k in updates) patch[k] = updates[k];
+    await db.update(schema.researchGoals).set(patch).where(eq(schema.researchGoals.id, id));
+    return await this.getGoalById(id);
+  },
+
+  async deleteGoal(id) {
+    const db = await getDatabase();
+    await db.delete(schema.researchGoals).where(eq(schema.researchGoals.id, id));
+  },
+
+  async getGoalChildren(parentGoalId) {
+    const db = await getDatabase();
+    return await db.select().from(schema.researchGoals).where(eq(schema.researchGoals.parentGoalId, parentGoalId));
+  },
+
+  async linkTaskToGoal(goalId, taskId) {
+    const db = await getDatabase();
+    const goal = await this.getGoalById(goalId);
+    if (!goal) return null;
+    const ids = Array.from(new Set([...(goal.linkedTaskIds || []), taskId]));
+    await db.update(schema.researchGoals)
+      .set({ linkedTaskIds: JSON.stringify(ids), lastActivityAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.researchGoals.id, goalId));
+    return await this.getGoalById(goalId);
+  },
+
+  async unlinkTaskFromGoal(goalId, taskId) {
+    const db = await getDatabase();
+    const goal = await this.getGoalById(goalId);
+    if (!goal) return null;
+    const ids = (goal.linkedTaskIds || []).filter(x => x !== taskId);
+    await db.update(schema.researchGoals)
+      .set({ linkedTaskIds: JSON.stringify(ids), lastActivityAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.researchGoals.id, goalId));
+    return await this.getGoalById(goalId);
+  },
+
+  async linkArtifactToGoal(goalId, artifactId) {
+    const db = await getDatabase();
+    const goal = await this.getGoalById(goalId);
+    if (!goal) return null;
+    const ids = Array.from(new Set([...(goal.linkedArtifactIds || []), artifactId]));
+    await db.update(schema.researchGoals)
+      .set({ linkedArtifactIds: JSON.stringify(ids), lastActivityAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.researchGoals.id, goalId));
+    return await this.getGoalById(goalId);
+  },
+
+  async computeGoalProgress(goalId) {
+    const goal = await this.getGoalById(goalId);
+    if (!goal) return null;
+    const taskIds = goal.linkedTaskIds || [];
+    if (taskIds.length === 0) return { ...goal, progressPct: 0, derivedFrom: 'no-tasks' };
+    const db = await getDatabase();
+    const placeholders = taskIds.map(() => '?').join(',');
+    const rows = await db.all(sql.raw(`SELECT status FROM tasks WHERE id IN (${placeholders})`), taskIds);
+    if (rows.length === 0) return { ...goal, progressPct: 0, derivedFrom: 'no-tasks' };
+    const done = rows.filter(r => r.status === 'completed').length;
+    const pct = Math.round((done / rows.length) * 100);
+    await db.update(schema.researchGoals)
+      .set({ progressPct: pct, lastActivityAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.researchGoals.id, goalId));
+    return { ...goal, progressPct: pct, derivedFrom: 'tasks', totalTasks: rows.length, completedTasks: done };
+  },
+
+  // Signal queue suggestions (cache for active source)
+  async upsertSignalQueueSuggestion({ id, sourceId, notebookId, userId, title, rationale, sourceChunkIndices, confidence = 0.5, status = 'pending' }) {
+    const db = await getDatabase();
+    const existing = await db.select().from(schema.signalQueueSuggestions)
+      .where(and(eq(schema.signalQueueSuggestions.sourceId, sourceId), eq(schema.signalQueueSuggestions.title, title)))
+      .limit(1);
+    const indices = JSON.stringify(sourceChunkIndices || []);
+    if (existing[0]) {
+      await db.update(schema.signalQueueSuggestions)
+        .set({ rationale, sourceChunkIndices: indices, confidence, status, updatedAt: new Date() })
+        .where(eq(schema.signalQueueSuggestions.id, existing[0].id));
+      return existing[0].id;
+    }
+    const sugId = id || ("sug-" + Math.random().toString(36).substring(2, 12));
+    await db.insert(schema.signalQueueSuggestions).values({
+      id: sugId, sourceId, notebookId, userId, title, rationale,
+      sourceChunkIndices: indices, confidence, status,
+    });
+    return sugId;
+  },
+
+  async getSignalQueueSuggestionsBySource(sourceId) {
+    const db = await getDatabase();
+    return await db.select().from(schema.signalQueueSuggestions)
+      .where(eq(schema.signalQueueSuggestions.sourceId, sourceId))
+      .orderBy(desc(schema.signalQueueSuggestions.confidence), desc(schema.signalQueueSuggestions.createdAt));
+  },
+
   // Sovereign Bridge - Activity Log
   async createActivityLog(notebookId, userId, actor, actionType, contentPreview = null) {
     const db = await getDatabase();
@@ -1025,35 +1189,6 @@ export const dbHelpers = {
     `);
     return result || [];
   },
-
-  async createResearchGoal(id, userId, notebookId, title, description) {
-    const db = await getDatabase();
-    const createdAt = new Date().toISOString();
-    await db.run(sql`
-      INSERT INTO research_goals (id, user_id, notebook_id, title, description, created_at)
-      VALUES (${id}, ${userId}, ${notebookId}, ${title}, ${description}, ${createdAt})
-    `);
-    return { id, title, description };
-  },
-
-  async getResearchGoalsByNotebookId(notebookId, userId) {
-    const db = await getDatabase();
-    const result = await db.all(sql`
-      SELECT * FROM research_goals
-      WHERE notebook_id = ${notebookId} AND user_id = ${userId}
-      ORDER BY created_at DESC
-    `);
-    return result || [];
-  },
-
-  async deleteResearchGoal(id, userId) {
-    const db = await getDatabase();
-    const result = await db.$client.execute({
-      sql: 'DELETE FROM research_goals WHERE id = ? AND user_id = ?',
-      args: [id, userId]
-    });
-    return { changes: result.rowsAffected || 0 };
-  }
 };
 
 export { dbInstance as db, schema };

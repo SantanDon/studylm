@@ -13,6 +13,7 @@ import QuizView from './QuizView';
 import QuizResults from './QuizResults';
 import { Citation } from '@/types/message';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { FEATURE_FLAGS } from '@/config/featureFlags';
 import SignalQueuePanel from './SignalQueuePanel';
 import ResearchGoalsPanel from './ResearchGoalsPanel';
 
@@ -20,12 +21,14 @@ interface StudioSidebarProps {
   notebookId?: string;
   isExpanded?: boolean;
   onCitationClick?: (citation: Citation) => void;
+  activeSourceId?: string | null;
 }
 
 const StudioSidebar = ({
   notebookId,
   isExpanded,
-  onCitationClick
+  onCitationClick,
+  activeSourceId
 }: StudioSidebarProps) => {
   const {
     state, data, flags, misc, handlers
@@ -184,8 +187,9 @@ const StudioSidebar = ({
           </div>
 
           {/* Study Guides & Signals Collapsibles */}
-          <div className="space-y-2 pt-4 border-t border-gray-200 dark:border-border">
-            {/* Signal Queue Section */}
+          <div className="space-y-2.5 pt-5 border-t border-gray-200/70 dark:border-border">
+            {/* Signal Queue Section — feature-flagged dormant */}
+            {FEATURE_FLAGS.SIGNAL_QUEUE_VISIBLE && (
             <Collapsible open={isSignalQueueSectionOpen} onOpenChange={setIsSignalQueueSectionOpen}>
               <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl hover:bg-gray-50 dark:hover:bg-muted/50 transition-all shadow-sm">
                 <div className="flex items-center gap-3">
@@ -202,37 +206,41 @@ const StudioSidebar = ({
                 </div>
               </CollapsibleContent>
             </Collapsible>
+            )}
 
-            {/* Research Goals Section */}
+            {/* Research Goals Section — promoted to top of lower group */}
             <Collapsible open={isResearchGoalsSectionOpen} onOpenChange={setIsResearchGoalsSectionOpen}>
-              <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl hover:bg-gray-50 dark:hover:bg-muted/50 transition-all shadow-sm mt-2">
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl hover:bg-gray-50 dark:hover:bg-muted/50 transition-all shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 flex items-center justify-center">
                     <i className="fi fi-rr-target text-indigo-600 dark:text-indigo-400 text-xs"></i>
                   </div>
-                  <span className="text-sm font-medium text-foreground font-sans font-semibold">Research Goals</span>
+                  <div className="flex flex-col items-start min-w-0">
+                    <span className="text-sm font-medium text-foreground font-sans font-semibold">Research Goals</span>
+                    <span className="text-[9px] text-muted-foreground leading-none">Source-aware synthesis</span>
+                  </div>
                 </div>
                 <i className={`fi fi-rr-angle-small-down text-muted-foreground transition-transform duration-300 ${isResearchGoalsSectionOpen ? 'rotate-180' : ''}`}></i>
               </CollapsibleTrigger>
               <CollapsibleContent className="pt-2">
-                <div className="max-h-[300px] overflow-y-auto pr-1">
-                  {notebookId && <ResearchGoalsPanel notebookId={notebookId} />}
+                <div className="max-h-[360px] overflow-y-auto pr-1">
+                  {notebookId && <ResearchGoalsPanel notebookId={notebookId} activeSourceId={activeSourceId ?? null} />}
                 </div>
               </CollapsibleContent>
             </Collapsible>
 
             {/* Quiz Section */}
             {!hasOnlyTweets && (
-              <Collapsible open={isQuizSectionOpen} onOpenChange={setIsQuizSectionOpen}>
-                <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl hover:bg-gray-50 dark:hover:bg-muted/50 transition-all shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-green-50 dark:bg-green-950/40 border border-green-100 dark:border-green-900/40 flex items-center justify-center">
-                      <i className="fi fi-rr-brain text-green-600 dark:text-green-400 text-xs"></i>
-                    </div>
-                    <span className="text-sm font-medium text-foreground">Quiz</span>
+            <Collapsible open={isQuizSectionOpen} onOpenChange={setIsQuizSectionOpen}>
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-3 bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl hover:bg-gray-50 dark:hover:bg-muted/50 transition-all shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-green-50 dark:bg-green-950/40 border border-green-100 dark:border-green-900/40 flex items-center justify-center">
+                    <i className="fi fi-rr-brain text-green-600 dark:text-green-400 text-xs"></i>
                   </div>
-                  <i className={`fi fi-rr-angle-small-down text-muted-foreground transition-transform duration-300 ${isQuizSectionOpen ? 'rotate-180' : ''}`}></i>
-                </CollapsibleTrigger>
+                  <span className="text-sm font-medium text-foreground">Quiz</span>
+                </div>
+                <i className={`fi fi-rr-angle-small-down text-muted-foreground transition-transform duration-300 ${isQuizSectionOpen ? 'rotate-180' : ''}`}></i>
+              </CollapsibleTrigger>
                 <CollapsibleContent className="pt-2">
                   {notebookId && sources && sources.length > 0 ? (
                     <QuizSelector

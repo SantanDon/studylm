@@ -20,6 +20,7 @@ const Notebook = () => {
   const { notebooks, isLoading } = useNotebooks();
   const { sources } = useSources(notebookId);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
+  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const isDesktop = useIsDesktop();
   const { isIngesting, ingestionStatus } = useAgentIngestion(notebookId);
 
@@ -33,6 +34,10 @@ const Notebook = () => {
 
   const handleCitationClose = () => {
     setSelectedCitation(null);
+  };
+
+  const handleActiveSourceChange = (sourceId: string | null) => {
+    setActiveSourceId(sourceId);
   };
 
   // Dynamic width calculations for desktop - expand studio when editing notes
@@ -107,12 +112,14 @@ const Notebook = () => {
                 message="Failed to load sources. Please try again."
                 showHomeButton={false}
               >
-                <SourcesSidebar 
-                  hasSource={hasSource || false} 
+                <SourcesSidebar
+                  hasSource={hasSource || false}
                   notebookId={notebookId}
                   selectedCitation={selectedCitation}
                   onCitationClose={handleCitationClose}
                   setSelectedCitation={setSelectedCitation}
+                  activeSourceId={activeSourceId}
+                  onActiveSourceChange={handleActiveSourceChange}
                 />
               </ErrorBoundary>
             </ResizablePanel>
@@ -152,9 +159,10 @@ const Notebook = () => {
                 message="Failed to load studio. Please try again."
                 showHomeButton={false}
               >
-                <StudioSidebar 
-                  notebookId={notebookId} 
+                <StudioSidebar
+                  notebookId={notebookId}
                   onCitationClick={handleCitationClick}
+                  activeSourceId={activeSourceId}
                 />
               </ErrorBoundary>
             </ResizablePanel>

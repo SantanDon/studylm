@@ -22,6 +22,8 @@ interface MobileNotebookTabsProps {
   onCitationClose?: () => void;
   setSelectedCitation?: (citation: Citation | null) => void;
   onCitationClick?: (citation: Citation) => void;
+  activeSourceId?: string | null;
+  onActiveSourceChange?: (sourceId: string | null) => void;
 }
 
 const MobileNotebookTabs = ({
@@ -31,7 +33,9 @@ const MobileNotebookTabs = ({
   selectedCitation,
   onCitationClose,
   setSelectedCitation,
-  onCitationClick
+  onCitationClick,
+  activeSourceId,
+  onActiveSourceChange,
 }: MobileNotebookTabsProps) => {
   return (
     <Tabs defaultValue="chat" className="flex-1 flex flex-col overflow-hidden">
@@ -60,12 +64,14 @@ const MobileNotebookTabs = ({
       </TabsList>
 
       <TabsContent value="sources" className="flex-1 overflow-hidden mt-0">
-        <SourcesSidebar 
+        <SourcesSidebar
           hasSource={hasSource}
           notebookId={notebookId}
           selectedCitation={selectedCitation}
           onCitationClose={onCitationClose}
           setSelectedCitation={setSelectedCitation}
+          activeSourceId={activeSourceId}
+          onActiveSourceChange={onActiveSourceChange}
         />
       </TabsContent>
 
@@ -79,9 +85,10 @@ const MobileNotebookTabs = ({
       </TabsContent>
 
       <TabsContent value="studio" className="flex-1 overflow-hidden mt-0">
-        <StudioSidebar 
+        <StudioSidebar
           notebookId={notebookId}
           onCitationClick={onCitationClick}
+          activeSourceId={activeSourceId}
         />
       </TabsContent>
     </Tabs>

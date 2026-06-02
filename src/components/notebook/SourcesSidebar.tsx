@@ -58,6 +58,8 @@ interface SourcesSidebarProps {
   selectedCitation?: Citation | null;
   onCitationClose?: () => void;
   setSelectedCitation?: (citation: Citation | null) => void;
+  activeSourceId?: string | null;
+  onActiveSourceChange?: (sourceId: string | null) => void;
 }
 
 const SourcesSidebar = ({
@@ -66,6 +68,8 @@ const SourcesSidebar = ({
   selectedCitation,
   onCitationClose,
   setSelectedCitation,
+  activeSourceId,
+  onActiveSourceChange,
 }: SourcesSidebarProps) => {
   const [showAddSourcesDialog, setShowAddSourcesDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -275,6 +279,7 @@ const SourcesSidebar = ({
 
     // Set the selected source for viewing
     setSelectedSourceForViewing(source);
+    onActiveSourceChange?.(source.id);
 
     // Create a mock citation for the selected source without line data (this prevents auto-scroll)
     const mockCitation: Citation = {
@@ -300,6 +305,7 @@ const SourcesSidebar = ({
   const handleBackToSources = () => {
     console.log("SourcesSidebar: Back to sources clicked");
     setSelectedSourceForViewing(null);
+    onActiveSourceChange?.(null);
     onCitationClose?.();
   };
 

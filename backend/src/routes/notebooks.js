@@ -713,6 +713,12 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
       },
       sources: sources.map(s => {
         const trust = getSourceTrust(s);
+        const hasContent = typeof s.content === 'string' && s.content.length > 0;
+        const contentStatus = !s.processingStatus || s.processingStatus === 'pending'
+          ? 'pending'
+          : (s.processingStatus === 'processing' ? 'processing'
+          : (s.processingStatus === 'failed' ? 'failed'
+          : (hasContent ? 'available' : 'empty')));
         return {
           id: s.id,
           title: s.title,
@@ -720,8 +726,14 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
           status: s.processingStatus,
           url: s.url || null,
           ...trust,
-          contentPreview: s.content ? s.content.substring(0, 500) + (s.content.length > 500 ? '...' : '') : null,
-          contentLength: s.content ? s.content.length : 0
+          contentStatus,
+          contentLength: hasContent ? s.content.length : 0,
+          contentPreview: hasContent
+            ? s.content.substring(0, 500) + (s.content.length > 500 ? '...' : '')
+            : null,
+          fullContentAvailable: hasContent,
+          usableForGroundedChat: hasContent && (s.type === 'youtube' || s.type === 'document' || s.type === 'website'),
+          transcriptStatus: s.transcriptStatus || (s.type === 'youtube' ? 'unknown' : null)
         };
       }),
       notes: notes.map(n => ({
@@ -790,7 +802,7 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
     let interceptedResponse = null;
 
     if (normalizedMsg.includes("closed-loop synthesis") || normalizedMsg.includes("synthesize bookmarks and align")) {
-      const goals = await dbHelpers.getResearchGoalsByNotebookId(notebookId, userId);
+      const goals = await dbHelpers.getGoalsByNotebookId(notebookId, { includeArchived: false });
       if (!goals || goals.length === 0) {
         interceptedResponse = `⚠️ **No Active Research Goals**\n\nI couldn't run the Goal Broker synthesis because there are no active research goals defined in this notebook. Please go to the **Research Goals** panel in the Studio sidebar to add your target objectives first.`;
       } else {
@@ -1194,11 +1206,31 @@ router.post("/:id/pulse", requireScope('missions:write'), async (req, res) => {
  */
 router.get("/:id/research-goals", requireScope('notebooks:read'), async (req, res) => {
   try {
-    const goals = await dbHelpers.getResearchGoalsByNotebookId(req.params.id, req.user.userId);
+    const includeArchived = req.query.includeArchived === 'true';
+    const parentGoalId = req.query.parentGoalId || null;
+    const goals = await dbHelpers.getGoalsByNotebookId(req.params.id, { includeArchived, parentGoalId });
     res.json({ goals });
   } catch (error) {
     logger.error("Failed to list research goals:", error);
     res.status(500).json({ error: "Failed to list research goals" });
+  }
+});
+
+/**
+ * GET /api/notebooks/:id/research-goals/:goalId
+ * Get a single goal with derived progress
+ */
+router.get("/:id/research-goals/:goalId", requireScope('notebooks:read'), async (req, res) => {
+  try {
+    const goal = await dbHelpers.getGoalById(req.params.goalId);
+    if (!goal || goal.notebookId !== req.params.id) {
+      return res.status(404).json({ error: "Research goal not found" });
+    }
+    const computed = await dbHelpers.computeGoalProgress(req.params.goalId);
+    res.json({ goal: computed });
+  } catch (error) {
+    logger.error("Failed to get research goal:", error);
+    res.status(500).json({ error: "Failed to get research goal" });
   }
 });
 
@@ -1208,20 +1240,112 @@ router.get("/:id/research-goals", requireScope('notebooks:read'), async (req, re
  */
 router.post("/:id/research-goals", requireScope('notes:create'), async (req, res) => {
   try {
-    const { title, description } = req.body;
+    const { title, description, parentGoalId, status, priority, sourceId, sourceChunkId } = req.body;
     if (!title) {
       return res.status(400).json({ error: "title is required" });
     }
 
-    const id = uuidv4();
-    const goal = await dbHelpers.createResearchGoal(id, req.user.userId, req.params.id, title, description || "");
+    const id = req.body.id || uuidv4();
+    const goalId = await dbHelpers.createGoal({
+      id, userId: req.user.userId, notebookId: req.params.id,
+      title, description: description || null,
+      parentGoalId: parentGoalId || null,
+      status: status || 'active',
+      priority: priority || 'medium',
+      sourceId: sourceId || null,
+      sourceChunkId: sourceChunkId || null,
+    });
+    const created = await dbHelpers.getGoalById(goalId);
 
     await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'create_research_goal', `Created research goal: "${title}"`);
 
-    res.status(201).json(goal);
+    res.status(201).json(created);
   } catch (error) {
     logger.error("Failed to create research goal:", error);
     res.status(500).json({ error: "Failed to create research goal" });
+  }
+});
+
+/**
+ * PATCH /api/notebooks/:id/research-goals/:goalId
+ * Update goal fields (status, priority, title, etc.)
+ * Body is normalized to camelCase by the global normalizeBodyKeys middleware.
+ */
+router.patch("/:id/research-goals/:goalId", requireScope('notes:create'), async (req, res) => {
+  try {
+    const existing = await dbHelpers.getGoalById(req.params.goalId);
+    if (!existing || existing.notebookId !== req.params.id) {
+      return res.status(404).json({ error: "Research goal not found" });
+    }
+    const allowed = ['title', 'description', 'parentGoalId', 'status', 'priority', 'sourceId', 'sourceChunkId', 'progressPct'];
+    const updates = {};
+    for (const k of allowed) if (k in req.body) updates[k] = req.body[k];
+    const updated = await dbHelpers.updateGoal(req.params.goalId, updates);
+    await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'update_research_goal', `Updated goal "${updated.title}"`);
+    res.json({ goal: updated });
+  } catch (error) {
+    logger.error("Failed to update research goal:", error);
+    res.status(500).json({ error: "Failed to update research goal" });
+  }
+});
+
+/**
+ * POST /api/notebooks/:id/research-goals/:goalId/tasks/:taskId
+ * Link a task to a goal
+ */
+router.post("/:id/research-goals/:goalId/tasks/:taskId", requireScope('notes:create'), async (req, res) => {
+  try {
+    const goal = await dbHelpers.getGoalById(req.params.goalId);
+    if (!goal || goal.notebookId !== req.params.id) {
+      return res.status(404).json({ error: "Research goal not found" });
+    }
+    const task = await dbHelpers.getTaskById(req.params.taskId);
+    if (!task || task.notebookId !== req.params.id) {
+      return res.status(404).json({ error: "Task not found in this notebook" });
+    }
+    const updated = await dbHelpers.linkTaskToGoal(req.params.goalId, req.params.taskId);
+    res.json({ goal: updated });
+  } catch (error) {
+    logger.error("Failed to link task to goal:", error);
+    res.status(500).json({ error: "Failed to link task to goal" });
+  }
+});
+
+/**
+ * DELETE /api/notebooks/:id/research-goals/:goalId/tasks/:taskId
+ * Unlink a task from a goal
+ */
+router.delete("/:id/research-goals/:goalId/tasks/:taskId", requireScope('notes:create'), async (req, res) => {
+  try {
+    const goal = await dbHelpers.getGoalById(req.params.goalId);
+    if (!goal || goal.notebookId !== req.params.id) {
+      return res.status(404).json({ error: "Research goal not found" });
+    }
+    const updated = await dbHelpers.unlinkTaskFromGoal(req.params.goalId, req.params.taskId);
+    res.json({ goal: updated });
+  } catch (error) {
+    logger.error("Failed to unlink task from goal:", error);
+    res.status(500).json({ error: "Failed to unlink task from goal" });
+  }
+});
+
+/**
+ * POST /api/notebooks/:id/research-goals/:goalId/artifacts
+ * Link an artifact (note, mission result, etc.) to a goal
+ */
+router.post("/:id/research-goals/:goalId/artifacts", requireScope('notes:create'), async (req, res) => {
+  try {
+    const { artifactId } = req.body;
+    if (!artifactId) return res.status(400).json({ error: "artifactId is required" });
+    const goal = await dbHelpers.getGoalById(req.params.goalId);
+    if (!goal || goal.notebookId !== req.params.id) {
+      return res.status(404).json({ error: "Research goal not found" });
+    }
+    const updated = await dbHelpers.linkArtifactToGoal(req.params.goalId, artifactId);
+    res.json({ goal: updated });
+  } catch (error) {
+    logger.error("Failed to link artifact to goal:", error);
+    res.status(500).json({ error: "Failed to link artifact to goal" });
   }
 });
 
@@ -1231,17 +1355,61 @@ router.post("/:id/research-goals", requireScope('notes:create'), async (req, res
  */
 router.delete("/:id/research-goals/:goalId", requireScope('notes:create'), async (req, res) => {
   try {
-    const result = await dbHelpers.deleteResearchGoal(req.params.goalId, req.user.userId);
-    if (result.changes === 0) {
+    const existing = await dbHelpers.getGoalById(req.params.goalId);
+    if (!existing || existing.notebookId !== req.params.id) {
       return res.status(404).json({ error: "Research goal not found or unauthorized" });
     }
-
-    await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'delete_research_goal', "Deleted a research goal");
-
+    await dbHelpers.deleteGoal(req.params.goalId);
+    await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'delete_research_goal', `Deleted research goal "${existing.title}"`);
     res.json({ message: "Research goal deleted successfully" });
   } catch (error) {
     logger.error("Failed to delete research goal:", error);
     res.status(500).json({ error: "Failed to delete research goal" });
+  }
+});
+
+/**
+ * GET /api/notebooks/:id/sources/:sourceId/suggested-goals
+ * Returns cached source-aware suggested goals (computes on miss, rate-limited 5min/source).
+ * Add ?force=true to bypass the rate limit (e.g. after a re-crawl).
+ */
+router.get("/:id/sources/:sourceId/suggested-goals", requireScope('notebooks:read'), async (req, res) => {
+  try {
+    const { getOrComputeSuggestedGoals } = await import('../services/suggestedGoalsService.js');
+    const force = req.query.force === 'true';
+    const { suggestions, computed, rateLimited, retryIn } = await getOrComputeSuggestedGoals(
+      req.params.id, req.user.userId, req.params.sourceId, { force }
+    );
+    res.json({ suggestions, sourceId: req.params.sourceId, computed, rateLimited: rateLimited || false, retryIn: retryIn || 0 });
+  } catch (error) {
+    logger.error("Failed to list suggested goals:", error);
+    res.status(500).json({ error: "Failed to list suggested goals" });
+  }
+});
+
+/**
+ * POST /api/notebooks/:id/sources/:sourceId/suggested-goals/:suggestionId/accept
+ * Accept a suggestion → materialize as real research goal
+ */
+router.post("/:id/sources/:sourceId/suggested-goals/:suggestionId/accept", requireScope('notes:create'), async (req, res) => {
+  try {
+    const suggestions = await dbHelpers.getSignalQueueSuggestionsBySource(req.params.sourceId);
+    const suggestion = suggestions.find(s => s.id === req.params.suggestionId);
+    if (!suggestion) return res.status(404).json({ error: "Suggestion not found" });
+    const goalId = await dbHelpers.createGoal({
+      userId: req.user.userId, notebookId: req.params.id,
+      title: suggestion.title, description: suggestion.rationale,
+      sourceId: req.params.sourceId,
+      sourceChunkId: Array.isArray(suggestion.sourceChunkIndices) && suggestion.sourceChunkIndices[0] != null
+        ? String(suggestion.sourceChunkIndices[0]) : null,
+      priority: 'medium', status: 'active',
+    });
+    const goal = await dbHelpers.getGoalById(goalId);
+    await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'accept_suggested_goal', `Accepted suggested goal "${goal.title}"`);
+    res.status(201).json({ goal });
+  } catch (error) {
+    logger.error("Failed to accept suggested goal:", error);
+    res.status(500).json({ error: "Failed to accept suggested goal" });
   }
 });
 

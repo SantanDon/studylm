@@ -512,22 +512,84 @@ export const ApiService = {
     return handleResponse(response);
   },
 
-  async fetchResearchGoals(notebookId: string, token: string) {
-    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/research-goals`, {
+  async fetchResearchGoals(notebookId: string, token: string, opts: { includeArchived?: boolean; parentGoalId?: string | null } = {}) {
+    const params = new URLSearchParams();
+    if (opts.includeArchived) params.set('includeArchived', 'true');
+    if (opts.parentGoalId) params.set('parentGoalId', opts.parentGoalId);
+    const qs = params.toString();
+    const url = `${API_BASE_URL}/notebooks/${notebookId}/research-goals${qs ? `?${qs}` : ''}`;
+    const response = await fetch(url, {
       headers: { 'Authorization': `Bearer ${token}` },
       credentials: 'include'
     });
     return handleResponse(response);
   },
 
-  async createResearchGoal(notebookId: string, title: string, description: string, token: string) {
+  async createResearchGoal(notebookId: string, title: string, description: string, token: string, extras: { parentGoalId?: string; priority?: 'low'|'medium'|'high'; status?: 'active'|'completed'|'paused'|'archived'; sourceId?: string } = {}) {
+    const body: any = { title, description };
+    if (extras.parentGoalId) body.parentGoalId = extras.parentGoalId;
+    if (extras.priority) body.priority = extras.priority;
+    if (extras.status) body.status = extras.status;
+    if (extras.sourceId) body.sourceId = extras.sourceId;
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/research-goals`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ title, description }),
+      body: JSON.stringify(body),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async patchResearchGoal(notebookId: string, goalId: string, updates: Record<string, any>, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/research-goals/${goalId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(updates),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async linkTaskToGoal(notebookId: string, goalId: string, taskId: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/research-goals/${goalId}/tasks/${taskId}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async linkArtifactToGoal(notebookId: string, goalId: string, artifactId: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/research-goals/${goalId}/artifacts`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artifactId }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async fetchSuggestedGoals(notebookId: string, sourceId: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/sources/${sourceId}/suggested-goals`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async acceptSuggestedGoal(notebookId: string, sourceId: string, suggestionId: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/sources/${sourceId}/suggested-goals/${suggestionId}/accept`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
       credentials: 'include'
     });
     return handleResponse(response);

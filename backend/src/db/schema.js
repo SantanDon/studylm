@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 export const users = sqliteTable('users', {
     id: text('id').primaryKey(),
     email: text('email').unique().notNull(),
@@ -210,4 +210,52 @@ export const deletedNotebooks = sqliteTable('deleted_notebooks', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull(),
   deletedAt: integer('deleted_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const signalQueue = sqliteTable('signal_queue', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  notebookId: text('notebook_id').references(() => notebooks.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id'),
+  tweetSourceId: text('tweet_source_id'),
+  platform: text('platform').notNull(),
+  content: text('content').notNull(),
+  status: text('status').default('draft'),
+  scheduledFor: integer('scheduled_for', { mode: 'timestamp' }),
+  postedAt: integer('posted_at', { mode: 'timestamp' }),
+  noteId: text('note_id'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const researchGoals = sqliteTable('research_goals', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  notebookId: text('notebook_id').notNull().references(() => notebooks.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  parentGoalId: text('parent_goal_id'),
+  status: text('status', { enum: ['active', 'completed', 'paused', 'archived'] }).default('active'),
+  priority: text('priority', { enum: ['low', 'medium', 'high'] }).default('medium'),
+  sourceId: text('source_id'),
+  sourceChunkId: text('source_chunk_id'),
+  lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
+  progressPct: integer('progress_pct').default(0),
+  linkedTaskIds: text('linked_task_ids').default('[]'),
+  linkedArtifactIds: text('linked_artifact_ids').default('[]'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const signalQueueSuggestions = sqliteTable('signal_queue_suggestions', {
+  id: text('id').primaryKey(),
+  sourceId: text('source_id').notNull().references(() => sources.id, { onDelete: 'cascade' }),
+  notebookId: text('notebook_id').notNull().references(() => notebooks.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  rationale: text('rationale'),
+  sourceChunkIndices: text('source_chunk_indices').default('[]'),
+  confidence: real('confidence').default(0.5),
+  status: text('status', { enum: ['pending', 'accepted', 'dismissed'] }).default('pending'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

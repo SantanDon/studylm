@@ -30,6 +30,7 @@ import signalQueueRoutes from './routes/signalQueue.js';
 // Middleware / DB Imports
 import { initializeDatabase } from './db/database.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { normalizeBodyKeys } from './middleware/normalizeKeys.js';
 import { logger, requestLogger } from './utils/logger.js';
 
 // ENI: Services only loaded outside Vercel — Hocuspocus + @xenova/transformers are
@@ -153,6 +154,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(requestLogger);
+app.use(normalizeBodyKeys);
 
 // API Routes
 app.use('/api/auth', authRoutes);

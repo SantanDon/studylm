@@ -3,11 +3,13 @@ import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import NotebookGrid from "@/components/dashboard/NotebookGrid";
 import EmptyDashboard from "@/components/dashboard/EmptyDashboard";
 import WhatsHappening from "@/components/dashboard/WhatsHappening";
+import GoalsPulse from "@/components/dashboard/GoalsPulse";
 import MetallicText from "@/components/ui/MetallicText";
 import { useNotebooks } from "@/hooks/useNotebooks";
 import { useAuth } from "@/hooks/useAuth";
 import { useGuest } from "@/hooks/useGuest";
 import { useVisualEffectsStore } from "@/stores/visualEffectsStore";
+import { FEATURE_FLAGS } from "@/config/featureFlags";
 
 const Dashboard = () => {
   const { user, loading: authLoading, error: authError } = useAuth();
@@ -124,7 +126,8 @@ const Dashboard = () => {
               <NotebookGrid />
             </div>
             <div className="lg:col-span-1 space-y-6">
-              <WhatsHappening />
+              <GoalsPulse />
+              {FEATURE_FLAGS.SIGNAL_QUEUE_VISIBLE && <WhatsHappening />}
             </div>
           </div>
         ) : (

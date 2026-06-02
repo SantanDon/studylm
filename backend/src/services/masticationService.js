@@ -97,6 +97,16 @@ export const MasticationService = {
       logger.error('[MASTICATION] Suggested source discovery failed:', err.message);
     }
 
+    // 1.6 Pre-compute source-aware suggested research goals (background; non-blocking)
+    try {
+      const { generateAndCacheSuggestedGoals } = await import('./suggestedGoalsService.js');
+      generateAndCacheSuggestedGoals(notebookId, userId, source)
+        .then(s => logger.info(`[MASTICATION] Cached ${s.length} suggested goals for source ${sourceId}`))
+        .catch(err => logger.warn(`[MASTICATION] Suggested goals precompute failed: ${err.message}`));
+    } catch (err) {
+      logger.warn(`[MASTICATION] Suggested goals import failed: ${err.message}`);
+    }
+
     // 2. Chunking logic (roughly 10k tokens ~ 40k chars)
     const CHUNK_SIZE = 40000;
     const content = source.content;

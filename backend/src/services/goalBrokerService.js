@@ -1,9 +1,12 @@
 /**
  * Goal Broker Service — Closed Loop Research Broker
- * 
+ *
  * Matches newly crawled bookmark sources against active user research goals,
- * generates a comprehensive "Research Synthesis & Recommendations" note,
- * and automatically triggers agent tasks and social queue signal drafts.
+ * generates a "Research Synthesis & Recommendations" note, and emits:
+ *   - [TASK]   → persisted agent task (linked to current parent [GOAL] if any)
+ *   - [GOAL]   → persisted research goal (parent for the following [TASK]s)
+ *   - [OUTREACH] → appended to note as "Deferred Outreach Hooks" (signal queue
+ *                  is currently dormant per FEATURE_FLAGS.SIGNAL_QUEUE_VISIBLE)
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -11,21 +14,16 @@ import { dbHelpers } from '../db/database.js';
 import { dispatchToTitan } from './titanProvider.js';
 import { logger } from '../utils/logger.js';
 
-/**
- * Execute Closed-Loop Synthesis matching sources against notebook goals
- */
 export async function brokerResearchGoals(notebookId, userId, sourceIds) {
   try {
     logger.info(`🎯 [GoalBroker] Starting closed-loop synthesis for notebook ${notebookId}`);
 
-    // 1. Fetch active goals
-    const goals = await dbHelpers.getResearchGoalsByNotebookId(notebookId, userId);
+    const goals = await dbHelpers.getGoalsByNotebookId(notebookId, { includeArchived: false });
     if (!goals || goals.length === 0) {
       logger.info(`[GoalBroker] No active research goals in notebook ${notebookId} — skipping synthesis`);
       return null;
     }
 
-    // 2. Fetch source contents
     const allSources = await dbHelpers.getSourcesByNotebookId(notebookId, userId);
     const targetSources = allSources.filter(s => sourceIds.includes(s.id) && s.content);
 
@@ -36,7 +34,6 @@ export async function brokerResearchGoals(notebookId, userId, sourceIds) {
 
     logger.info(`[GoalBroker] Synthesizing ${targetSources.length} source(s) against ${goals.length} goal(s)`);
 
-    // 3. Construct prompt for AI
     const goalsText = goals.map(g => `- **${g.title}**: ${g.description || 'No description provided'}`).join('\n');
     const sourcesText = targetSources.map(s => `--- SOURCE: ${s.title} (${s.url || 'No URL'}) ---\n${s.content.substring(0, 8000)}`).join('\n\n');
 
@@ -56,8 +53,9 @@ ${sourcesText}
 Generate a Markdown synthesis containing:
 1. 🎯 STRATEGIC RECONNAISSANCE: How these bookmarks map to the user's goals. Be specific.
 2. 🛠️ ACTIONABLE RECOMMENDATIONS: Specific suggestions (e.g. IDE configurations, tools, architecture upgrades, repos to fork) for their agents/development.
-3. 📋 AGENT CHECKS & TASKS: List 2-3 concrete tasks that can be assigned to autonomous agents (e.g., "Analyze repo X", "Integrate library Y"). Provide them in a clear bullet-point section prefixed with "[TASK]".
-4. 📢 OUTREACH HOOKS: List 1-2 punchy social outreach copy drafts based on the findings. Prefix with "[OUTREACH]".`;
+3. 🆕 NEW GOAL PROPOSALS: If sources reveal gaps not yet covered, propose 1-2 NEW research goals. Prefix with "[GOAL]". (Optional.)
+4. 📋 AGENT CHECKS & TASKS: List 2-3 concrete tasks that can be assigned to autonomous agents (e.g., "Analyze repo X", "Integrate library Y"). Provide them in a clear bullet-point section prefixed with "[TASK]". Tasks listed under a [GOAL] line are linked to that goal.
+5. 📢 OUTREACH HOOKS: List 1-2 punchy social outreach copy drafts based on the findings. Prefix with "[OUTREACH]".`;
 
     const messages = [
       { role: 'system', content: systemPrompt },
@@ -70,19 +68,22 @@ Generate a Markdown synthesis containing:
       temperature: 0.75
     });
 
-    // 4. Extract tasks and outreach copy from the response
-    const tasksToCreate = extractPrefixLines(answer, '[TASK]');
-    const outreachToCreate = extractPrefixLines(answer, '[OUTREACH]');
+    const extracted = extractStructuredItems(answer);
 
-    // 5. Update or create the Synthesis Note in the notebook
     const notes = await dbHelpers.getNotesByNotebookId(notebookId, userId);
     const existingSynthesisNote = notes.find(n => n.content.includes('# 🎯 Research Synthesis & Recommendations') || n.content.startsWith('# 🎯 Research Synthesis'));
 
     const cleanAnswer = answer
+      .replace(/\[GOAL\]\s*/gi, '')
       .replace(/\[TASK\]\s*/gi, '')
       .replace(/\[OUTREACH\]\s*/gi, '');
 
-    const noteContent = `# 🎯 Research Synthesis & Recommendations\n\n*Updated: ${new Date().toLocaleString()}*\n\n${cleanAnswer}\n\n---\n*Synthesized by the StudyPod Goal Broker.*`;
+    const outreachSection = extracted.outreach.length
+      ? `\n\n## 📢 Deferred Outreach Hooks\n\n_Signal Queue is currently dormant. These drafts are stored here until the outreach pipeline is reactivated._\n\n` +
+        extracted.outreach.map(h => `- ${h}`).join('\n')
+      : '';
+
+    const noteContent = `# 🎯 Research Synthesis & Recommendations\n\n*Updated: ${new Date().toLocaleString()}*\n\n${cleanAnswer}${outreachSection}\n\n---\n*Synthesized by the StudyPod Goal Broker.*`;
 
     let noteId;
     if (existingSynthesisNote) {
@@ -95,48 +96,62 @@ Generate a Markdown synthesis containing:
       logger.info(`[GoalBroker] New synthesis note created: ${noteId}`);
     }
 
-    // 6. Persist extracted tasks to database
-    for (const taskText of tasksToCreate) {
-      try {
-        await dbHelpers.createTask(userId, notebookId, taskText, 'agent', 'medium', null, null);
-        logger.info(`[GoalBroker] Auto-provisioned agent task: "${taskText.substring(0, 40)}..."`);
-      } catch (err) {
-        logger.warn(`[GoalBroker] Failed to auto-provision agent task: ${err.message}`);
+    // Persist [GOAL]s as new research goals, each acting as the parent for the
+    // [TASK]s that appear before the next [GOAL] (or end of stream).
+    let currentParentGoalId = null;
+    const orderedLines = answer.split('\n');
+    let taskCount = 0;
+    let goalsCreated = 0;
+    for (const line of orderedLines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('[GOAL]')) {
+        const title = trimmed.replace('[GOAL]', '').trim().replace(/^[:\-*#\s]+/, '');
+        if (title) {
+          const newId = await dbHelpers.createGoal({
+            userId, notebookId, title, status: 'active', priority: 'medium',
+            sourceId: targetSources[0]?.id || null,
+          });
+          currentParentGoalId = newId;
+          goalsCreated += 1;
+          logger.info(`[GoalBroker] Auto-provisioned new research goal: "${title.substring(0, 40)}..."`);
+        }
+      } else if (trimmed.startsWith('[TASK]')) {
+        const taskText = trimmed.replace('[TASK]', '').trim().replace(/^[:\-*#\s]+/, '');
+        if (taskText) {
+          try {
+            const taskId = await dbHelpers.createTask(userId, notebookId, taskText, 'agent', 'medium', null, null);
+            taskCount += 1;
+            logger.info(`[GoalBroker] Auto-provisioned agent task: "${taskText.substring(0, 40)}..."`);
+            if (currentParentGoalId && taskId) {
+              await dbHelpers.linkTaskToGoal(currentParentGoalId, taskId);
+              logger.info(`[GoalBroker] Linked task ${taskId} → goal ${currentParentGoalId}`);
+            }
+          } catch (err) {
+            logger.warn(`[GoalBroker] Failed to auto-provision agent task: ${err.message}`);
+          }
+        }
       }
     }
 
-    // 7. Persist outreach hooks to signal_queue
-    for (const hookText of outreachToCreate) {
-      try {
-        const platform = hookText.toLowerCase().includes('linkedin') ? 'linkedin' : 'twitter';
-        const content = hookText.replace(/^(linkedin|twitter|reddit|threads):\s*/i, '').trim();
-        await dbHelpers.createSignalQueueItem(
-          uuidv4(), userId, notebookId, platform, content,
-          null, null, null, noteId
-        );
-        logger.info(`[GoalBroker] Auto-staged outreach hook to signal queue: ${platform}`);
-      } catch (err) {
-        logger.warn(`[GoalBroker] Failed to auto-stage outreach signal: ${err.message}`);
-      }
-    }
-
-    return { noteId, tasksCount: tasksToCreate.length, signalsCount: outreachToCreate.length };
-
+    return { noteId, tasksCount: taskCount, goalsCreated, outreachDrafts: extracted.outreach.length };
   } catch (err) {
     logger.error(`[GoalBroker] Synthesis error: ${err.message}`);
     return null;
   }
 }
 
-function extractPrefixLines(text, prefix) {
+function extractStructuredItems(text) {
   const lines = text.split('\n');
-  const results = [];
+  const goals = [];
+  const tasks = [];
+  const outreach = [];
   for (const line of lines) {
-    if (line.trim().startsWith(prefix)) {
-      results.push(line.replace(prefix, '').trim().replace(/^[:\-*#\s]+/, ''));
-    }
+    const t = line.trim();
+    if (t.startsWith('[GOAL]')) goals.push(t.replace('[GOAL]', '').trim().replace(/^[:\-*#\s]+/, ''));
+    else if (t.startsWith('[TASK]')) tasks.push(t.replace('[TASK]', '').trim().replace(/^[:\-*#\s]+/, ''));
+    else if (t.startsWith('[OUTREACH]')) outreach.push(t.replace('[OUTREACH]', '').trim().replace(/^[:\-*#\s]+/, ''));
   }
-  return results;
+  return { goals, tasks, outreach };
 }
 
 export default { brokerResearchGoals };
