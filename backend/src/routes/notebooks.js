@@ -4,6 +4,7 @@ import { generateSovereignHooks } from "../services/outreachService.js";
 import { dbHelpers } from "../db/database.js";
 import { authenticateToken, requireScope } from "../middleware/auth.js";
 import { deepDiveBookmarks } from "../services/bookmarkDeepDiveService.js";
+import { brokerResearchGoals } from "../services/goalBrokerService.js";
 import { MemoryService } from "../services/memoryService.js";
 import { chatWithNotebook } from "../services/aiChatService.js";
 import { MasticationService } from "../services/masticationService.js";
@@ -25,6 +26,32 @@ function getActorName(req) {
 
 function isAgentRequest(req, agentId = null) {
   return req.user?.authMethod === 'api_key' || !!agentId;
+}
+
+function parseSourceMetadata(source) {
+  if (!source?.metadata) return {};
+  if (typeof source.metadata === 'string') {
+    try {
+      return JSON.parse(source.metadata);
+    } catch {
+      return {};
+    }
+  }
+  return source.metadata || {};
+}
+
+function getSourceTrust(source) {
+  const metadata = parseSourceMetadata(source);
+  const status = source.processingStatus || source.processing_status;
+  const isMetadataOnlyYoutube = source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only';
+  return {
+    videoId: metadata.videoId || null,
+    transcriptStatus: metadata.transcriptStatus || null,
+    transcriptLineCount: metadata.transcriptLineCount || 0,
+    extractionWarning: metadata.extractionWarning || null,
+    extractedBy: metadata.extractedBy || null,
+    usableForGroundedChat: status === 'completed' && !isMetadataOnlyYoutube,
+  };
 }
 
 async function getNotebookOrRecover(id, userId, description = "Auto-provisioned") {
@@ -62,7 +89,7 @@ router.get("/", requireScope('notebooks:read'), async (req, res) => {
   try {
     const { include_contexts } = req.query;
     let notebooks;
-    
+
     if (include_contexts === 'true') {
       notebooks = await dbHelpers.getNotebooksWithDeepContext(req.user.userId);
     } else {
@@ -78,7 +105,7 @@ router.get("/", requireScope('notebooks:read'), async (req, res) => {
         try { notebook.exampleQuestions = JSON.parse(notebook.exampleQuestions); } catch (e) {}
       }
     });
-    
+
     res.json(notebooks);
   } catch (error) {
     logger.error("List notebooks failed:", error.message);
@@ -101,7 +128,7 @@ router.post("/", requireScope('notebooks:write'), async (req, res, next) => {
 
     const id = providedId || uuidv4();
     logger.debug(`Creating notebook ${id} for user ${req.user.userId}`);
-    
+
     try {
       await dbHelpers.createNotebook(id, req.user.userId, title, description);
     } catch (insertError) {
@@ -111,7 +138,7 @@ router.post("/", requireScope('notebooks:write'), async (req, res, next) => {
         throw insertError;
       }
     }
-    
+
     // Joint check compatible - returns based on owner/member status
     const notebook = await dbHelpers.getNotebookById(id, req.user.userId);
     res.status(201).json(notebook);
@@ -133,8 +160,8 @@ router.post("/join", requireScope('notebooks:write'), async (req, res) => {
     }
 
     const notebook = await dbHelpers.joinNotebookByCode(req.user.userId, code.toUpperCase());
-    res.json({ 
-      message: "Joined notebook successfully", 
+    res.json({
+      message: "Joined notebook successfully",
       notebook: {
         id: notebook.id,
         title: notebook.title
@@ -186,10 +213,10 @@ router.put("/:id", requireScope('notebooks:write'), async (req, res) => {
     if (description !== undefined) updates.description = description;
     if (generation_status !== undefined) updates.generationStatus = generation_status;
     if (icon !== undefined) updates.icon = icon;
-    
+
     if (example_questions !== undefined) {
-      updates.exampleQuestions = Array.isArray(example_questions) 
-        ? JSON.stringify(example_questions) 
+      updates.exampleQuestions = Array.isArray(example_questions)
+        ? JSON.stringify(example_questions)
         : example_questions;
     }
 
@@ -202,7 +229,7 @@ router.put("/:id", requireScope('notebooks:write'), async (req, res) => {
 
     await dbHelpers.updateNotebook(req.params.id, req.user.userId, updates);
     notebook = await dbHelpers.getNotebookById(req.params.id, req.user.userId);
-    
+
     if (!notebook) {
       return res.status(404).json({ error: "Notebook not found" });
     }
@@ -215,7 +242,7 @@ router.put("/:id", requireScope('notebooks:write'), async (req, res) => {
         logger.error('Failed to parse example questions:', e);
       }
     }
-    
+
     res.json(notebook);
   } catch (error) {
     logger.error("Update notebook error:", error);
@@ -263,8 +290,8 @@ router.delete("/:id", requireScope('notebooks:write'), async (req, res) => {
     if (result.action === 'deleted') {
       deletedNotebooks.add(req.params.id);
     }
-    const message = result.action === 'deleted' 
-      ? "Notebook deleted successfully" 
+    const message = result.action === 'deleted'
+      ? "Notebook deleted successfully"
       : "You have successfully left the notebook";
     res.json({ message, action: result.action });
   } catch (error) {
@@ -306,9 +333,9 @@ router.post("/:id/notes", requireScope('notes:create'), async (req, res) => {
     const id = uuidv4();
     const userId = req.user.userId;
     const author_id = userId;
-    
+
     await dbHelpers.createNote(id, req.params.id, userId, content, author_id);
-    
+
     const authorUser = await dbHelpers.getUserById(author_id);
     if (req.user.authMethod === 'api_key' || (authorUser && authorUser.accountType === 'agent')) {
       MemoryService.storeMemory(userId, req.params.id, content, {
@@ -388,7 +415,7 @@ router.post("/:id/memory/store", requireScope('memories:write'), async (req, res
 
     const userId = req.user.userId;
     const notebookId = req.params.id;
-    
+
     let notebook = await getNotebookOrRecover(notebookId, userId);
     if (!notebook) return res.status(404).json({ error: "Notebook not found" });
 
@@ -419,7 +446,7 @@ router.post("/:id/memory/search", requireScope('memories:read'), async (req, res
     const notebookId = req.params.id;
     const notebook = await dbHelpers.getNotebookById(notebookId, userId);
     if (!notebook) return res.status(404).json({ error: "Notebook not found" });
-    
+
     const result = await MemoryService.searchMemories(userId, notebookId, query, limit, { metadataFilter });
 
     res.json(result);
@@ -443,13 +470,13 @@ router.post("/:id/sources", requireScope('sources:write'), async (req, res) => {
     if (!title || !type) {
       return res.status(400).json({ error: "title and type are required" });
     }
-    
+
     const id = providedId || uuidv4();
     // Serialize metadata to JSON string for SQLite TEXT column
     const metadataStr = metadata ? (typeof metadata === 'string' ? metadata : JSON.stringify(metadata)) : null;
-    
+
     await dbHelpers.createSource(id, req.params.id, req.user.userId, title, type, content, url, metadataStr, file_path, file_size);
-    
+
     // If processing_status is provided and not default, update it immediately
     if (processing_status && processing_status !== 'pending') {
       try {
@@ -458,7 +485,7 @@ router.post("/:id/sources", requireScope('sources:write'), async (req, res) => {
         logger.warn('Could not update initial processing_status:', e.message);
       }
     }
-    
+
     res.status(201).json({ id, notebook_id: req.params.id, title, type, processing_status: processing_status || 'pending' });
   } catch (error) {
     logger.error("Create source error:", error);
@@ -517,19 +544,19 @@ router.put("/:id/sources/:sourceId", requireScope('sources:write'), async (req, 
   try {
     const updates = req.body;
     const result = await dbHelpers.updateSource(req.params.sourceId, req.user.userId, updates);
-    
+
     // VERCEL WORKAROUND: If changes is 0, the source was wiped by Vercel serverless. We MUST auto-provision it.
     if (result.changes === 0) {
       logger.info(`🛠️ PUT /sources/:sourceId: Source missing, auto-provisioning...`);
       try {
         let notebook = await getNotebookOrRecover(req.params.id, req.user.userId);
-        
+
         await dbHelpers.createSource(
-            req.params.sourceId, req.params.id, req.user.userId, 
-            updates.title || "Recovered Source", 
-            updates.type || "unknown", 
-            updates.content || "", 
-            updates.url || "", 
+            req.params.sourceId, req.params.id, req.user.userId,
+            updates.title || "Recovered Source",
+            updates.type || "unknown",
+            updates.content || "",
+            updates.url || "",
             updates.metadata ? (typeof updates.metadata === 'string' ? updates.metadata : JSON.stringify(updates.metadata)) : null,
             updates.file_path || "",
             updates.file_size || 0
@@ -542,7 +569,7 @@ router.put("/:id/sources/:sourceId", requireScope('sources:write'), async (req, 
           return res.status(404).json({ error: "Source not found and could not be recovered" });
       }
     }
-    
+
     res.json({ success: true, message: "Source updated" });
   } catch (error) {
     logger.error("Update source error:", error);
@@ -578,7 +605,7 @@ router.post("/:id/sources/:sourceId/generate-hooks", requireScope('notes:create'
     // 1. Verify access and fetch source
     const sources = await dbHelpers.getSourcesByNotebookId(id, userId);
     const source = sources.find(s => s.id === sourceId);
-    
+
     if (!source) {
       return res.status(404).json({ error: "Source not found or access denied" });
     }
@@ -593,7 +620,7 @@ router.post("/:id/sources/:sourceId/generate-hooks", requireScope('notes:create'
 
     // 3. Persist as Note for later refinement (as requested by LO)
     const noteContent = `# 🧬 Sovereign Signal: Social Hooks\n\n**Source:** ${source.title}\n\n## LinkedIn Strike\n${hooks.linkedin}\n\n## Reddit Thread-Starter\n${hooks.reddit}\n\n## Twitter/X Hook\n${hooks.twitter}\n\n--- \n*Generated by the Sovereign Signal Engine. Refine and strike.*`;
-    
+
     const noteId = uuidv4();
     await dbHelpers.createNote(noteId, id, userId, noteContent);
 
@@ -621,10 +648,10 @@ router.post("/:id/sources/:sourceId/generate-hooks", requireScope('notes:create'
       logger.warn(`🧬 [SOVEREIGN SIGNAL] Failed to persist signal hooks to queue: ${err.message}`);
     }
 
-    res.json({ 
-      hooks, 
+    res.json({
+      hooks,
       noteId,
-      message: "Sovereign Signal generated, saved as note, and staged to Signal Queue." 
+      message: "Sovereign Signal generated, saved as note, and staged to Signal Queue."
     });
   } catch (error) {
     logger.error("Signal generation error:", error);
@@ -649,6 +676,22 @@ router.get("/:id/messages", requireScope(['chat:all', 'chat:readonly']), async (
 });
 
 /**
+ * DELETE /api/notebooks/:id/messages
+ * Clear conversation history for a notebook
+ */
+router.delete("/:id/messages", requireScope(['chat:all', 'chat:write']), async (req, res) => {
+  try {
+    let notebook = await getNotebookOrRecover(req.params.id, req.user.userId);
+    if (!notebook) return res.status(404).json({ error: { code: "NOTEBOOK_NOT_FOUND", message: "Notebook not found" } });
+    await dbHelpers.deleteChatMessagesByNotebookId(req.params.id, req.user.userId);
+    res.json({ success: true, message: "Chat history cleared successfully" });
+  } catch (error) {
+    logger.error("Delete messages error:", error);
+    res.status(500).json({ error: "Failed to clear chat history" });
+  }
+});
+
+/**
  * GET /api/notebooks/:id/context
  * Build an AI-optimized context payload for agents loading a notebook
  */
@@ -668,14 +711,19 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
         description: notebook.description,
         createdAt: notebook.createdAt
       },
-      sources: sources.map(s => ({
-        id: s.id,
-        title: s.title,
-        type: s.type,
-        status: s.processingStatus,
-        contentPreview: s.content ? s.content.substring(0, 500) + (s.content.length > 500 ? '...' : '') : null,
-        contentLength: s.content ? s.content.length : 0
-      })),
+      sources: sources.map(s => {
+        const trust = getSourceTrust(s);
+        return {
+          id: s.id,
+          title: s.title,
+          type: s.type,
+          status: s.processingStatus,
+          url: s.url || null,
+          ...trust,
+          contentPreview: s.content ? s.content.substring(0, 500) + (s.content.length > 500 ? '...' : '') : null,
+          contentLength: s.content ? s.content.length : 0
+        };
+      }),
       notes: notes.map(n => ({
         id: n.id,
         content: n.content,
@@ -736,6 +784,124 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
     const userMsgId = uuidv4();
     const callerIsAgent = isAgentRequest(req, agentId);
     await dbHelpers.createChatMessage(userMsgId, notebookId, userId, callerIsAgent ? 'agent' : 'user', message);
+
+    // Closed-Loop Interceptors
+    const normalizedMsg = message.toLowerCase().trim();
+    let interceptedResponse = null;
+
+    if (normalizedMsg.includes("closed-loop synthesis") || normalizedMsg.includes("synthesize bookmarks and align")) {
+      const goals = await dbHelpers.getResearchGoalsByNotebookId(notebookId, userId);
+      if (!goals || goals.length === 0) {
+        interceptedResponse = `⚠️ **No Active Research Goals**\n\nI couldn't run the Goal Broker synthesis because there are no active research goals defined in this notebook. Please go to the **Research Goals** panel in the Studio sidebar to add your target objectives first.`;
+      } else {
+        const readySources = sources.filter(s => s.processingStatus === 'completed' || s.processing_status === 'completed');
+        if (readySources.length === 0) {
+          interceptedResponse = `⚠️ **No Ready Sources**\n\nThere are no completed bookmark or document sources in this notebook yet to synthesize against your goals.`;
+        } else {
+          const sourceIds = readySources.map(s => s.id);
+          const brokerResult = await brokerResearchGoals(notebookId, userId, sourceIds);
+          if (brokerResult) {
+            interceptedResponse = `🎯 **Goal Broker Synthesis Executed Successfully**\n\nI've matched your bookmark sources against your active Research Goals:\n\n1. **Research Synthesis & Recommendations Note**: Updated/created in your notebook memory.\n2. **Autonomous Agent Tasks**: Stage populated with **${brokerResult.tasksCount}** new action items assigned to agents.\n3. **Outreach Channels**: **${brokerResult.signalsCount}** viral outreach drafts generated and staged in your **Signal Queue**.\n\nThis completes the closed loop from crawled bookmarks to actionable workspace intelligence.`;
+          } else {
+            interceptedResponse = `⚠️ **Synthesis Synthesis Interrupted**\n\nSomething went wrong while running the Goal Broker synthesis. Check the server logs for details.`;
+          }
+        }
+      }
+    } else if (normalizedMsg.includes("mine bookmarks") || normalizedMsg.includes("mine replies")) {
+      const tweetSources = sources.filter(s => s.type === 'tweet');
+      if (tweetSources.length === 0) {
+        interceptedResponse = `⚠️ **No Tweet/Bookmark Sources**\n\nThis notebook does not contain any Twitter bookmark sources. Add Twitter bookmarks to use the recursive crawler.`;
+      } else {
+        const urls = tweetSources.map(s => s.url).filter(Boolean);
+        const deepDiveResult = await deepDiveBookmarks(urls, notebookId, userId);
+        interceptedResponse = `🔗 **Recursive Link Crawler & Comment Miner Executed**\n\nI've scanned **${tweetSources.length}** bookmark source(s) and mined their threads for external links:\n\n- **Sources Processed**: ${deepDiveResult.processed} bookmark seeds verified.\n- **Discovered Resources Crawled**: Created **${deepDiveResult.totalSources}** new notebook sources from discovered URLs.\n- **Errors/Warnings**: ${deepDiveResult.errors.length > 0 ? deepDiveResult.errors.join(", ") : "None."}\n\n*All extracted contents have been synchronized to StudyPod memory. The Goal Broker has also automatically updated your synthesis note against active research goals.*`;
+      }
+    } else if (normalizedMsg.includes("extract github repositories") || normalizedMsg.includes("extract repositories") || normalizedMsg.includes("extract github")) {
+      const gitHubRegex = /https?:\/\/(www\.)?github\.com\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.-]+)/gi;
+      const repos = [];
+      const crawledSources = sources.filter(s => s.content);
+
+      for (const src of crawledSources) {
+        const text = src.content + " " + (src.metadata || "");
+        let match;
+        while ((match = gitHubRegex.exec(text)) !== null) {
+          const repoUrl = match[0].replace(/[.,;:)]$/, '');
+          if (!repos.includes(repoUrl)) {
+            repos.push(repoUrl);
+          }
+        }
+      }
+
+      if (repos.length === 0) {
+        interceptedResponse = `📋 **GitHub Repository Extraction**\n\nI scanned all sources and comments, but could not find any GitHub repository links. Please add bookmarks containing GitHub URLs or paste them in a note.`;
+      } else {
+        let tasksCreated = 0;
+        const existingTasks = await dbHelpers.getTasksByNotebookId(notebookId);
+        const existingTaskContents = (existingTasks || []).map(t => t.content.toLowerCase());
+
+        for (const repo of repos) {
+          const taskContent = `Perform deep-dive analysis on GitHub repository: ${repo}`;
+          if (!existingTaskContents.some(c => c.includes(repo.toLowerCase()))) {
+            await dbHelpers.createTask(userId, notebookId, taskContent, 'agent', 'medium', null, null);
+            tasksCreated++;
+          }
+        }
+
+        interceptedResponse = `📋 **GitHub Repositories Extracted & Tasks Assigned**\n\nI discovered **${repos.length}** distinct GitHub repositories across your notebook sources:\n\n${repos.map(r => `- [${r.split('/').slice(-2).join('/')}](${r})`).join('\n')}\n\n- **Auto-Assigned Agent Tasks**: Created **${tasksCreated}** new analysis tasks for your autonomous agents to process.`;
+      }
+    } else if (normalizedMsg.includes("draft social media updates") || normalizedMsg.includes("stage to signal queue") || normalizedMsg.includes("draft updates")) {
+      const readySources = sources.filter(s => s.processingStatus === 'completed' || s.processing_status === 'completed');
+      if (readySources.length === 0) {
+        interceptedResponse = `📢 **Outreach Hooks Drafting**\n\nThere are no completed sources in this notebook yet to draft social updates from.`;
+      } else {
+        let signalsCreated = 0;
+        for (const src of readySources) {
+          const content = src.content || "";
+          if (content.length > 50) {
+            try {
+              const hooks = await generateSovereignHooks(content, src.title);
+              if (hooks.linkedin) {
+                await dbHelpers.createSignalQueueItem(uuidv4(), userId, notebookId, 'linkedin', hooks.linkedin, src.id, null, null, null);
+                signalsCreated++;
+              }
+              if (hooks.twitter) {
+                await dbHelpers.createSignalQueueItem(uuidv4(), userId, notebookId, 'twitter', hooks.twitter, src.id, null, null, null);
+                signalsCreated++;
+              }
+            } catch (err) {
+              logger.warn(`Failed to auto-generate hooks during chat action: ${err.message}`);
+            }
+          }
+        }
+        interceptedResponse = `📢 **Social Media Updates Drafted & Staged**\n\nI processed all ready notebook sources using the Titan growth copywriter:\n\n- **Signals Generated**: Drafted and staged **${signalsCreated}** posts in the **Signal Queue** (Twitter/X and LinkedIn formats).\n- **Next Steps**: You can review, edit, schedule, or approve these posts directly in the **Signal Queue** tab in the Studio sidebar.`;
+      }
+    }
+
+    if (interceptedResponse) {
+      const aiMsgId = uuidv4();
+      await dbHelpers.createChatMessage(aiMsgId, notebookId, userId, 'assistant', interceptedResponse, null);
+
+      let noteId = null;
+      if (saveAsNote) {
+        noteId = uuidv4();
+        const noteContent = `**Q:** ${message}\n\n**A:** ${interceptedResponse}`;
+        await dbHelpers.createNote(noteId, notebookId, userId, noteContent, userId);
+      }
+
+      WebhookDispatcher.recordActivityAndNotify(
+        notebookId, userId, callerIsAgent ? getActorName(req) : 'human', 'chat.message',
+        message.substring(0, 100)
+      );
+
+      return res.json({
+        answer: interceptedResponse,
+        groundedSources: [],
+        tokensUsed: 0,
+        messageId: aiMsgId,
+        noteId,
+        joinCode: notebook.joinCode
+      });
+    }
 
     try {
       // Call Gemini using our context service
@@ -846,12 +1012,12 @@ router.get("/:id/sources/:sourceId/content", requireScope('sources:read'), requi
     const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
     const source = sources.find(s => s.id === req.params.sourceId);
     if (!source) return res.status(404).json({ error: "Source not found" });
-    
+
     // Log activity if it's an agent reading
     if (req.user.authMethod === 'api_key' || req.user.accountType === 'agent') {
       await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'read_source', `Read full source: ${source.title}`);
     }
-    
+
     res.json({
       id: source.id,
       title: source.title,
@@ -885,9 +1051,9 @@ router.post("/:id/tasks", requireScope('tasks:write'), requireNotebookAccess, as
   try {
     const { instruction, assignee, priority, due_by } = req.body;
     const task = await dbHelpers.createTask(req.user.userId, req.params.id, instruction, assignee, priority, null, due_by);
-    
+
     await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'created_task', `Task assigned to ${assignee || 'human'}: ${instruction.substring(0, 50)}...`);
-    
+
     res.status(201).json(task);
   } catch (error) {
     logger.error("Failed to create task:", error);
@@ -903,10 +1069,10 @@ router.put("/:id/tasks/:taskId", requireScope('tasks:write'), requireNotebookAcc
     const { status, result } = req.body;
     const updates = { status, result };
     if (status === 'completed') updates.completedAt = new Date();
-    
+
     await dbHelpers.updateTask(req.params.taskId, updates);
     await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'updated_task', `Task ${req.params.taskId} marked as ${status}`);
-    
+
     res.json({ message: "Task updated" });
   } catch (error) {
     logger.error("Failed to update task:", error);
@@ -950,13 +1116,13 @@ router.post("/:id/scratch/:scratchId/promote", requireScope('notes:create'), req
     const entries = await dbHelpers.getScratchpadByNotebookId(req.params.id, req.user.userId);
     const entry = entries.find(e => e.id === req.params.scratchId);
     if (!entry) return res.status(404).json({ error: "Scratchpad entry not found" });
-    
+
     const noteId = uuidv4();
     await dbHelpers.createNote(noteId, req.params.id, req.user.userId, entry.content, req.user.userId);
     await dbHelpers.deleteScratchpadEntry(entry.id);
-    
+
     await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'promoted_scratchpad', "Promoted a scratchpad entry to a persistent note");
-    
+
     res.json({ message: "Promoted to note successfully", noteId });
   } catch (error) {
     logger.error("Failed to promote scratchpad entry:", error);
@@ -1049,9 +1215,9 @@ router.post("/:id/research-goals", requireScope('notes:create'), async (req, res
 
     const id = uuidv4();
     const goal = await dbHelpers.createResearchGoal(id, req.user.userId, req.params.id, title, description || "");
-    
+
     await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'create_research_goal', `Created research goal: "${title}"`);
-    
+
     res.status(201).json(goal);
   } catch (error) {
     logger.error("Failed to create research goal:", error);
@@ -1069,9 +1235,9 @@ router.delete("/:id/research-goals/:goalId", requireScope('notes:create'), async
     if (result.changes === 0) {
       return res.status(404).json({ error: "Research goal not found or unauthorized" });
     }
-    
+
     await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'delete_research_goal', "Deleted a research goal");
-    
+
     res.json({ message: "Research goal deleted successfully" });
   } catch (error) {
     logger.error("Failed to delete research goal:", error);

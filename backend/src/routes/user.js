@@ -1,11 +1,43 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { dbHelpers } from '../db/database.js';
+import { dbHelpers, getDatabase, schema } from '../db/database.js';
 import { authenticateToken } from '../middleware/auth.js';
 import bcrypt from 'bcryptjs';
 import { logger } from '../utils/logger.js';
+import { eq, sql } from 'drizzle-orm';
 
 const router = express.Router();
+
+function getYouTubeLimit(accountType) {
+  return accountType === 'agent' ? 50 : 10;
+}
+
+async function getFreshYouTubeUsage(user) {
+  const now = new Date();
+  const lastReset = user.lastExtractionReset ? new Date(user.lastExtractionReset) : new Date(0);
+  const isNewDay = now.toDateString() !== lastReset.toDateString();
+  const accountType = user.accountType || user.account_type || 'human';
+  const limit = getYouTubeLimit(accountType);
+  let used = user.youtubeExtractionsToday || 0;
+  let resetAt = new Date(now);
+  resetAt.setHours(24, 0, 0, 0);
+
+  if (isNewDay) {
+    used = 0;
+    await dbHelpers.updateUser(user.id, {
+      youtubeExtractionsToday: 0,
+      lastExtractionReset: now,
+    });
+  }
+
+  return {
+    limit,
+    used,
+    remaining: Math.max(0, limit - used),
+    resetAt: resetAt.toISOString(),
+    lastExtractionReset: isNewDay ? now : lastReset,
+  };
+}
 
 // All routes require authentication
 router.use(authenticateToken);
@@ -18,6 +50,7 @@ router.get('/profile', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    const youtubeUsage = await getFreshYouTubeUsage(user);
     const preferences = await dbHelpers.getUserPreferences(user.id);
     const stats = await dbHelpers.getUserStats(user.id);
 
@@ -36,8 +69,11 @@ router.get('/profile', async (req, res) => {
       preferences,
       stats: {
         ...stats,
-        youtube_extractions_today: user.youtubeExtractionsToday || 0,
-        last_extraction_reset: user.lastExtractionReset
+        youtube_extractions_today: youtubeUsage.used,
+        youtube_limit: youtubeUsage.limit,
+        youtube_remaining: youtubeUsage.remaining,
+        youtube_reset_at: youtubeUsage.resetAt,
+        last_extraction_reset: youtubeUsage.lastExtractionReset
       }
     });
   } catch (error) {
@@ -269,6 +305,46 @@ router.all('/api_keys', (req, res) => {
   res.status(410).json({
     error: 'BYOK provider keys have been removed. Use Agent Pairing or generated spm_ API keys for external agent access.'
   });
+});
+
+router.get('/usage/youtube', async (req, res) => {
+  try {
+    const user = await dbHelpers.getUserById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(await getFreshYouTubeUsage(user));
+  } catch (error) {
+    logger.error('Get YouTube usage error:', error);
+    res.status(500).json({ error: 'Failed to get YouTube usage' });
+  }
+});
+
+router.post('/usage/youtube/record-success', async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    const user = await dbHelpers.getUserById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const usage = await getFreshYouTubeUsage(user);
+    if (usage.used >= usage.limit) {
+      return res.status(429).json({ error: `Daily extraction limit of ${usage.limit} reached.` });
+    }
+
+    const db = await getDatabase();
+    await db.update(schema.users)
+      .set({ youtubeExtractionsToday: sql`${schema.users.youtubeExtractionsToday} + 1` })
+      .where(eq(schema.users.id, userId));
+
+    const updatedUser = await dbHelpers.getUserById(userId);
+    res.json(await getFreshYouTubeUsage(updatedUser));
+  } catch (error) {
+    logger.error('Record YouTube usage error:', error);
+    res.status(500).json({ error: 'Failed to record YouTube usage' });
+  }
 });
 
 export default router;

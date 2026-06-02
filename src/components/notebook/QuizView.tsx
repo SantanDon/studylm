@@ -14,6 +14,7 @@ interface QuizViewProps {
   onAnswer: (selectedAnswer: number, timeSpent: number) => QuizResult | undefined;
   onNext: () => void;
   onComplete: () => void;
+  onCancel?: () => void;
   isLastQuestion: boolean;
   timeLimit?: number;
 }
@@ -25,6 +26,7 @@ const QuizView: React.FC<QuizViewProps> = ({
   onAnswer,
   onNext,
   onComplete,
+  onCancel,
   isLastQuestion,
   timeLimit = 60,
 }) => {
@@ -81,8 +83,8 @@ const QuizView: React.FC<QuizViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-gray-200 bg-white">
+    <div className="flex h-full min-h-0 flex-col bg-gray-50 dark:bg-background">
+      <div className="shrink-0 border-b border-gray-200 bg-white p-4 dark:border-border dark:bg-background">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
             <Badge variant="secondary" className="font-mono">
@@ -102,12 +104,23 @@ const QuizView: React.FC<QuizViewProps> = ({
           <div className="flex items-center space-x-2 text-gray-600">
             <i className="fi fi-rr-clock h-4 w-4"></i>
             <span className="font-mono text-sm">{formatTime(timeSpent)}</span>
+            {onCancel && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-2 h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={onCancel}
+              >
+                <i className="fi fi-rr-angle-left h-4 w-4 mr-1"></i>
+                Studio
+              </Button>
+            )}
           </div>
         </div>
         <Progress value={progress} className="h-2" />
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 pb-28">
         <div className="max-w-2xl mx-auto space-y-6">
           <Card className="p-6 bg-gray-50">
             <h2 className="text-lg font-medium text-gray-900 leading-relaxed">
@@ -203,8 +216,20 @@ const QuizView: React.FC<QuizViewProps> = ({
         </div>
       </div>
 
-      <div className="p-4 border-t border-gray-200 bg-white">
-        <div className="max-w-2xl mx-auto flex justify-end">
+      <div className="sticky bottom-0 z-20 shrink-0 border-t border-gray-200 bg-white/95 p-4 backdrop-blur dark:border-border dark:bg-background/95">
+        <div className="mx-auto flex max-w-2xl items-center justify-between gap-3">
+          {onCancel ? (
+            <Button
+              variant="outline"
+              onClick={onCancel}
+              size="lg"
+              className="shrink-0"
+            >
+              Exit Quiz
+            </Button>
+          ) : (
+            <span />
+          )}
           {!result ? (
             <Button
               onClick={handleSubmit}

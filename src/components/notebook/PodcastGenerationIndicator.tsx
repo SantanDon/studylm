@@ -3,9 +3,9 @@
  * Shows a small floating indicator when podcast is generating in background
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faMicrophone, faXmark, faCirclePlay } from '@fortawesome/free-solid-svg-icons';
+import { faMicrophone, faXmark, faCirclePlay, faCirclePause } from '@fortawesome/free-solid-svg-icons';
 import { usePodcastGenerationStore } from '@/stores/podcastGenerationStore';
 import { getStreamingTTSGenerator } from '@/lib/tts/streamingTTSGenerator';
 import './PodcastGenerationIndicator.css';
@@ -23,15 +23,35 @@ const PodcastGenerationIndicator: React.FC<PodcastGenerationIndicatorProps> = ({
   const canPlayPartial = usePodcastGenerationStore((state) => state.canPlayPartial);
   const partialAudioUrls = usePodcastGenerationStore((state) => state.partialAudioUrls);
   const cancelGeneration = usePodcastGenerationStore((state) => state.cancelGeneration);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+
+  useEffect(() => {
+    if (!isGenerating) {
+      setIsPreviewPlaying(false);
+    }
+  }, [isGenerating]);
 
   if (!isGenerating) return null;
 
   const handlePlayPartial = () => {
-    if (partialAudioUrls.length > 0) {
-      // Create a temporary audio element to play
-      const audio = new Audio(partialAudioUrls[0]);
-      audio.play();
+    const generator = getStreamingTTSGenerator();
+
+    if (isPreviewPlaying || generator.isCurrentlyPlaying()) {
+      generator.stopPlayback();
+      setIsPreviewPlaying(false);
+      return;
     }
+
+    if (partialAudioUrls.length > 0) {
+      generator.playAll(0, undefined, () => setIsPreviewPlaying(false));
+      setIsPreviewPlaying(true);
+    }
+  };
+
+  const handleCancelGeneration = () => {
+    getStreamingTTSGenerator().stopPlayback();
+    setIsPreviewPlaying(false);
+    cancelGeneration();
   };
 
   return (
@@ -54,15 +74,17 @@ const PodcastGenerationIndicator: React.FC<PodcastGenerationIndicatorProps> = ({
             <button 
               className="indicator-btn play"
               onClick={handlePlayPartial}
-              title="Play available audio"
+              title={isPreviewPlaying ? 'Pause available audio' : 'Play available audio'}
+              aria-label={isPreviewPlaying ? 'Pause available audio' : 'Play available audio'}
             >
-              <FontAwesomeIcon icon={faCirclePlay} />
+              <FontAwesomeIcon icon={isPreviewPlaying ? faCirclePause : faCirclePlay} />
             </button>
           )}
           <button 
             className="indicator-btn cancel"
-            onClick={cancelGeneration}
+            onClick={handleCancelGeneration}
             title="Cancel generation"
+            aria-label="Cancel podcast generation"
           >
             <FontAwesomeIcon icon={faXmark} />
           </button>

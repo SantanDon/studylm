@@ -614,6 +614,16 @@ export const dbHelpers = {
       .orderBy(asc(schema.chatMessages.createdAt));
   },
 
+  async deleteChatMessagesByNotebookId(notebookId, userId) {
+    const db = await getDatabase();
+    // Verify access
+    const access = await this.getNotebookById(notebookId, userId);
+    if (!access) throw new Error("ACCESS_DENIED");
+
+    return await db.delete(schema.chatMessages)
+      .where(eq(schema.chatMessages.notebookId, notebookId));
+  },
+
   async createChatMessage(id, notebookId, userId, role, content, groundedSources = null) {
     const db = await getDatabase();
     // Verify access before allowing chat creation

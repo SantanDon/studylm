@@ -14,7 +14,7 @@ import SovereignChatIntro from '@/components/chat/SovereignChatIntro';
 import CaptureButtons from './CaptureButtons';
 import AddSourcesDialog from './AddSourcesDialog';
 import { Citation, EnhancedChatMessage } from '@/types/message';
-import { IMMERSIVE_PROMPTS } from '@/config/prompts';
+import { IMMERSIVE_PROMPTS, BOOKMARK_PROMPTS } from '@/config/prompts';
 
 interface ChatAreaProps {
   hasSource: boolean;
@@ -28,6 +28,25 @@ interface ChatAreaProps {
     example_questions?: string[];
   } | null;
   onCitationClick?: (citation: Citation) => void;
+}
+
+function getSourceMetadata(source: any): any {
+  if (!source?.metadata) return {};
+  if (typeof source.metadata === 'string') {
+    try {
+      return JSON.parse(source.metadata);
+    } catch {
+      return {};
+    }
+  }
+  return source.metadata;
+}
+
+function isUsableForGroundedChat(source: any) {
+  const status = source.processing_status || source.processingStatus;
+  if (status !== 'completed') return false;
+  const metadata = getSourceMetadata(source);
+  return !(source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only');
 }
 
 const ChatArea = ({
@@ -64,9 +83,10 @@ const ChatArea = ({
   
   const sourceCount = sources?.length || 0;
 
-  const hasReadySource = sources?.some(source => {
-    const status = source.processing_status || (source as { processingStatus?: string }).processingStatus;
-    return status === 'completed';
+  const hasReadySource = sources?.some(source => isUsableForGroundedChat(source)) || false;
+  const hasMetadataOnlySource = sources?.some(source => {
+    const metadata = getSourceMetadata(source);
+    return source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only';
   }) || false;
   const hasProcessingSource = sources?.some(source => {
     const status = source.processing_status || (source as { processingStatus?: string }).processingStatus;
@@ -195,24 +215,27 @@ const ChatArea = ({
 
   // Agent-specific collaboration prompts from the Sovereign Immersion library
   const getAgentPrompts = () => {
-    // Flatten the categories into a single array of prompts for the carousel
-    // but maybe we can prefix them with the category for immersion
     return IMMERSIVE_PROMPTS.flatMap(category => 
       category.prompts.map(prompt => ({
-        text: prompt.text,
-        category: category.name
+        text: prompt,
+        category: category.label
       }))
     );
   };
 
   const agentPrompts = getAgentPrompts();
 
+  const hasOnlyTweets = sources && sources.length > 0 && sources.every(s => s.type === 'tweet');
+
   // Get example questions from the notebook, filtering out clicked ones
   const exampleQuestions = chatMode === 'agent' 
     ? agentPrompts
         .filter(p => !clickedQuestions.has(p.text))
         .map(p => p.text)
-    : (notebook?.example_questions?.filter(q => !clickedQuestions.has(q)) || []);
+    : (hasOnlyTweets
+        ? BOOKMARK_PROMPTS.filter(q => !clickedQuestions.has(q))
+        : (notebook?.example_questions?.filter(q => !clickedQuestions.has(q)) || [])
+      );
 
   // Update placeholder text based on processing status
   const getPlaceholderText = () => {
@@ -223,6 +246,8 @@ const ChatArea = ({
         return "Sources are still processing...";
       } else if (hasFailedSource) {
         return "Source extraction failed. Add or retry a source to chat.";
+      } else if (hasMetadataOnlySource) {
+        return "This YouTube source has metadata only. Add a transcript-backed source to chat.";
       } else {
         return "Add a ready source to chat...";
       }

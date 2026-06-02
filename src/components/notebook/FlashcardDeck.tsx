@@ -133,20 +133,23 @@ const FlashcardDeckComponent: React.FC<FlashcardDeckProps> = ({ notebookId }) =>
     const dueCards = deck ? getDueCards(reviewingDeckId) : [];
     
     return (
-      <div className="p-4">
-        <div className="mb-4">
+      <div className="flex h-full min-h-[520px] flex-col p-4">
+        <div className="mb-4 shrink-0">
           <Button variant="ghost" size="sm" onClick={handleCloseReview}>
-            ← Back to Decks
+            <i className="fi fi-rr-angle-left h-4 w-4 mr-1"></i>
+            Back to Decks
           </Button>
           <h3 className="font-medium text-foreground mt-2">{deck?.name}</h3>
         </div>
-        <FlashcardView
-          cards={dueCards}
-          deckId={reviewingDeckId}
-          onReview={handleReviewCard}
-          onClose={handleCloseReview}
-          isReviewing={isReviewing}
-        />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <FlashcardView
+            cards={dueCards}
+            deckId={reviewingDeckId}
+            onReview={handleReviewCard}
+            onClose={handleCloseReview}
+            isReviewing={isReviewing}
+          />
+        </div>
       </div>
     );
   }

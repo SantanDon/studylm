@@ -1,4 +1,5 @@
 import { YoutubeTranscript } from '@danielxceron/youtube-transcript';
+import { API_BASE_URL, ApiService } from '@/services/apiService';
 
 export interface YoutubeTranscriptResult {
   url: string;
@@ -139,6 +140,18 @@ ${descStr}
   return `${header}\n---\n\n${body}`;
 }
 
+const COOKIE_SESSION_SENTINELS = new Set(['COOKIE_SESSION', 'SESSION_MANAGED_BY_COOKIE', 'managed_by_cookie']);
+
+function getRequestToken(token?: string): string | undefined {
+  const authToken = token || localStorage.getItem('guest_id') || undefined;
+  if (!authToken || COOKIE_SESSION_SENTINELS.has(authToken)) return undefined;
+  return authToken;
+}
+
+function shouldTryEdgeFallback(status: number) {
+  return [500, 502, 503, 504].includes(status);
+}
+
 export async function extractYoutubeTranscript(url: string, token?: string): Promise<YoutubeTranscriptResult> {
   console.log('🎬 Starting YouTube transcript extraction for:', url);
 
@@ -159,14 +172,16 @@ export async function extractYoutubeTranscript(url: string, token?: string): Pro
 
   try {
     console.log('📡 Fetching transcript and metadata via server API...');
-    const apiUrl = `/api/youtube/youtube-transcript?url=${encodeURIComponent(normalizedUrl)}`;
+    const apiUrl = `${API_BASE_URL}/youtube/youtube-transcript?url=${encodeURIComponent(normalizedUrl)}`;
     const headers: Record<string, string> = {};
-    const authToken = token || localStorage.getItem('guest_id');
+    const rawAuthToken = token || localStorage.getItem('guest_id') || undefined;
+    const authToken = getRequestToken(token);
     if (authToken) {
       headers['Authorization'] = `Bearer ${authToken}`;
     }
-    const transcriptResponse = await fetch(apiUrl, { headers });
+    const transcriptResponse = await fetch(apiUrl, { headers, credentials: 'include' });
 
+    let primaryErrorMessage = '';
     if (!transcriptResponse.ok) {
       const errorText = await transcriptResponse.text();
       let errorMessage = `Failed to fetch transcript: HTTP ${transcriptResponse.status}`;
@@ -178,14 +193,18 @@ export async function extractYoutubeTranscript(url: string, token?: string): Pro
       } catch (e) {
         // ignore json parse error
       }
-      throw new Error(errorMessage);
+      primaryErrorMessage = errorMessage;
+      if (!shouldTryEdgeFallback(transcriptResponse.status)) {
+        throw new Error(errorMessage);
+      }
     }
 
-    const payload = await transcriptResponse.json();
+    const payload = transcriptResponse.ok ? await transcriptResponse.json() : {};
     
     let transcriptData = payload.transcript || (Array.isArray(payload) ? payload : []);
     let metadata = payload.metadata || {};
-    let extractionWarning = payload.extractionWarning || metadata.extractionWarning;
+    let extractionWarning = payload.extractionWarning || metadata.extractionWarning || primaryErrorMessage;
+    let countedEdgeFallback = false;
 
     // ── Edge Function Fallback ─────────────────────────────────────────────────
     // If the server returned no transcript, it likely hit YouTube's datacenter
@@ -195,11 +214,14 @@ export async function extractYoutubeTranscript(url: string, token?: string): Pro
       console.log('⚡ Server returned no transcript — trying Edge Function (Cloudflare network)...');
       try {
         const edgeHeaders: Record<string, string> = {};
-        const edgeAuthToken = token || localStorage.getItem('guest_id');
+        const edgeAuthToken = getRequestToken(token);
         if (edgeAuthToken) {
           edgeHeaders['Authorization'] = `Bearer ${edgeAuthToken}`;
         }
-        const edgeRes = await fetch(`/api/youtube-edge?videoId=${encodeURIComponent(videoId)}`, { headers: edgeHeaders });
+        const edgeRes = await fetch(`/api/youtube-edge?videoId=${encodeURIComponent(videoId)}`, {
+          headers: edgeHeaders,
+          credentials: 'include'
+        });
         if (edgeRes.ok) {
           const edgeData = await edgeRes.json();
           if (edgeData.transcript && edgeData.transcript.length > 0) {
@@ -213,6 +235,14 @@ export async function extractYoutubeTranscript(url: string, token?: string): Pro
               extractedBy: edgeData.extractedBy || 'edge_fallback',
               sovereign_signal: { identity: 'EDGE_CLOUDFLARE', farm_health: 'healthy', timestamp: new Date().toISOString() },
             };
+            if (!rawAuthToken?.startsWith('guest_')) {
+              try {
+                await ApiService.recordYouTubeExtractionSuccess(authToken, videoId, metadata.extractedBy);
+                countedEdgeFallback = true;
+              } catch (usageErr) {
+                console.warn('Edge extraction succeeded, but usage recording failed:', usageErr);
+              }
+            }
           } else {
             extractionWarning = edgeData.error || 'Edge fallback returned metadata without transcript.';
             console.warn('⚠️ Edge Function also returned no transcript:', edgeData.error || 'unknown');
@@ -234,6 +264,9 @@ export async function extractYoutubeTranscript(url: string, token?: string): Pro
     const transcriptLineCount = Array.isArray(transcriptData) ? transcriptData.length : 0;
     const transcriptStatus = transcriptLineCount > 0 ? 'full' : 'metadata_only';
     const extractedBy = metadata.extractedBy || payload.extractedBy || 'server_api';
+    if (transcriptStatus === 'full' && extractedBy?.startsWith('edge_') && !countedEdgeFallback) {
+      extractionWarning = extractionWarning || 'Transcript was recovered by Edge fallback, but usage accounting was not confirmed.';
+    }
 
     console.log(`📝 Extracted Title: ${title}`);
     console.log(`📝 Extracted Author: ${author}`);

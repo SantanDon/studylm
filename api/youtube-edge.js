@@ -18,7 +18,8 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
     'Vary': 'Origin',
   };
 }
@@ -177,6 +178,10 @@ export default async function handler(request) {
   // ── Authentication check for Edge Route ──────────────────────────────────
   const authHeader = request.headers.get('authorization');
   let token = authHeader && authHeader.split(' ')[1];
+  const sentinels = new Set(['COOKIE_SESSION', 'SESSION_MANAGED_BY_COOKIE', 'managed_by_cookie']);
+  if (sentinels.has(token)) {
+    token = null;
+  }
   
   if (!token && request.headers.get('cookie')) {
     const cookies = request.headers.get('cookie').split(';').reduce((acc, c) => {

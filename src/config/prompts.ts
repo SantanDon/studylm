@@ -79,6 +79,13 @@ export const IMMERSIVE_PROMPTS: PromptCategory[] = [
   }
 ];
 
+export const BOOKMARK_PROMPTS = [
+  "🎯 Synthesize bookmarks and align with active research goals (Run Closed-Loop Synthesis)",
+  "🔗 Mine bookmarks and replies for external links and interesting reference materials",
+  "📋 Extract GitHub repositories and auto-assign tasks to research new projects",
+  "📢 Draft social media updates from these bookmarks directly to the Signal Queue"
+];
+
 /**
  * DOCUMENT_PROMPTS
  * Legacy/Administrative prompts for automated document processing.

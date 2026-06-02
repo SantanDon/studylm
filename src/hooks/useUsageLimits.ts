@@ -18,20 +18,7 @@ export const useUsageLimits = () => {
     if (!session?.access_token) return;
     setLoading(true);
     try {
-      // We pull this from the user stats endpoint we verified earlier
-      const profileData = await ApiService.getUser(session.access_token);
-      const stats = profileData.stats || {};
-      
-      // Defining the generous defaults: 10/day for humans, 50/day for agents
-      const limit = profileData.user?.accountType === 'agent' ? 50 : 10;
-      const used = stats.youtube_extractions_today || 0;
-      
-      setStatus({
-        limit,
-        used,
-        remaining: Math.max(0, limit - used),
-        resetAt: new Date(new Date().setHours(24, 0, 0, 0)).toISOString()
-      });
+      setStatus(await ApiService.getYouTubeUsage(session.access_token));
     } catch (err) {
       console.error('Failed to fetch usage status:', err);
     } finally {

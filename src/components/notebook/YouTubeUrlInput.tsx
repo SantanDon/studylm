@@ -20,7 +20,7 @@ interface YouTubeUrlInputProps {
 const YouTubeUrlInput = ({ open, onOpenChange, onSubmit }: YouTubeUrlInputProps) => {
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { status, canExtract } = useUsageLimits();
+  const { status, canExtract, refreshStatus } = useUsageLimits();
   const isValidYoutubeUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(url.trim());
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -34,6 +34,7 @@ const YouTubeUrlInput = ({ open, onOpenChange, onSubmit }: YouTubeUrlInputProps)
     setIsLoading(true);
     try {
       await onSubmit(url.trim());
+      await refreshStatus();
       setUrl('');
       onOpenChange(false);
     } catch (error) {
@@ -81,7 +82,7 @@ const YouTubeUrlInput = ({ open, onOpenChange, onSubmit }: YouTubeUrlInputProps)
                 <div className={`flex items-center space-x-1.5 px-2 py-0.5 rounded-full border ${isLimitReached ? 'border-red-500/30 bg-red-500/10 text-red-400' : 'border-green-500/20 bg-green-500/5 text-green-400/80'} transition-colors duration-500`}>
                   <div className={`w-1 h-1 rounded-full ${isLimitReached ? 'bg-red-500 animate-pulse' : 'bg-green-500'} `} />
                   <span className="text-[10px] font-medium tracking-tight">
-                    {status.remaining} / {status.limit} Daily
+                    {status.used} / {status.limit} used today
                   </span>
                 </div>
               )}

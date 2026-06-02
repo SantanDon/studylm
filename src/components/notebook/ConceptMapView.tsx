@@ -165,7 +165,7 @@ const ConceptMapView: React.FC<ConceptMapViewProps> = ({
         className="touch-none"
       >
         <Background gap={24} size={1.5} color={isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'} />
-        <Controls className="backdrop-blur-md bg-background/50 rounded-lg shadow-xl border-none overflow-hidden" />
+        <Controls className="concept-map-controls rounded-lg border border-border bg-background/95 shadow-xl backdrop-blur-md overflow-hidden" />
         
         <Panel position="top-right" className="flex gap-2 m-4">
           <Button variant="outline" size="icon" onClick={toggleFullscreen} className="bg-background/80 backdrop-blur-sm shadow-sm ring-1 ring-white/10">

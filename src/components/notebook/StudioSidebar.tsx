@@ -80,6 +80,7 @@ const StudioSidebar = ({
             onAnswer={answerQuestion}
             onNext={nextQuestion}
             onComplete={handleQuizComplete}
+            onCancel={handleQuizClose}
             isLastQuestion={progress.current === progress.total}
           />
         </div>

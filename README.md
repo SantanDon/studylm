@@ -1,101 +1,124 @@
 # StudyPodLM: Human-Agent Collaborative Study Engine
 
-> **Submission for Memory Genesis Competition 2026**
-> 
-> StudyPodLM is an AI-powered personal study assistant that transforms how humans and AI agents interact with educational material. By bridging direct content extraction with a collaborative memory system, it enables a shared intellectual workspace where insights are synced, attributed, and permanent.
+<div align="center">
+
+![StudyPodLM Banner](public/studypod_banner.png)
+
+StudyPodLM is a next-generation collaborative study environment where humans and autonomous AI agents read, research, and build a shared memory context together.
+
+[![Vercel Deployment](https://img.shields.io/badge/deploy-Vercel-blueviolet?style=for-the-badge&logo=vercel)](https://studypod-lm.vercel.app/)
+[![GitHub Stars](https://img.shields.io/github/stars/SantanDon/studypod?style=for-the-badge&logo=github&color=gold)](https://github.com/SantanDon/studypod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+[Explore Deployed App](https://studypod-lm.vercel.app/) • [Read Developer Onboarding](AGENTS.md) • [Report Issue](https://github.com/SantanDon/studypod/issues)
+
+</div>
 
 ---
 
-## 🌟 The Vision: Collaborative Memory
+## 🌟 The Vision: Collaborative Memory Loop
 
-StudyPodLM is not just a study tool; it's a **Memory Hub**. 
+Traditionally, AI assistants operate in transient chat sessions. Once closed, the context is lost. **StudyPodLM** turns human-agent collaboration into a permanent relationship by storing all findings, notes, and agent research inside a shared, semantic knowledge bank.
 
-Traditionally, study notes are silos. StudyPodLM introduces **Human-Agent Collaboration** as a first-class citizen. 
-- **Persistent Memory:** All agent-created notes are automatically persisted to a local embedding store (@xenova/transformers + Turso), ensuring long-term knowledge retention with semantic search.
-- **Unified Identity:** Humans and Agents share the same collaborative notebooks, with explicit provenance tracking (human vs. agent attribution).
-- **Infinite Retrieval:** Agents can post insights via CLI, which are instantly visible to humans in the dashboard, creating a loop of asynchronous learning.
+```mermaid
+graph LR
+    Human([👤 Human User]) <-->|React Workspace| UI[StudyPodLM Web Interface]
+    Agent([🤖 CLI Agent]) <-->|REST API + Scoped JWT| API[Express API Server]
+    UI <-->|REST Endpoint / Real-time Sync| API
+    
+    subgraph Collaborative Core
+        API --> Memory[Memory Sync Engine]
+        API --> Audio[Podcast Builder Kokoro TTS]
+    end
+    
+    subgraph Persistent Storage
+        Memory --> LocalDB[(SQLite Local DB)]
+        Memory --> VectorDB[(@xenova/transformers Embeddings)]
+    end
+```
 
----
-
-## 🚀 Key Features
-
-### For Humans: Professional Study Suite
-- **Multi-Format Extraction:** Deep-scrape PDFs, YouTube transcripts, and dynamic websites with ease.
-- **AI Audio Overviews:** Convert any material into a multi-speaker podcast (Standard, Deep Dive, or **Deep Think** modes) using high-fidelity Kokoro TTS.
-- **Interactive Tools:** Instant generation of valid, well-structured Flashcards and Quizzes from your study context.
-- **Privacy-First Encryption:** All local state is protected with secure identity and encryption primitives.
-
-### For Agents: CLI-First Integration
-- **Agent Demo Kit:** Includes ready-made bash and Node.js scripts (`agent_demo_kit/`) for instant agent registration and interaction.
-- **RESTful API:** Clean endpoints for agents to sign in, discover notebooks, and post collaborative insights.
-- **Memory Sync:** Every note an agent posts is auto-synced to their long-term memory buffer, allowing agents to "remember" their contributions across sessions.
-
----
-
-## 🛡️ Security & Sanitization
-This repository has undergone a comprehensive **Security Audit and Sanitization** phase prior to the 2026 Competition submission:
-- **Zero-Secret Policy:** Hardcoded Cloud API keys have been scrubbed from build artifacts and git history.
-- **Persistence Isolation:** `.gitignore` rules have been hardened to ensure local SQLite databases, journals, and build residues never leak into the repository.
-- **Surgical Git Reset:** The branch history was reconstructed to permanently erase historical secret leaks while preserving full feature development.
+> [!IMPORTANT]
+> **Human-Agent Provenance:** StudyPodLM clearly distinguishes between human edits and agent-sourced research notes. This preserves authorship, builds trust, and allows external agent workflows to supplement human studies asynchronously.
 
 ---
 
-## 📂 Project Structure
+## 🚀 Key Highlights
+
+| Feature | For Humans | For Autonomous Agents |
+| :--- | :--- | :--- |
+| **Workspace Sync** | 📚 Read files, capture notes, compile resources | 🤖 Fetch real-time notebook snapshots and read sources |
+| **Audio Overviews** | 🎧 Generate multi-speaker podcasts via Kokoro TTS | 📻 Schedule podcast generation runs asynchronously |
+| **Interactive Study** | 🧩 Take flashcards & quizzes derived from your context | 🧠 Populate notes and study material from agent findings |
+| **Decentralized Auth** | 🔑 Key Pair and Scoped Identity Primitives | 🛰️ Trade pairing PINs for permanent scoped API tokens |
+
+---
+
+## 📂 Project Architecture
 
 ```bash
 studylm/
-├── agent_demo_kit/      # 🤖 TOOLS: Script for CLI agents to join the workspace
-├── api/                # 🌐 VERCEL: Serverless handlers for deployment
-├── backend/            # ⚙️ SERVER: Express backend with Human-Agent logic
-│   ├── scripts/        # 🛠️ UTILITIES: Identity and data management
-│   └── src/            # 🏗️ CORE: Auth, Notebooks, and Memory services
-├── src/                # 🎨 FRONTEND: React + Tailwind UI
-└── docs/               # 📖 GUIDES: In-depth technical documentation
+├── agent_demo_kit/    # 🤖 CLI Agent Tools & Setup templates
+├── api/              # 🌐 Serverless functions for edge deployment
+├── backend/          # ⚙️ Collaborative Server (Express + Local DB)
+│   ├── scripts/      # 🛠️ Administrative & bootstrapping utilities
+│   └── src/          # 🏗️ Core Auth, Notebooks, and Memory services
+├── src/              # 🎨 Frontend Web UI (React + Tailwind CSS)
+└── docs/             # 📖 Detailed Guides & Security Auditing
 ```
 
 ---
 
-## 🚦 Quick Start (Zero to Hero)
+## 🚦 Quick Start
 
-### 1. Project Setup
+### 1. Initialize the Workspace
+
 ```bash
-# Clone and Install
-git clone https://github.com/SantanDon/studylm.git
-cd studylm
-npm install
-npm run postinstall # Set up backend dependencies
+# Clone the repository
+git clone https://github.com/SantanDon/studypod.git
+cd studypod
 
-# Start the Engine (Frontend + Backend concurrently)
+# Install dependencies and bootstrap the local environment
+npm install
+
+# Run the concurrent development server (Vite + Express Backend)
 npm run dev
 ```
 
-### 2. Privacy & Storage (Incognito Mode)
-StudyPodLM uses `localStorage` and `IndexedDB` to securely manage encryption keys and preferences entirely on your device. 
-- **Incognito/Private Browsing:** If you use private browsing, your browser will wipe this data when you close the window.
-- **Exporting Data:** Always use the "Export Notebook" feature in the UI to save your data if you use incognito mode, as local keys will not persist.
+### 2. Connect Your First CLI Agent
 
-### 3. Connect Your CLI Agents
-New agents (Qwen, OpenCode, Gemini, etc.) can join your study session in seconds:
-1. Generate a pairing code from Profile -> Agent Pairing in the web app.
-2. Run `node agent_demo_kit/pair_and_test.js <6-DIGIT-PIN>` to exchange the code for a scoped agent key, list notebooks, post a note, and test chat.
+To plug in a custom command-line assistant (e.g., Qwen, Gemini, Llama):
+1. Navigate to **Profile** ➔ **Agent Pairing** inside the web app and click **Generate Pairing Code**.
+2. Exchange the 6-digit code for a persistent agent API key:
+   ```bash
+   node agent_demo_kit/pair_and_test.js <YOUR-6-DIGIT-PIN>
+   ```
+3. The script will pair with the local host, list notebooks, and post a sample agent note to confirm connection.
 
-### 4. Deployed Instance
-Visit the live portal at: **[studypod-lm.vercel.app](https://studypod-lm.vercel.app/)**
+---
+
+## 🛡️ Security & Privacy First
+
+StudyPodLM respects your privacy. All user state is handled in-browser and stored securely on your local device:
+* **Incognito Warning:** Browser-side IndexedDB and localStorage keys will be cleared if you close an Incognito window. Export your notebooks often.
+* **Zero Secret Policy:** Clean repository history. Sensitive API configurations and keys have been fully sanitized.
 
 ---
 
 ## 📖 Essential Documentation
-- **[Agent Onboarding Protocol](AGENTS.md):** Pairing, scoped API keys, notebook context, and agent contribution flow.
-- **[Headless Agent API](public/API_HEADLESS.md):** HTTP examples for pairing, listing notebooks, posting notes, and reading context.
-- **[Security Audit](docs/SECURITY_AUDIT.md):** Current security posture and follow-up remediation notes.
-- **[Guest Mode Guide](docs/GUEST_MODE.md):** Details on local guest storage and upgrade paths.
-- **[YouTube Cookie Guide](docs/YOUTUBE_COOKIE_GUIDE.md):** Guide for extracting and configuring browser session cookies to bypass extraction bot detection.
+
+| Document | Purpose |
+| :--- | :--- |
+| [Agent Onboarding Protocol](AGENTS.md) | Full technical manual on pairing API keys & Posting insights |
+| [Headless Agent API](public/API_HEADLESS.md) | REST API endpoint documentation with raw cURL examples |
+| [Security Audit & Review](docs/SECURITY_AUDIT.md) | Assessment of sanitization passes & system security posture |
+| [Guest Mode Architecture](docs/GUEST_MODE.md) | Deep dive into offline encryption and browser databases |
+| [YouTube Extraction Guide](docs/YOUTUBE_COOKIE_GUIDE.md) | Bypass Bot detection using browser cookies for YouTube extraction |
 
 ---
 
 <div align="center">
 
-**Built for the future of collaborative intelligence.**
-*Developed with ❤️ and Antigravity*
+**Built for the future of collaborative intelligence.**  
+*Developed with ❤️, powered by Antigravity*
 
 </div>

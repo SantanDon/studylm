@@ -168,6 +168,29 @@ export const ApiService = {
     return handleResponse(response);
   },
 
+  async getYouTubeUsage(token: string): Promise<{ limit: number; used: number; remaining: number; resetAt: string }> {
+    const response = await fetch(`${API_BASE_URL}/user/usage/youtube`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async recordYouTubeExtractionSuccess(token: string | undefined, videoId: string, extractedBy?: string): Promise<{ limit: number; used: number; remaining: number; resetAt: string }> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/user/usage/youtube/record-success`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ videoId, extractedBy }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
   async fetchNotebooks(token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks`, {
       headers: { 'Authorization': `Bearer ${token}` },
@@ -296,6 +319,16 @@ export const ApiService = {
       credentials: 'include'
     });
     if (!response.ok) throw new Error('Failed to fetch chat messages');
+    return response.json();
+  },
+
+  async deleteChatHistory(notebookId: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/messages`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error('Failed to delete chat history');
     return response.json();
   },
 

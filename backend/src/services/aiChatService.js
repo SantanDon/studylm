@@ -68,6 +68,18 @@ function rankByQuery(items, query, getText) {
     .map(entry => entry.item);
 }
 
+function parseSourceMetadata(source) {
+  if (!source?.metadata) return {};
+  if (typeof source.metadata === 'string') {
+    try {
+      return JSON.parse(source.metadata);
+    } catch {
+      return {};
+    }
+  }
+  return source.metadata || {};
+}
+
 /**
  * Strips base64 image data from a string so text-only AI models
  * never receive binary payloads they cannot process.
@@ -110,6 +122,15 @@ function buildNotebookContext(notebook, sources, notes, query) {
       const sourceNumber = sourceRefs.length + 1;
       let sourceBlock = `\n[${sourceNumber}] SOURCE: ${s.title} | type: ${s.type}\n`;
       if (s.url) sourceBlock += `URL: ${s.url}\n`;
+      const metadata = parseSourceMetadata(s);
+      if (s.type === 'youtube') {
+        sourceBlock += `YouTube transcript status: ${metadata.transcriptStatus || 'unknown'}\n`;
+        if (metadata.transcriptLineCount) sourceBlock += `Caption lines: ${metadata.transcriptLineCount}\n`;
+        if (metadata.extractionWarning) {
+          sourceBlock += `Extraction warning: ${metadata.extractionWarning}\n`;
+          sourceBlock += `Grounding rule: Do not answer transcript-specific questions from this source unless transcript status is full.\n`;
+        }
+      }
       if (s.content && s.content.length > 0 && !s.content.startsWith('Client-side PDF processing failed')) {
         const cleanContent = stripBase64Images(s.content);
         const remainingBudget = MAX_COMBINED_CHARS - currentLength - sourceBlock.length;

@@ -2,7 +2,7 @@
 
 .podcast-generation-indicator {
   position: fixed;
-  bottom: 20px;
+  bottom: max(20px, env(safe-area-inset-bottom));
   right: 20px;
   background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
   border: 1px solid rgba(102, 126, 234, 0.3);
@@ -13,6 +13,7 @@
     0 0 20px rgba(102, 126, 234, 0.2);
   z-index: 1000;
   min-width: 240px;
+  max-width: min(360px, calc(100vw - 40px));
   animation: slideIn 0.3s ease-out;
 }
 
@@ -87,12 +88,14 @@
   font-weight: 600;
   color: #e2e8f0;
   transition: color 0.2s ease;
+  line-height: 1.2;
 }
 
 .indicator-progress {
   font-size: 11px;
   color: #64748b;
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 
 .indicator-actions {

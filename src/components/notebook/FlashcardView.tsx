@@ -113,8 +113,8 @@ const FlashcardView: React.FC<FlashcardViewProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="mb-4">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="mb-4 shrink-0">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm text-muted-foreground">
             Card {currentIndex + 1} of {cards.length}
@@ -126,7 +126,7 @@ const FlashcardView: React.FC<FlashcardViewProps> = ({
         <Progress value={progress} className="h-2 transition-all duration-500 ease-out" />
       </div>
 
-      <div className="flex-1 relative flex items-center justify-center mb-8 perspective-1000 mt-4 rounded-xl">
+      <div className="relative mt-2 mb-4 flex min-h-[300px] flex-1 items-center justify-center rounded-xl perspective-1000">
         <AnimatePresence initial={false} mode="popLayout" custom={direction}>
           <motion.div
             key={currentIndex}
@@ -147,7 +147,7 @@ const FlashcardView: React.FC<FlashcardViewProps> = ({
               }
             }}
             whileDrag={{ scale: 1.05, cursor: "grabbing" }}
-            className="absolute w-full max-w-sm h-full max-h-[340px] cursor-pointer"
+            className="absolute h-full max-h-[360px] min-h-[280px] w-full max-w-sm cursor-pointer"
             onClick={!isFlipped ? handleFlip : undefined}
           >
             <motion.div
@@ -211,12 +211,12 @@ const FlashcardView: React.FC<FlashcardViewProps> = ({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            className="pt-4 pb-2 z-10 bg-background/80 backdrop-blur-sm"
+            className="z-10 shrink-0 bg-background/90 pt-3 pb-1 backdrop-blur-sm"
           >
            <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest text-center mb-4">
               Rate your recall
             </p>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Button 
                 variant="outline" 
                 size="sm"

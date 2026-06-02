@@ -173,9 +173,13 @@ export const useChatMessages = (notebookId?: string) => {
   const deleteChatHistory = useMutation({
     mutationFn: async (notebookId: string) => {
       if (!effectiveUserId) throw new Error("User not authenticated");
-      const messages = localStorageService.getChatMessages(notebookId);
-      for (const message of messages) {
-        localStorageService.deleteChatMessage(message.id);
+      if (session?.access_token) {
+        await ApiService.deleteChatHistory(notebookId, session.access_token);
+      } else {
+        const messages = localStorageService.getChatMessages(notebookId);
+        for (const message of messages) {
+          localStorageService.deleteChatMessage(message.id);
+        }
       }
       return notebookId;
     },
