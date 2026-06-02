@@ -22,8 +22,8 @@ Traditionally, AI assistants operate in transient chat sessions. Once closed, th
 
 ```mermaid
 graph LR
-    Human(["👤 Human User"]) <-->|React Workspace| UI["StudyPodLM Web Interface"]
-    Agent(["🤖 CLI Agent"]) <-->|REST API + Scoped JWT| API["Express API Server"]
+    Human["👤 Human User"] <-->|React Workspace| UI["StudyPodLM Web Interface"]
+    Agent["🤖 CLI Agent"] <-->|REST API + Scoped JWT| API["Express API Server"]
     UI <-->|REST Endpoint / Real-time Sync| API
     
     subgraph Collaborative Core
@@ -32,8 +32,8 @@ graph LR
     end
     
     subgraph Persistent Storage
-        LocalDB[("SQLite Local DB")]
-        VectorDB[("@xenova/transformers Embeddings")]
+        LocalDB["SQLite Local DB"]
+        VectorDB["Local Vector Embeddings"]
         Memory --> LocalDB
         Memory --> VectorDB
     end
