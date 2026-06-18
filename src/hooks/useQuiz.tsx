@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { localStorageService, LocalSource } from '@/services/localStorageService';
+import type { LocalSource } from '@/services/localStorageService';
 import { Quiz, QuizResult, QuizSession, QuizHistory, QuestionDifficulty, QuestionType } from '@/types/quiz';
 import { generateQuiz, calculateScore } from '@/lib/quiz/quizGenerator';
 

@@ -7,6 +7,7 @@
 import { dispatchToTitan } from './titanProvider.js';
 import { performWebSearch } from './webSearchService.js';
 import { logger } from '../utils/logger.js';
+import { dbHelpers } from '../db/database.js';
 
 const BASE64_IMAGE_RE = /data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+/g;
 
@@ -92,7 +93,7 @@ function stripBase64Images(text = '') {
  * Build a structured context block from all notebook sources and notes.
  * With the 128k Titan context, we raise limits significantly.
  */
-function buildNotebookContext(notebook, sources, notes, query) {
+export function buildNotebookContext(notebook, sources, notes, query) {
   const MAX_COMBINED_CHARS = 12000; // Safeguard to stay under Groq 12k TPM rate limits (~3k tokens)
   const MAX_NOTE_CHARS = 4000;
   const sourceRefs = [];
@@ -429,5 +430,66 @@ Internal Audit: ${critique}`;
   } catch (error) {
     logger.error('Titan processing failed:', error);
     throw new Error(`Titan Synapse failed: ${error.message}`);
+  }
+}
+
+/**
+ * Auto-generates a title and description for a notebook from its sources and notes
+ */
+export async function generateNotebookTitleAndDescription(notebookId, userId) {
+  try {
+    const notebook = await dbHelpers.getNotebookById(notebookId, userId);
+    if (!notebook) {
+      return { error: 'Notebook not found' };
+    }
+
+    const sources = await dbHelpers.getSourcesByNotebookId(notebookId, userId);
+    const notes = await dbHelpers.getNotesByNotebookId(notebookId, userId);
+
+    if (sources.length === 0 && notes.length === 0) {
+      return { title: notebook.title, description: notebook.description || 'Empty notebook' };
+    }
+
+    // Build context snippet of the sources/notes
+    let summaryText = '';
+    for (const source of sources.slice(0, 5)) {
+      summaryText += `Source: ${source.title}\nContent snippet: ${(source.content || '').substring(0, 1000)}\n\n`;
+    }
+    for (const note of notes.slice(0, 5)) {
+      summaryText += `Note content snippet: ${(note.content || '').substring(0, 1000)}\n\n`;
+    }
+
+    const systemPrompt = `You are an AI assistant that auto-generates a short, descriptive title and a one-sentence description for a study notebook based on its uploaded sources and notes.
+Output ONLY a valid JSON object with "title" and "description" keys. Do not include any markdown formatting or extra text.
+Example output format:
+{"title": "Machine Learning Basics", "description": "A study notebook focused on foundational machine learning concepts, neural networks, and linear regression."}`;
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Here are the sources and notes in this notebook:\n\n${summaryText}\n\nPlease generate a title and description.` }
+    ];
+
+    const { answer } = await dispatchToTitan({ messages, priority: 'reasoning', temperature: 0.5 });
+    
+    // Extract JSON from answer
+    const jsonMatch = answer.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Could not parse JSON response from AI');
+    }
+    const result = JSON.parse(jsonMatch[0]);
+
+    if (result.title && result.description) {
+      const updates = {
+        title: result.title.trim().substring(0, 100),
+        description: result.description.trim()
+      };
+      await dbHelpers.updateNotebook(notebookId, userId, updates);
+      return updates;
+    } else {
+      throw new Error('AI response missing title or description');
+    }
+  } catch (err) {
+    logger.error(`[aiChatService] Title generation failed: ${err.message}`);
+    return { error: `Title generation failed: ${err.message}` };
   }
 }

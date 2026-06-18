@@ -61,21 +61,21 @@ export class SourceFactory {
   /**
    * Create a PDF source
    */
-  static createPDF(input: Omit<CreateSourceInput, 'type'>, overrides?: Partial<Source>): Source {
+  static createPDF(input: Omit<CreateSourceInput, 'type'>, _overrides?: Partial<Source>): Source {
     return this.create({ ...input, type: 'pdf' } as CreateSourceInput);
   }
 
   /**
    * Create a website source
    */
-  static createWebsite(input: Omit<CreateSourceInput, 'type'>, overrides?: Partial<Source>): Source {
+  static createWebsite(input: Omit<CreateSourceInput, 'type'>, _overrides?: Partial<Source>): Source {
     return this.create({ ...input, type: 'website' } as CreateSourceInput);
   }
 
   /**
    * Create a YouTube source
    */
-  static createYouTube(input: Omit<CreateSourceInput, 'type'>, overrides?: Partial<Source>): Source {
+  static createYouTube(input: Omit<CreateSourceInput, 'type'>, _overrides?: Partial<Source>): Source {
     return this.create({ ...input, type: 'youtube' } as CreateSourceInput);
   }
 

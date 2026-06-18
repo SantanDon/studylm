@@ -38,7 +38,7 @@ describe('SearchService', () => {
     it('should handle search options', async () => {
       vi.spyOn(service, 'search').mockResolvedValue([]);
 
-      const results = await service.search('query', 'notebook-1', {
+      await service.search('query', 'notebook-1', {
         limit: 10,
         threshold: 0.5,
       });

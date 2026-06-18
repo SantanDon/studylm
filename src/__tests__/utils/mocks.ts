@@ -179,7 +179,7 @@ export class MockExtractionService implements IExtractionService {
 
   async extract(
     input: File | string,
-    type?: 'pdf' | 'website' | 'youtube' | 'audio' | 'text'
+    _type?: 'pdf' | 'website' | 'youtube' | 'audio' | 'text'
   ): Promise<ExtractedContent> {
     if (typeof input === 'string') {
       return this.extractText(input);
@@ -193,11 +193,11 @@ export class MockExtractionService implements IExtractionService {
  * Mock AI Service
  */
 export class MockAIService implements IAIService {
-  async generateResponse(prompt: string): Promise<string> {
+  async generateResponse(_prompt: string): Promise<string> {
     return 'Mock AI response';
   }
 
-  async generateEmbeddings(text: string): Promise<number[]> {
+  async generateEmbeddings(_text: string): Promise<number[]> {
     return Array(384).fill(0.5);
   }
 
@@ -205,11 +205,11 @@ export class MockAIService implements IAIService {
     return texts.map(() => Array(384).fill(0.5));
   }
 
-  async generateTitle(content: string): Promise<string> {
+  async generateTitle(_content: string): Promise<string> {
     return 'Mock Title';
   }
 
-  async generateSummary(content: string): Promise<string> {
+  async generateSummary(_content: string): Promise<string> {
     return 'Mock summary';
   }
 
@@ -226,7 +226,7 @@ export class MockAIService implements IAIService {
  * Mock TTS Service
  */
 export class MockTTSService implements ITTSService {
-  async synthesize(text: string): Promise<Blob> {
+  async synthesize(_text: string): Promise<Blob> {
     return new Blob(['mock audio'], { type: 'audio/wav' });
   }
 
@@ -242,7 +242,7 @@ export class MockTTSService implements ITTSService {
     ];
   }
 
-  async getVoicesByLanguage(language: string): Promise<Voice[]> {
+  async getVoicesByLanguage(_language: string): Promise<Voice[]> {
     return this.getAvailableVoices();
   }
 
@@ -254,7 +254,7 @@ export class MockTTSService implements ITTSService {
     return 'mock';
   }
 
-  setProvider(provider: 'kokoro' | 'web-speech'): void {
+  setProvider(_provider: 'kokoro' | 'web-speech'): void {
     // Mock implementation
   }
 }
@@ -263,7 +263,7 @@ export class MockTTSService implements ITTSService {
  * Mock Search Service
  */
 export class MockSearchService implements ISearchService {
-  async search(query: string, notebookId: string): Promise<SearchResult[]> {
+  async search(_query: string, _notebookId: string): Promise<SearchResult[]> {
     return [
       {
         id: 'result-1',
@@ -275,11 +275,11 @@ export class MockSearchService implements ISearchService {
     ];
   }
 
-  async indexContent(sourceId: string, content: string): Promise<void> {
+  async indexContent(_sourceId: string, _content: string): Promise<void> {
     // Mock implementation
   }
 
-  async removeIndex(sourceId: string): Promise<void> {
+  async removeIndex(_sourceId: string): Promise<void> {
     // Mock implementation
   }
 

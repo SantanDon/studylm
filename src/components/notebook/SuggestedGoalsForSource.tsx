@@ -118,8 +118,8 @@ const SuggestedGoalsForSource: React.FC<SuggestedGoalsForSourceProps> = ({ noteb
                   try {
                     await acceptSuggestion(s.id);
                     toast({ title: accepted ? 'Goal added' : 'Suggestion accepted', description: s.title });
-                  } catch (err: any) {
-                    toast({ title: 'Failed to accept', description: err?.message, variant: 'destructive' });
+                  } catch (err: unknown) {
+                    toast({ title: 'Failed to accept', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
                   }
                 }}
                 className={`h-7 px-2.5 text-[10.5px] rounded-lg font-semibold flex-shrink-0 ${

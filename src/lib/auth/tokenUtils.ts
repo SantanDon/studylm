@@ -54,7 +54,7 @@ export function generateToken(): string {
       .join('');
     
     return token;
-  } catch (error) {
+  } catch {
     throw new Error('Failed to generate secure token: crypto.randomBytes not available');
   }
 }

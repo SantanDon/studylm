@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { ApiService } from '@/services/apiService';
+import type { ResearchGoal } from '@/hooks/useResearchGoals';
 
 interface GoalSummary {
   notebookId: string;
@@ -42,9 +43,9 @@ const GoalsPulse: React.FC = () => {
           const res = await ApiService.fetchResearchGoals(nb.id, session!.access_token, { includeArchived: false });
           const goals = res.goals || [];
           if (goals.length === 0) continue;
-          const active = goals.filter((g: any) => g.status === 'active' || !g.status).length;
-          const completed = goals.filter((g: any) => g.status === 'completed').length;
-          const paused = goals.filter((g: any) => g.status === 'paused').length;
+          const active = goals.filter((g: ResearchGoal) => g.status === 'active' || !g.status).length;
+          const completed = goals.filter((g: ResearchGoal) => g.status === 'completed').length;
+          const paused = goals.filter((g: ResearchGoal) => g.status === 'paused').length;
           summaries.push({
             notebookId: nb.id,
             notebookTitle: nb.title || 'Untitled notebook',
@@ -52,7 +53,7 @@ const GoalsPulse: React.FC = () => {
             active,
             completed,
             paused,
-            recentTitles: goals.slice(0, 3).map((g: any) => ({
+            recentTitles: goals.slice(0, 3).map((g: ResearchGoal) => ({
               id: g.id, title: g.title, status: g.status || 'active', progressPct: g.progressPct || 0
             })),
           });

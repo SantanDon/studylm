@@ -79,6 +79,26 @@ const SourcesSidebar = ({
     useState<Source | null>(null);
 
   const { sources, isLoading } = useSources(notebookId);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedType, setSelectedType] = useState<string>("all");
+
+  const filteredSources = React.useMemo(() => {
+    if (!sources) return [];
+    return sources.filter((source) => {
+      const matchesSearch =
+        source.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (source.content && source.content.toLowerCase().includes(searchQuery.toLowerCase()));
+
+      if (!matchesSearch) return false;
+      if (selectedType === "all") return true;
+      if (selectedType === "pdf") return source.type === "pdf";
+      if (selectedType === "web") return source.type === "website" || source.type === "multiple-websites";
+      if (selectedType === "media") return source.type === "youtube" || source.type === "video" || source.type === "audio";
+      if (selectedType === "text") return source.type === "text" || source.type === "copied-text" || source.type === "doc";
+      if (selectedType === "tweet") return source.type === "tweet";
+      return source.type === selectedType;
+    });
+  }, [sources, searchQuery, selectedType]);
 
   const { deleteSource, isDeleting } = useSourceDelete();
 
@@ -152,13 +172,32 @@ const SourcesSidebar = ({
     return selectedSourceForViewing?.url || "";
   };
 
-  const renderSourceIcon = (type: string) => {
+  const renderSourceIcon = (type: string, url?: string | null) => {
     if (type === "youtube" || type === "video") {
       return (
         <svg className="w-full h-full text-red-500 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
           <path d="M23.498 6.163c-.272-.98-1.09-1.755-2.115-2.021C19.516 3.6 12 3.6 12 3.6s-7.516 0-9.383.542C1.59 4.408.773 5.184.5 6.163.003 7.984 0 12 0 12s.003 4.015.5 5.837c.272.98 1.09 1.755 2.115 2.021C4.484 20.4 12 20.4 12 20.4s7.516 0 9.383-.542c1.025-.266 1.843-1.042 2.115-2.021.497-1.822.5-5.837.5-5.837s-.003-4.015-.5-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
         </svg>
       );
+    }
+
+    if (type === "website" && url) {
+      try {
+        const domain = new URL(url).hostname;
+        return (
+          <img
+            src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
+            alt="website icon"
+            className="w-full h-full object-contain"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.src = "/file-types/WEB.svg";
+            }}
+          />
+        );
+      } catch {
+        // Fallback below
+      }
     }
 
     const iconMap: Record<string, string> = {
@@ -375,7 +414,7 @@ const SourcesSidebar = ({
   return (
     <div className="w-full bg-gray-50 dark:bg-background border-r border-gray-200 dark:border-border flex flex-col h-full overflow-hidden">
       <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-medium text-gray-900 dark:text-foreground">Sources</h2>
         </div>
 
@@ -390,6 +429,50 @@ const SourcesSidebar = ({
             Add
           </Button>
         </div>
+
+        <div className="mt-3 space-y-2">
+          <div className="relative">
+            <i className="fi fi-rr-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+            <input
+              type="text"
+              placeholder="Search library..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-100 dark:bg-zinc-900 border-none rounded-lg focus:outline-none focus:ring-1 focus:ring-ring text-foreground placeholder-gray-400"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery("")} 
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-foreground text-[10px]"
+              >
+                <i className="fi fi-rr-cross-small"></i>
+              </button>
+            )}
+          </div>
+          
+          <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none mask-image-horizontal">
+            {[
+              { id: "all", label: "All" },
+              { id: "pdf", label: "PDFs" },
+              { id: "web", label: "Web" },
+              { id: "tweet", label: "Tweets" },
+              { id: "media", label: "Media" },
+              { id: "text", label: "Notes" }
+            ].map(type => (
+              <button
+                key={type.id}
+                onClick={() => setSelectedType(type.id)}
+                className={`px-2.5 py-0.5 text-[10px] font-medium rounded-full transition-all shrink-0 border ${
+                  selectedType === type.id
+                    ? "bg-foreground text-background border-foreground dark:bg-white dark:text-black dark:border-white"
+                    : "bg-white text-muted-foreground border-gray-200 hover:text-foreground dark:bg-card dark:border-border"
+                }`}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <ScrollArea className="flex-1 h-full">
@@ -399,49 +482,61 @@ const SourcesSidebar = ({
               <p className="text-sm text-gray-600 dark:text-gray-400">Loading sources...</p>
             </div>
           ) : sources && sources.length > 0 ? (
-            <div className="space-y-4">
-              {sources.map((source) => (
-                <ContextMenu key={source.id}>
-                  <ContextMenuTrigger>
-                    <Card
-                      className="p-3 border border-gray-200 dark:border-border cursor-pointer bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors shadow-sm"
-                      onClick={() => handleSourceClick(source)}
-                    >
-                      <div className="flex items-start justify-between space-x-3">
-                        <div className="flex items-center space-x-2 flex-1 min-w-0">
-                          <div className="w-6 h-6 bg-white dark:bg-zinc-950 rounded border border-gray-200 dark:border-border flex items-center justify-center flex-shrink-0 overflow-hidden">
-                            {renderSourceIcon(source.type)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm text-gray-900 dark:text-foreground truncate block font-medium">
-                              {source.title}
-                            </span>
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              {renderSourceTrustBadge(source)}
+            filteredSources.length > 0 ? (
+              <div className="space-y-4">
+                {filteredSources.map((source) => (
+                  <ContextMenu key={source.id}>
+                    <ContextMenuTrigger>
+                      <Card
+                        className="p-3 border border-gray-200 dark:border-border cursor-pointer bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors shadow-sm"
+                        onClick={() => handleSourceClick(source)}
+                      >
+                        <div className="flex items-start justify-between space-x-3">
+                          <div className="flex items-center space-x-2 flex-1 min-w-0">
+                            <div className="w-6 h-6 bg-white dark:bg-zinc-950 rounded border border-gray-200 dark:border-border flex items-center justify-center flex-shrink-0 overflow-hidden">
+                              {renderSourceIcon(source.type, source.url)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm text-gray-900 dark:text-foreground truncate block font-medium">
+                                {source.title}
+                              </span>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                {renderSourceTrustBadge(source)}
+                              </div>
                             </div>
                           </div>
+                          <div className="flex-shrink-0 py-[4px]">
+                            {renderProcessingStatus(source.processing_status)}
+                          </div>
                         </div>
-                        <div className="flex-shrink-0 py-[4px]">
-                          {renderProcessingStatus(source.processing_status)}
-                        </div>
-                      </div>
-                    </Card>
-                  </ContextMenuTrigger>
-                  <ContextMenuContent>
-                    <ContextMenuItem onClick={() => handleRenameSource(source)}>
-                      <i className="fi fi-rr-edit h-4 w-4 mr-2"></i>
-                      Rename source
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      onClick={() => handleRemoveSource(source)}
-                      className="text-red-600 focus:text-red-600"
-                    >
-                      <i className="fi fi-rr-trash h-4 w-4 mr-2"></i>
-                      Remove source
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                </ContextMenu>
-              ))}
+                      </Card>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleRenameSource(source)}>
+                        <i className="fi fi-rr-edit h-4 w-4 mr-2"></i>
+                        Rename source
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => handleRemoveSource(source)}
+                        className="text-red-600 focus:text-red-600"
+                      >
+                        <i className="fi fi-rr-trash h-4 w-4 mr-2"></i>
+                        Remove source
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 bg-white dark:bg-card border border-dashed border-gray-200 dark:border-border rounded-xl">
+                <p className="text-xs text-muted-foreground">No sources matching your filters</p>
+              </div>
+            )
+          ) : (
+            <div className="text-center py-8 bg-white dark:bg-card border border-dashed border-gray-200 dark:border-border rounded-xl">
+              <p className="text-xs text-muted-foreground">No sources added yet. Click "Add" above to start uploading files, bookmarks, or web links.</p>
+            </div>
+          )}
 
               {suggestedSources.length > 0 && (
                 <div className="pt-4 border-t border-gray-200 dark:border-border mt-6">
@@ -491,20 +586,6 @@ const SourcesSidebar = ({
                 </div>
               )}
             </div>
-          ) : (
-            <div className="text-center py-8">
-              <div className="w-16 h-16 bg-gray-200 dark:bg-muted rounded-lg mx-auto mb-4 flex items-center justify-center">
-                <span className="text-gray-400 dark:text-gray-500 text-2xl">📄</span>
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-foreground mb-2">
-                Saved sources will appear here
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Click Add source above to add PDFs, text, or audio files.
-              </p>
-            </div>
-          )}
-        </div>
       </ScrollArea>
 
       <AddSourcesDialog

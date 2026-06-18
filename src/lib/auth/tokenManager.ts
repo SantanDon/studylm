@@ -8,14 +8,12 @@
  */
 
 import {
-  generateToken,
   hashToken,
   validateToken,
   isTokenExpired,
   generateVerificationToken,
   generateResetToken,
   generateSessionToken,
-  TOKEN_CONFIG,
 } from './tokenUtils';
 
 /**
@@ -141,7 +139,7 @@ export class TokenManager {
           record = tokenRecord;
           break;
         }
-      } catch (error) {
+      } catch {
         // Continue searching if comparison fails
         continue;
       }

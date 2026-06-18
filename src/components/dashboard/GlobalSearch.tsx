@@ -6,9 +6,33 @@ import { useAuth } from '@/hooks/useAuth';
 import { Search, FileText, Notebook, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
+interface SearchNotebook {
+  id: string;
+  title: string;
+}
+
+interface SearchSource {
+  id: string;
+  notebookId: string;
+  title: string;
+  content?: string;
+}
+
+interface SearchNote {
+  id: string;
+  notebookId: string;
+  content: string;
+}
+
+interface SearchResults {
+  notebooks: SearchNotebook[];
+  sources: SearchSource[];
+  notes: SearchNote[];
+}
+
 const GlobalSearch = ({ open, setOpen }: { open: boolean, setOpen: (v: boolean) => void }) => {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useState<SearchResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -70,7 +94,7 @@ const GlobalSearch = ({ open, setOpen }: { open: boolean, setOpen: (v: boolean) 
               {results.notebooks?.length > 0 && (
                 <div>
                   <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Notebooks</h3>
-                  {results.notebooks.map((nb: any) => (
+                  {results.notebooks.map((nb: SearchNotebook) => (
                     <div 
                       key={nb.id} 
                       onClick={() => goToNotebook(nb.id)}
@@ -86,7 +110,7 @@ const GlobalSearch = ({ open, setOpen }: { open: boolean, setOpen: (v: boolean) 
               {results.sources?.length > 0 && (
                 <div>
                   <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sources</h3>
-                  {results.sources.map((s: any) => (
+                  {results.sources.map((s: SearchSource) => (
                     <div 
                       key={s.id} 
                       onClick={() => goToNotebook(s.notebookId)}
@@ -105,7 +129,7 @@ const GlobalSearch = ({ open, setOpen }: { open: boolean, setOpen: (v: boolean) 
               {results.notes?.length > 0 && (
                 <div>
                   <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Notes</h3>
-                  {results.notes.map((n: any) => (
+                  {results.notes.map((n: SearchNote) => (
                     <div 
                       key={n.id} 
                       onClick={() => goToNotebook(n.notebookId)}

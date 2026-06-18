@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-// import { Trash2 } from 'lucide-react'; // Removed Lucide imports
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useNotebookDelete } from '@/hooks/useNotebookDelete';
+import { useToast } from '@/hooks/use-toast';
 
 interface NotebookCardProps {
   notebook: {
@@ -12,6 +12,7 @@ interface NotebookCardProps {
     icon: string;
     color: string;
     hasCollaborators?: boolean;
+    joinCode?: string;
   };
   isSelectionMode?: boolean;
 }
@@ -25,6 +26,19 @@ const NotebookCard = ({
     deleteNotebook,
     isDeleting
   } = useNotebookDelete();
+  const { toast } = useToast();
+
+  const handleShareClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (notebook.joinCode) {
+      navigator.clipboard.writeText(notebook.joinCode);
+      toast({
+        title: "Join code copied!",
+        description: `Code ${notebook.joinCode} copied to clipboard. Share it with your teammate!`,
+      });
+    }
+  };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -50,7 +64,12 @@ const NotebookCard = ({
       className={`rounded-lg border ${borderClass} ${backgroundClass} p-4 hover:shadow-md transition-shadow cursor-pointer relative h-48 flex flex-col`}
     >
       {!isSelectionMode && (
-        <div className="absolute top-3 right-3" data-delete-action="true">
+        <div className="absolute top-3 right-3 flex items-center space-x-1" data-delete-action="true">
+          {notebook.joinCode && (
+            <button onClick={handleShareClick} className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded text-gray-400 hover:text-foreground transition-colors" title="Copy share join code" data-delete-action="true">
+              <i className="fi fi-rr-share h-4 w-4"></i>
+            </button>
+          )}
           <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
             <AlertDialogTrigger asChild>
               <button onClick={handleDeleteClick} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500 transition-colors delete-button" disabled={isDeleting} data-delete-action="true">

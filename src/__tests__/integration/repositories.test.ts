@@ -3,7 +3,7 @@ import { NotebookRepository } from '@/repositories/NotebookRepository';
 import { SourceRepository } from '@/repositories/SourceRepository';
 import { ChatMessageRepository } from '@/repositories/ChatMessageRepository';
 import { MockStorageService } from '../utils/mocks';
-import { createTestNotebook, createTestSource, createTestChatMessage } from '../utils/factories';
+
 
 describe('Repository Integration Tests', () => {
   let storageService: MockStorageService;

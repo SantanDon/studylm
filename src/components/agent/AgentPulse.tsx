@@ -20,7 +20,7 @@ export const AgentPulse: React.FC<AgentPulseProps> = ({ notebookId }) => {
 
     try {
       // Safety check: is the document even ready?
-      const doc = (syncManager as any).docs?.get(notebookId);
+      const doc = (syncManager as unknown as { docs: Map<string, unknown> }).docs?.get(notebookId);
       if (!doc) {
         console.log(`[AgentPulse] Waiting for notebook doc: ${notebookId}`);
         return;

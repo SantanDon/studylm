@@ -8,7 +8,7 @@
  */
 
 import { generateVerificationToken, hashToken, validateToken, isTokenExpired } from './tokenUtils';
-import { localStorageService, LocalUser, VerificationTokenRecord } from '@/services/localStorageService';
+import { localStorageService, LocalUser } from '@/services/localStorageService';
 
 /**
  * Result of email verification
@@ -125,7 +125,7 @@ If you didn't create this account, please ignore this email.
             tokenRecord = stored;
             break;
           }
-        } catch (error) {
+        } catch {
           // Continue searching if comparison fails
           continue;
         }
@@ -335,13 +335,13 @@ If you didn't create this account, please ignore this email.
           if (isValid && !isTokenExpired(new Date(stored.expiresAt)) && !stored.used && !stored.invalidatedAt) {
             return true;
           }
-        } catch (error) {
+        } catch {
           continue;
         }
       }
       
       return false;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

@@ -8,7 +8,7 @@
  */
 
 import { generateResetToken, hashToken, validateToken, isTokenExpired } from './tokenUtils';
-import { localStorageService, LocalUser, ResetTokenRecord } from '@/services/localStorageService';
+import { localStorageService, ResetTokenRecord } from '@/services/localStorageService';
 import bcrypt from 'bcryptjs';
 
 /**
@@ -152,7 +152,7 @@ If you didn't request this, please ignore this email.
             tokenRecord = stored;
             break;
           }
-        } catch (error) {
+        } catch {
           // Continue searching if comparison fails
           continue;
         }
@@ -178,7 +178,7 @@ If you didn't request this, please ignore this email.
       }
       
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -219,7 +219,7 @@ If you didn't request this, please ignore this email.
             tokenRecord = stored;
             break;
           }
-        } catch (error) {
+        } catch {
           // Continue searching if comparison fails
           continue;
         }
@@ -411,7 +411,7 @@ If you didn't request this, please ignore this email.
         valid: true,
         expiresAt,
       };
-    } catch (error) {
+    } catch {
       return {
         exists: false,
         valid: false,

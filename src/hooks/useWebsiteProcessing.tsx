@@ -7,7 +7,6 @@ import { useNotebookGeneration } from "@/hooks/useNotebookGeneration";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
-import { v4 as uuidv4 } from "uuid";
 
 export const useWebsiteProcessing = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -116,8 +115,6 @@ export const useWebsiteProcessing = () => {
         }
 
         // Create a source for the web content
-        const sourceId = uuidv4();
-        
         const sourcePayload = {
           title: webContent.title,
           summary: webContent.description,

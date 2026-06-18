@@ -76,7 +76,7 @@ export class AudioValidator {
       };
     }
 
-    const { sampleRate, channels, dataSize } = headerValid;
+    const { sampleRate, channels } = headerValid;
 
     // Decode and analyze audio content
     const audioData = await AudioValidator.decodeAndAnalyze(blob);
@@ -163,7 +163,6 @@ export class AudioValidator {
 
     const channels = view.getUint16(22, true);
     const sampleRate = view.getUint32(24, true);
-    const bitsPerSample = view.getUint16(34, true);
 
     if (channels === 0) {
       issues.push('Zero channels');
@@ -178,8 +177,6 @@ export class AudioValidator {
     if (dataSize <= 0) {
       issues.push(`No audio data (data chunk size: ${dataSize})`);
     }
-
-    const duration = dataSize / (sampleRate * channels * (bitsPerSample / 8));
 
     return {
       valid: issues.length === 0,

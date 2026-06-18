@@ -13,8 +13,18 @@ import ChatInput from '@/components/chat/ChatInput';
 import SovereignChatIntro from '@/components/chat/SovereignChatIntro';
 import CaptureButtons from './CaptureButtons';
 import AddSourcesDialog from './AddSourcesDialog';
+import ResearchFurtherDialog from './ResearchFurtherDialog';
 import { Citation, EnhancedChatMessage } from '@/types/message';
 import { IMMERSIVE_PROMPTS, BOOKMARK_PROMPTS } from '@/config/prompts';
+import { useToast } from '@/hooks/use-toast';
+import type { Source } from '@/types/domain/Source';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 
 interface ChatAreaProps {
   hasSource: boolean;
@@ -30,19 +40,20 @@ interface ChatAreaProps {
   onCitationClick?: (citation: Citation) => void;
 }
 
-function getSourceMetadata(source: any): any {
+function getSourceMetadata(source: Source): Record<string, unknown> {
   if (!source?.metadata) return {};
-  if (typeof source.metadata === 'string') {
+  const meta = source.metadata as unknown;
+  if (typeof meta === 'string') {
     try {
-      return JSON.parse(source.metadata);
+      return JSON.parse(meta) as Record<string, unknown>;
     } catch {
       return {};
     }
   }
-  return source.metadata;
+  return meta as Record<string, unknown>;
 }
 
-function isUsableForGroundedChat(source: any) {
+function isUsableForGroundedChat(source: Source & { processingStatus?: string }) {
   const status = source.processing_status || source.processingStatus;
   if (status !== 'completed') return false;
   const metadata = getSourceMetadata(source);
@@ -60,8 +71,11 @@ const ChatArea = ({
   const [showAiLoading, setShowAiLoading] = useState(false);
   const [clickedQuestions, setClickedQuestions] = useState<Set<string>>(new Set());
   const [showAddSourcesDialog, setShowAddSourcesDialog] = useState(false);
+  const [showResearchDialog, setShowResearchDialog] = useState(false);
   const [chatMode, setChatMode] = useState<'study' | 'agent'>('study');
   const [responseStyle, setResponseStyle] = useState<'dense' | 'conversational'>('dense');
+  const { toast } = useToast();
+  const [isShareOpen, setIsShareOpen] = useState(false);
   
   const { isGuest, incrementUsage, showAuthPrompt } = useGuest();
   const { canSendMessage, messagesRemaining } = useNotebookLimits(notebookId);
@@ -181,6 +195,18 @@ const ChatArea = ({
       deleteChatHistory(notebookId);
       // Reset clicked questions when chat is refreshed
       setClickedQuestions(new Set());
+    }
+  };
+
+  const handleShareNotebook = () => {
+    if (notebook?.joinCode || notebook?.join_code) {
+      const code = notebook.joinCode || notebook.join_code;
+      navigator.clipboard.writeText(code);
+      toast({
+        title: "Join code copied!",
+        description: `Code ${code} copied to clipboard. Share it with your teammate!`,
+      });
+      setIsShareOpen(true);
     }
   };
   const handleCitationClick = (citation: Citation) => {
@@ -311,6 +337,16 @@ const ChatArea = ({
                     <i className={`fi fi-rr-refresh h-4 w-4 ${isDeletingChatHistory ? 'animate-spin' : ''}`}></i>
                     <span>{isDeletingChatHistory ? 'Clearing...' : 'Clear Chat'}</span>
                   </Button>}
+                {(notebook?.joinCode || notebook?.join_code) && (
+                  <Button variant="outline" size="sm" onClick={handleShareNotebook} className="hidden sm:flex items-center space-x-2 border-gray-300 hover:bg-muted text-foreground">
+                    <i className="fi fi-rr-share h-4 w-4"></i>
+                    <span>Share</span>
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={() => setShowResearchDialog(true)} className="hidden sm:flex items-center space-x-2">
+                  <i className="fi fi-rr-search h-4 w-4"></i>
+                  <span>Research Further</span>
+                </Button>
               </div>
             </div>
           </div>
@@ -430,6 +466,37 @@ const ChatArea = ({
       
       {/* Add Sources Dialog */}
       <AddSourcesDialog open={showAddSourcesDialog} onOpenChange={setShowAddSourcesDialog} notebookId={notebookId} />
+      
+      {/* Research Further Dialog */}
+      <ResearchFurtherDialog open={showResearchDialog} onOpenChange={setShowResearchDialog} notebookId={notebookId} />
+
+      {/* Share Dialog */}
+      <Dialog open={isShareOpen} onOpenChange={setIsShareOpen}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-card border border-border rounded-2xl shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-medium text-foreground">Share Research Package</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Invite your teammates to collaborate. Share this notebook and let them ask their own questions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="flex flex-col items-center justify-center bg-gray-50 dark:bg-muted/50 p-6 rounded-2xl border border-gray-100 dark:border-border">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Join Code</span>
+              <span className="text-3xl font-mono font-bold tracking-widest text-primary uppercase select-all">
+                {notebook?.joinCode || notebook?.join_code}
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground text-center bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100/50 dark:border-blue-900/30 p-3 rounded-xl">
+              💡 Your teammates can enter this code in the <strong>"Join notebook"</strong> button on their dashboard to instantly clone/access this package of sources and notes.
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => setIsShareOpen(false)} className="bg-black hover:bg-gray-800 text-white rounded-xl px-6">
+                Close
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>;
 };
 

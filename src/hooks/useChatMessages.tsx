@@ -37,7 +37,7 @@ export const useChatMessages = (notebookId?: string) => {
           // Cloud account - fetch from backend API
           const dbMessages = await ApiService.getChatMessages(notebookId, session.access_token);
           
-          expandedMessages = dbMessages.map((msg: any) => ({
+          expandedMessages = dbMessages.map((msg: Record<string, unknown>) => ({
             id: msg.id,
             notebook_id: msg.notebookId || msg.notebook_id,
             message: { 

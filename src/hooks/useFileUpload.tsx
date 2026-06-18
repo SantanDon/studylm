@@ -3,7 +3,6 @@ import { localStorageService } from "@/services/localStorageService";
 import { useToast } from "@/hooks/use-toast";
 import { extractContent, getFileCategory } from "@/lib/extraction/documentExtractor";
 import { validateDocumentContent } from "@/lib/extraction/contentValidator";
-import { enhancedPDFExtraction } from "@/lib/extraction/pdfExtractor";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
 
@@ -141,10 +140,10 @@ export const useFileUpload = () => {
             console.log(`📦 Created ${chunks.length} chunks for better search`);
           }
         }
-      } catch (extractionError: any) {
+      } catch (extractionError: unknown) {
         console.error("⚠️ Content extraction failed detail:", {
-          message: extractionError.message,
-          stack: extractionError.stack,
+          message: extractionError instanceof Error ? extractionError.message : String(extractionError),
+          stack: extractionError instanceof Error ? extractionError.stack : undefined,
           raw: extractionError
         });
         throw extractionError;
@@ -299,14 +298,14 @@ export const useFileUpload = () => {
         metadata: metadata,
         success: true
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("File upload critical failure:", {
-        message: error.message,
-        stack: error.stack,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
         error
       });
       
-      const errorMessage = error.message || (typeof error === 'string' ? error : JSON.stringify(error)) || 'Unknown upload failure';
+      const errorMessage = (error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error)) || 'Unknown upload failure';
       
       toast({
         title: "Upload Error",

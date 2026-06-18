@@ -12,10 +12,11 @@ import { useNotebooks } from '@/hooks/useNotebooks';
 import { useNotebookUpdate } from '@/hooks/useNotebookUpdate';
 import { useAudiobookStore } from '@/stores/audiobookStore';
 import { toast } from 'sonner';
+import type { Source } from '@/types/domain/Source';
 
 // Use empty string (relative URLs) by default — Vite proxy handles /api → backend.
 // Set VITE_BACKEND_URL for production or custom setups.
-const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || '';
+const BACKEND_URL = (import.meta.env as { VITE_BACKEND_URL?: string }).VITE_BACKEND_URL || '';
 
 interface AudiobookViewProps {
   notebookId: string;
@@ -153,10 +154,12 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
     }
   };
 
-  const generateFullBook = async (book: any) => {
+  const generateFullBook = async (book: Source) => {
     try {
-      const fileName = book.metadata?.fileName || book.title || 'phaedrus.epub';
-      const chapterIds = book.metadata?.chapters?.map((c: any) => c.id) || [];
+      const meta = book.metadata as Record<string, unknown> | undefined;
+      const fileName = (meta?.fileName as string) || book.title || 'phaedrus.epub';
+      const chapters = (meta?.chapters as Array<{ id: string }>) || [];
+      const chapterIds = chapters.map(c => c.id);
       
       const res = await fetch(`${BACKEND_URL}/api/audiobook/generate-full`, {
         method: 'POST',
@@ -357,7 +360,7 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
               
               <ScrollArea className="h-48 border border-white/5 rounded-lg bg-black/20">
                 <div className="p-2 space-y-1">
-                  {book.metadata?.chapters?.map((chapter: any) => (
+                  {(book.metadata as { chapters?: Array<{ id: string; title?: string }> })?.chapters?.map(chapter => (
                     <button
                       key={chapter.id}
                       onClick={() => generateAudio(book.id, chapter.id, chapter.title)}

@@ -35,7 +35,7 @@ const ChatMessages = React.forwardRef<HTMLDivElement, ChatMessagesProps>(
     showAiLoading,
     onCitationClick,
     notebookId,
-  }, ref) => {
+  }, _ref) => {
     const latestMessageRef = useRef<HTMLDivElement>(null);
     const scrollAreaRef = useRef<HTMLDivElement>(null);
 

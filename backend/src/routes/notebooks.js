@@ -6,7 +6,8 @@ import { authenticateToken, requireScope } from "../middleware/auth.js";
 import { deepDiveBookmarks } from "../services/bookmarkDeepDiveService.js";
 import { brokerResearchGoals } from "../services/goalBrokerService.js";
 import { MemoryService } from "../services/memoryService.js";
-import { chatWithNotebook } from "../services/aiChatService.js";
+import { chatWithNotebook, generateNotebookTitleAndDescription } from "../services/aiChatService.js";
+import { researchNotebook } from "../services/researchService.js";
 import { MasticationService } from "../services/masticationService.js";
 import { agentPulse } from "../services/agentPulse.js";
 import { WebhookDispatcher } from "../services/webhookDispatcher.js";
@@ -594,6 +595,23 @@ router.get("/:id/sources", requireScope('sources:read'), async (req, res) => {
 });
 
 /**
+ * DELETE /api/notebooks/:id/sources/:sourceId
+ * Delete a source
+ */
+router.delete("/:id/sources/:sourceId", requireScope('sources:write'), async (req, res) => {
+  try {
+    const result = await dbHelpers.deleteSource(req.params.sourceId, req.user.userId);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: "Source not found" });
+    }
+    res.json({ success: true, message: "Source deleted" });
+  } catch (error) {
+    logger.error("Delete source error:", error);
+    res.status(500).json({ error: "Failed to delete source" });
+  }
+});
+
+/**
  * POST /api/notebooks/:id/sources/:sourceId/generate-hooks
  * Generates viral outreach hooks from a source and persists as a note.
  */
@@ -961,6 +979,38 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
   } catch (error) {
     logger.error("Chat endpoint error:", error);
     res.status(500).json({ error: "Failed to process chat" });
+  }
+});
+
+/**
+ * POST /api/notebooks/:id/research
+ * Research Further — explore gaps and find new sources
+ */
+router.post("/:id/research", requireScope('chat:all'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id || req.user?.userId;
+    const { query, depth } = req.body;
+
+    const notebook = await dbHelpers.getNotebookById(id, userId);
+    if (!notebook) {
+      return res.status(404).json({ error: "Notebook not found" });
+    }
+
+    const result = await researchNotebook({ notebookId: id, userId, query, depth });
+    if (result.status === 404) {
+      return res.status(404).json({ error: result.error });
+    }
+    if (result.status === 500) {
+      return res.status(500).json({ error: result.error });
+    }
+
+    await dbHelpers.createActivityLog(id, userId, getActorName(req), 'research_further', `Research further: ${query || 'explore gaps'}`);
+
+    res.json(result);
+  } catch (error) {
+    logger.error(`[Research Route] Error: ${error.message}`);
+    res.status(500).json({ error: "Research failed" });
   }
 });
 

@@ -15,7 +15,7 @@ export const useSourceDelete = () => {
 
       try {
         let source;
-        try { source = localStorageService.getSourceById(sourceId); } catch (e) { /* ignore */ }
+        try { source = localStorageService.getSourceById(sourceId); } catch { /* ignore */ }
 
         if (session?.access_token) {
           console.log("Deleting source from cloud...");

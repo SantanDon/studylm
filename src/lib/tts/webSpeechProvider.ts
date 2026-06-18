@@ -73,11 +73,6 @@ export class WebSpeechProvider implements TTSProvider {
 
     return new Promise((resolve, reject) => {
       // Create audio context for recording
-      const audioContext = new AudioContext();
-      const destination = audioContext.createMediaStreamDestination();
-      const mediaRecorder = new MediaRecorder(destination.stream);
-      const chunks: Blob[] = [];
-
       // Unfortunately, Web Speech API doesn't provide audio output directly
       // We'll use a workaround: speak and return a placeholder
       // For real audio capture, we'd need a different approach

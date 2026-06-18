@@ -1,4 +1,3 @@
-import { YoutubeTranscript } from '@danielxceron/youtube-transcript';
 import { API_BASE_URL, ApiService } from '@/services/apiService';
 
 export interface YoutubeTranscriptResult {
@@ -23,6 +22,14 @@ export interface YoutubeTranscriptResult {
   };
 }
 
+export interface TranscriptItem {
+  offset: number;
+  text: string;
+  duration?: number;
+  speaker?: string;
+  lang?: string;
+}
+
 /**
  * Extract video ID from various YouTube URL formats
  */
@@ -42,10 +49,10 @@ export function extractVideoId(url: string): string | null {
 }
 
 
-function parseChaptersFromDescription(description: string): any[] {
+function parseChaptersFromDescription(description: string): { timestamp: string; title: string; startSeconds: number }[] {
   if (!description) return [];
   const chapterRegex = /^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$/gm;
-  const chapters: any[] = [];
+  const chapters: { timestamp: string; title: string; startSeconds: number }[] = [];
   let match;
   while ((match = chapterRegex.exec(description)) !== null) {
     const [, timestamp, title] = match;
@@ -81,7 +88,7 @@ function formatTimestamp(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function buildStructuredContent(transcript: any[], metadata: any): string {
+function buildStructuredContent(transcript: TranscriptItem[], metadata: { title?: string; description?: string; author?: string; keywords?: string[] }): string {
   const { title, description, author, keywords } = metadata;
   const keywordStr = keywords?.length > 0 ? keywords.slice(0, 10).join(', ') : 'None';
   const descStr = description?.trim() 
@@ -110,11 +117,11 @@ ${descStr}
     for (let ci = 0; ci < chapters.length; ci++) {
       const chapterStart = chapters[ci].startSeconds * 1000;
       const chapterEnd = ci + 1 < chapters.length ? chapters[ci + 1].startSeconds * 1000 : Infinity;
-      const items = transcript.filter((t: any) => t.offset >= chapterStart && t.offset < chapterEnd);
+      const items = transcript.filter((t: TranscriptItem) => t.offset >= chapterStart && t.offset < chapterEnd);
       if (items.length > 0) {
         sections.push({
           heading: `[${chapters[ci].timestamp}] ${chapters[ci].title} (Speaker: ${speakerStr})`,
-          text: `[Video: ${title} | Speaker: ${speakerStr}]\n` + items.map((t: any) => t.text).join(' ').trim()
+          text: `[Video: ${title} | Speaker: ${speakerStr}]\n` + items.map((t: TranscriptItem) => t.text).join(' ').trim()
         });
       }
     }
@@ -125,12 +132,12 @@ ${descStr}
     for (let seg = 0; seg < numSegments; seg++) {
       const segStart = seg * SEGMENT_MS;
       const segEnd = segStart + SEGMENT_MS;
-      const items = transcript.filter((t: any) => t.offset >= segStart && t.offset < segEnd);
+      const items = transcript.filter((t: TranscriptItem) => t.offset >= segStart && t.offset < segEnd);
       if (items.length > 0) {
         const ts = formatTimestamp(segStart / 1000);
         sections.push({
           heading: `[${ts}] (Speaker: ${speakerStr})`,
-          text: `[Video: ${title} | Speaker: ${speakerStr}]\n` + items.map((t: any) => t.text).join(' ').trim()
+          text: `[Video: ${title} | Speaker: ${speakerStr}]\n` + items.map((t: TranscriptItem) => t.text).join(' ').trim()
         });
       }
     }
@@ -190,7 +197,7 @@ export async function extractYoutubeTranscript(url: string, token?: string): Pro
         if (errorJson.error) {
           errorMessage = typeof errorJson.error === 'object' ? errorJson.error.message : errorJson.error;
         }
-      } catch (e) {
+      } catch {
         // ignore json parse error
       }
       primaryErrorMessage = errorMessage;

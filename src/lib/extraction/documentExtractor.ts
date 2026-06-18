@@ -9,7 +9,7 @@ import * as XLSX from "xlsx";
 import * as cheerio from "cheerio";
 import { uploadPdfToServer } from "./serverFileUpload";
 // Import the pdfExtractor to ensure PDF.js worker is configured
-import { enhancedPDFExtraction } from "./pdfExtractor";
+import "./pdfExtractor";
 
 export interface ExtractionResult {
   content: string;
@@ -21,7 +21,7 @@ export interface ExtractionResult {
     language?: string;
     lineCount?: number;
     paragraphCount?: number;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   chunks?: string[];
 }

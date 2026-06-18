@@ -194,7 +194,7 @@ class TTSWorkerManager {
    */
   private handleWorkerError(error: Error): void {
     // Reject all pending requests
-    for (const [id, { reject }] of this.pendingRequests) {
+    for (const [, { reject }] of this.pendingRequests) {
       reject(error);
     }
     this.pendingRequests.clear();
@@ -242,7 +242,7 @@ class TTSWorkerManager {
     }
     
     // Reject all pending requests
-    for (const [id, { reject }] of this.pendingRequests) {
+    for (const [, { reject }] of this.pendingRequests) {
       reject(new Error('Cancelled'));
     }
     this.pendingRequests.clear();

@@ -14,10 +14,10 @@ const WhatsHappening = () => {
         title: "Post approved",
         description: "Post is now staged for automated publishing."
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Approve failed",
-        description: err.message || "Failed to approve post",
+        description: err instanceof Error ? err.message : "Failed to approve post",
         variant: "destructive"
       });
     }

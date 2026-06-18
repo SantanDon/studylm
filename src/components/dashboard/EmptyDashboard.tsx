@@ -1,15 +1,27 @@
-import React from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, FileText, Globe, Video, Mic } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useNotebooks } from "@/hooks/useNotebooks";
 import { useGuest } from "@/hooks/useGuest";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 const EmptyDashboard = () => {
   const navigate = useNavigate();
-  const { createNotebook, isCreating } = useNotebooks();
+  const { createNotebook, isCreating, joinNotebookAsync, isJoining } = useNotebooks();
   const { canCreateNotebook, showAuthPrompt, remainingNotebooks, isGuest } = useGuest();
   const { toast } = useToast();
+
+  const [isJoinOpen, setIsJoinOpen] = useState(false);
+  const [joinCodeInput, setJoinCodeInput] = useState('');
+
   const handleCreateNotebook = () => {
     console.log("Create notebook button clicked");
     console.log("isCreating:", isCreating);
@@ -52,6 +64,29 @@ const EmptyDashboard = () => {
         },
       },
     );
+  };
+
+  const handleJoinNotebook = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!joinCodeInput.trim()) return;
+
+    try {
+      const data = await joinNotebookAsync(joinCodeInput.trim());
+      toast({
+        title: "Joined notebook!",
+        description: `Successfully joined "${data.title || 'shared notebook'}"`,
+      });
+      setIsJoinOpen(false);
+      setJoinCodeInput('');
+      navigate(`/notebook/${data.id}`);
+    } catch (err: unknown) {
+      console.error(err);
+      toast({
+        title: "Failed to join",
+        description: err instanceof Error ? err.message : "Invalid or expired join code",
+        variant: "destructive",
+      });
+    }
   };
   return (
     <div className="text-center py-16">
@@ -97,15 +132,58 @@ const EmptyDashboard = () => {
         </div>
       </div>
 
-      <Button
-        onClick={handleCreateNotebook}
-        size="lg"
-        className="bg-blue-600 hover:bg-blue-700"
-        disabled={isCreating}
-      >
-        <Upload className="h-5 w-5 mr-2" />
-        {isCreating ? "Creating..." : "Create notebook"}
-      </Button>
+      <div className="flex justify-center items-center space-x-4">
+        <Button
+          onClick={handleCreateNotebook}
+          size="lg"
+          className="bg-blue-600 hover:bg-blue-700 rounded-xl px-6"
+          disabled={isCreating}
+        >
+          <Upload className="h-5 w-5 mr-2" />
+          {isCreating ? "Creating..." : "Create notebook"}
+        </Button>
+        {!isGuest && (
+          <Button
+            onClick={() => setIsJoinOpen(true)}
+            size="lg"
+            variant="outline"
+            className="border-gray-300 dark:border-border text-foreground hover:bg-muted rounded-xl px-6"
+            disabled={isJoining}
+          >
+            Join notebook
+          </Button>
+        )}
+      </div>
+
+      <Dialog open={isJoinOpen} onOpenChange={setIsJoinOpen}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-card border border-border rounded-2xl shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-medium text-foreground">Join shared notebook</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Enter the 6-character shared join code to access your teammate's research package.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleJoinNotebook} className="space-y-4 pt-2">
+            <Input
+              placeholder="e.g. A4K9B2"
+              value={joinCodeInput}
+              onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+              maxLength={6}
+              className="font-mono text-center text-lg tracking-widest uppercase h-12 rounded-xl"
+              disabled={isJoining}
+              autoFocus
+            />
+            <div className="flex justify-end space-x-3">
+              <Button type="button" variant="ghost" onClick={() => setIsJoinOpen(false)} disabled={isJoining} className="rounded-xl">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isJoining || joinCodeInput.length < 6} className="bg-black hover:bg-gray-800 text-white rounded-xl px-6">
+                {isJoining ? 'Joining...' : 'Join'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

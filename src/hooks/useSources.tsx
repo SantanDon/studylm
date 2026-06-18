@@ -34,7 +34,7 @@ export const useSources = (notebookId?: string) => {
         console.log("useSources: Fetching from cloud...");
         const rawSources = await ApiService.fetchSources(notebookId, session.access_token);
         // Map Drizzle camelCase to Supabase-style snake_case the frontend expects
-        sources = rawSources.map((s: any) => ({
+        sources = rawSources.map((s: Record<string, unknown>) => ({
           ...s,
           created_at: s.createdAt || s.created_at,
           updated_at: s.updatedAt || s.updated_at,

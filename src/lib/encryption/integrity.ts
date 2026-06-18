@@ -5,7 +5,7 @@
  * Used to verify encrypted data integrity after download from cloud.
  */
 
-import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
+import { arrayBufferToBase64 } from './utils';
 
 /**
  * Generate SHA-256 checksum for data

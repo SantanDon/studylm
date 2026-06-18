@@ -7,7 +7,6 @@ import GoalsPulse from "@/components/dashboard/GoalsPulse";
 import MetallicText from "@/components/ui/MetallicText";
 import { useNotebooks } from "@/hooks/useNotebooks";
 import { useAuth } from "@/hooks/useAuth";
-import { useGuest } from "@/hooks/useGuest";
 import { useVisualEffectsStore } from "@/stores/visualEffectsStore";
 import { FEATURE_FLAGS } from "@/config/featureFlags";
 

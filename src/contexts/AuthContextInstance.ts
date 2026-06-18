@@ -15,8 +15,8 @@ export interface AuthContextType {
   mfaRequired: boolean;
   mfaToken: string | null;
   signOut: () => Promise<void>;
-  signIn: (credentials: any, sessionData?: any) => Promise<void>;
-  signInWithCloud: (userData: any) => void;
+  signIn: (credentials: Record<string, unknown>, sessionData?: unknown) => Promise<void>;
+  signInWithCloud: (userData: { id: string; email?: string; displayName?: string; account_type?: string; createdAt: string }) => void;
   verifyMfa: (code: string) => Promise<boolean>;
   recoverAccount: (displayName: string, recoveryKey: string) => Promise<{ resetToken: string }>;
   resetPassphrase: (resetToken: string, newPassphrase: string) => Promise<void>;

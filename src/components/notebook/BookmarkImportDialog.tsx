@@ -83,8 +83,8 @@ const BookmarkImportDialog = ({
           parsedCount = data.length;
         } else if (data?.bookmarkTimeline?.instructions) {
           const instructions = data.bookmarkTimeline.instructions;
-          instructions.forEach((inst: any) => {
-            parsedCount += (inst?.entries || []).length;
+          (instructions as Array<{ entries?: unknown[] }>).forEach((inst) => {
+            parsedCount += inst?.entries?.length || 0;
           });
         }
         setFileBookmarksCount(parsedCount);
@@ -150,10 +150,10 @@ const BookmarkImportDialog = ({
         });
       }
       handleClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Import failed",
-        description: err.message || "Failed to import bookmarks",
+        description: err instanceof Error ? err.message : "Failed to import bookmarks",
         variant: "destructive"
       });
     }

@@ -5,7 +5,7 @@
  * Validates Requirements: 4.1, 4.2, 4.3, 4.4, 4.5
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   generateToken,
   hashToken,

@@ -15,11 +15,11 @@ const SovereignSignal = ({ notebookId }: { notebookId: string }) => {
   useEffect(() => {
     // Find the most recent YouTube source with sovereign_signal metadata
     const youtubeSources = sources
-      .filter(s => s.type === 'youtube' && (s.metadata as any)?.sovereign_signal)
+      .filter(s => s.type === 'youtube' && (s.metadata as { sovereign_signal?: unknown })?.sovereign_signal)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     if (youtubeSources.length > 0) {
-      setActiveSignal((youtubeSources[0].metadata as any).sovereign_signal);
+      setActiveSignal((youtubeSources[0].metadata as { sovereign_signal: { identity: string; timestamp: string; farm_health: string } }).sovereign_signal);
     }
   }, [sources]);
 

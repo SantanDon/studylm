@@ -40,11 +40,6 @@ const Notebook = () => {
     setActiveSourceId(sourceId);
   };
 
-  // Dynamic width calculations for desktop - expand studio when editing notes
-  const sourcesWidth = isSourceDocumentOpen ? 'w-[35%]' : 'w-[25%]';
-  const studioWidth = 'w-[30%]'; // Expanded width for note editing
-  const chatWidth = isSourceDocumentOpen ? 'w-[35%]' : 'w-[45%]';
-
   console.log("DEBUG: Notebook.tsx executing", { notebookId, notebooks, sources, isDesktop });
 
   if (isLoading) {

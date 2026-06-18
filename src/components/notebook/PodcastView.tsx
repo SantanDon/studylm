@@ -325,7 +325,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
         host2Name: host2,
         type: podcastType,
         format: podcastFormat
-      } as any;
+      };
 
       startGeneration(safeNotebookId, generatedScript, {
         host1Name: host1,
@@ -446,7 +446,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
             
             <div className="lab-length-selector" style={{ marginBottom: "16px" }}>
               <Label><FontAwesomeIcon icon={faMicrophone} /> Audio Format</Label>
-              <Tabs value={podcastFormat} onValueChange={(val) => setPodcastFormat(val as any)} className="w-full">
+              <Tabs value={podcastFormat} onValueChange={(val) => setPodcastFormat(val as 'dialogue' | 'solo')} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="dialogue">Podcast (Dialogue)</TabsTrigger>
                   <TabsTrigger value="solo">Audiobook (Solo Host)</TabsTrigger>
@@ -530,7 +530,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
 
             <div className="lab-length-selector">
               <Label><FontAwesomeIcon icon={faHourglassHalf} /> Episode Style</Label>
-              <Tabs value={podcastType} onValueChange={(val) => setPodcastType(val as any)} className="w-full">
+              <Tabs value={podcastType} onValueChange={(val) => setPodcastType(val as 'brief' | 'standard' | 'deep-dive')} className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="brief">Brief</TabsTrigger>
                   <TabsTrigger value="standard">Standard</TabsTrigger>

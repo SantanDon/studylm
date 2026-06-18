@@ -39,7 +39,7 @@ export class AIService implements IAIService {
   /**
    * Generate embeddings for text
    */
-  async generateEmbeddings(text: string, options?: EmbeddingOptions): Promise<number[]> {
+  async generateEmbeddings(text: string, _options?: EmbeddingOptions): Promise<number[]> {
     try {
       // Import dynamically to avoid circular dependencies
       const { generateEmbeddings } = await import('@/lib/ai/ollamaService');
@@ -57,7 +57,7 @@ export class AIService implements IAIService {
    */
   async generateBatchEmbeddings(
     texts: string[],
-    options?: EmbeddingOptions
+    _options?: EmbeddingOptions
   ): Promise<number[][]> {
     try {
       // Import dynamically to avoid circular dependencies

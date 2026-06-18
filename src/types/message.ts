@@ -18,7 +18,7 @@ export interface Citation {
   excerpt?: string;
   prefetched_content?: string;
   neural_observation?: string;
-  pathway?: any;
+  pathway?: unknown;
 }
 
 /**

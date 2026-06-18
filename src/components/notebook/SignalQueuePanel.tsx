@@ -52,10 +52,10 @@ const SignalQueuePanel = ({ notebookId }: SignalQueuePanelProps) => {
         title: "Post updated",
         description: "Your edits have been saved to the queue."
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Update failed",
-        description: err.message || "Failed to update post content",
+        description: err instanceof Error ? err.message : "Failed to update post content",
         variant: "destructive"
       });
     }
@@ -63,7 +63,7 @@ const SignalQueuePanel = ({ notebookId }: SignalQueuePanelProps) => {
 
   const handleStatusChange = async (item: SignalQueueItem, newStatus: 'draft' | 'approved' | 'posted' | 'archived') => {
     try {
-      const updates: any = { status: newStatus };
+      const updates: { status: 'draft' | 'approved' | 'posted' | 'archived'; posted_at?: string } = { status: newStatus };
       if (newStatus === 'posted') {
         updates.posted_at = new Date().toISOString();
       }
@@ -72,10 +72,10 @@ const SignalQueuePanel = ({ notebookId }: SignalQueuePanelProps) => {
         title: `Post status changed`,
         description: `Successfully moved post to ${newStatus}.`
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Status change failed",
-        description: err.message || "Failed to change status",
+        description: err instanceof Error ? err.message : "Failed to change status",
         variant: "destructive"
       });
     }
@@ -89,10 +89,10 @@ const SignalQueuePanel = ({ notebookId }: SignalQueuePanelProps) => {
         title: "Post deleted",
         description: "The post was removed from the queue."
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Delete failed",
-        description: err.message || "Failed to delete post",
+        description: err instanceof Error ? err.message : "Failed to delete post",
         variant: "destructive"
       });
     }
@@ -125,10 +125,10 @@ const SignalQueuePanel = ({ notebookId }: SignalQueuePanelProps) => {
         title: "Post drafted",
         description: "Successfully added new social post draft to queue."
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Creation failed",
-        description: err.message || "Failed to create post draft",
+        description: err instanceof Error ? err.message : "Failed to create post draft",
         variant: "destructive"
       });
     }
@@ -220,7 +220,7 @@ const SignalQueuePanel = ({ notebookId }: SignalQueuePanelProps) => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-gray-600">Platform</Label>
-              <Select value={newPlatform} onValueChange={(val: any) => setNewPlatform(val)}>
+              <Select value={newPlatform} onValueChange={(val: string) => setNewPlatform(val as 'linkedin' | 'twitter' | 'reddit' | 'threads')}>
                 <SelectTrigger className="rounded-xl border-gray-200">
                   <SelectValue placeholder="Select platform" />
                 </SelectTrigger>

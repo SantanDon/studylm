@@ -7,16 +7,6 @@
 
 import * as pdfjsLib from "pdfjs-dist";
 
-// Define the text item type for PDF.js
-interface PDFTextItem {
-  str: string;
-  dir: string;
-  width: number;
-  height: number;
-  transform: number[];
-  fontName: string;
-}
-
 // Configure PDF.js for Vite environment - attempt to set up worker or fall back gracefully
 try {
   // Try to set up the worker with CDN (common approach for development)
@@ -57,9 +47,6 @@ export async function extractPDFWithFallbacks(
 ): Promise<PDFExtractionResult> {
   const {
     maxPages = 50,
-    useWorker = true,
-    disableRange = true,
-    disableStream = true,
     verbosity = 0
   } = options;
 
@@ -129,7 +116,7 @@ async function tryExtractWithWorker(
       cMapPacked: true,
       verbosity,
       useSystemFont: true // Try to use system fonts for better text extraction
-    } as any);
+    } as pdfjsLib.DocumentInitParameters);
 
     const pdf = await loadingTask.promise;
 
@@ -144,8 +131,8 @@ async function tryExtractWithWorker(
 
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageText = textContent.items
-            .filter((item: any) => item && "str" in item && typeof item.str === "string")
-            .map((item: any) => item.str)
+            .filter((item: { str: string }) => item && "str" in item && typeof item.str === "string")
+            .map((item: { str: string }) => item.str)
             .join(" ")
             .trim();
 
@@ -209,7 +196,7 @@ async function tryExtractWithoutWorker(
       cMapPacked: true,
       verbosity,
       disableWorker: true
-    } as any);
+    } as pdfjsLib.DocumentInitParameters);
 
     const pdf = await loadingTask.promise;
 
@@ -224,8 +211,8 @@ async function tryExtractWithoutWorker(
 
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageText = textContent.items
-            .filter((item: any) => item && "str" in item && typeof item.str === "string")
-            .map((item: any) => item.str)
+            .filter((item: { str: string }) => item && "str" in item && typeof item.str === "string")
+            .map((item: { str: string }) => item.str)
             .join(" ")
             .trim();
 
@@ -285,7 +272,7 @@ async function tryExtractWithAlternativeParams(
       disableWorker: true,
       disableRange: true,
       disableStream: true
-    } as any);
+    } as pdfjsLib.DocumentInitParameters);
 
     const pdf = await loadingTask.promise;
 
@@ -300,8 +287,8 @@ async function tryExtractWithAlternativeParams(
 
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageText = textContent.items
-            .filter((item: any) => item && "str" in item && typeof item.str === "string")
-            .map((item: any) => item.str)
+            .filter((item: { str: string }) => item && "str" in item && typeof item.str === "string")
+            .map((item: { str: string }) => item.str)
             .join(" ")
             .trim();
 
@@ -361,7 +348,7 @@ async function tryExtractWithPageRendering(
       cMapPacked: true,
       verbosity,
       disableWorker: true
-    } as any);
+    } as pdfjsLib.DocumentInitParameters);
 
     const pdf = await loadingTask.promise;
 
@@ -373,12 +360,12 @@ async function tryExtractWithPageRendering(
       try {
         const page = await pdf.getPage(i);
         // Try to extract text content one more time with different approach
-        const textContent = await page.getTextContent({ normalizeWhitespace: true } as any);
+        const textContent = await page.getTextContent({ normalizeWhitespace: true } as unknown as { normalizeWhitespace: boolean });
 
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageText = textContent.items
-            .filter((item: any) => item && "str" in item && typeof item.str === "string")
-            .map((item: any) => item.str)
+            .filter((item: { str: string }) => item && "str" in item && typeof item.str === "string")
+            .map((item: { str: string }) => item.str)
             .join(" ")
             .trim();
 

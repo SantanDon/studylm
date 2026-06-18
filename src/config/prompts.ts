@@ -1,13 +1,3 @@
-import { 
-  Book, 
-  GraduationCap, 
-  Zap, 
-  BrainCircuit, 
-  Microscope, 
-  Scale, 
-  ShieldAlert, 
-  Compass 
-} from "lucide-react";
 
 export interface PromptCategory {
   id: string;
@@ -119,7 +109,7 @@ export const DOCUMENT_PROMPTS = {
  * getContextualPrompt
  * Selects the appropriate prompt configuration based on context availability.
  */
-export const getContextualPrompt = (hasContext: boolean, isNote: boolean = false) => {
+export const getContextualPrompt = (hasContext: boolean, _isNote: boolean = false) => {
   if (hasContext) {
     return DOCUMENT_PROMPTS.chat;
   }

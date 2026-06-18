@@ -280,7 +280,7 @@ class LocalStorageService {
     return this.getFromStorage<LocalUser>("users");
   }
 
-  async addUser(user: LocalUser, password: string): Promise<void> {
+  async addUser(user: LocalUser, _password: string): Promise<void> {
     const users = this.getFromStorage<LocalUser>("users");
 
     // Check if user already exists
@@ -401,7 +401,7 @@ class LocalStorageService {
     const filteredMessages = messages.filter((m) => m.notebook_id !== id);
     this.saveToStorage("chat_messages", filteredMessages);
 
-    const result = this.saveToStorage("chat_messages", filteredMessages);
+    this.saveToStorage("chat_messages", filteredMessages);
 
     // Clean up audio blob from IndexedDB
     // We don't await this to keep the method synchronous-compatible, but it will run in background

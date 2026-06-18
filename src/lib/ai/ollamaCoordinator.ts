@@ -6,7 +6,6 @@
  */
 
 import { chatCompletion, generateEmbeddings, FAST_MODELS } from './ollamaService';
-import { formatPrompt } from '@/config/prompts';
 
 export interface ModelTask {
   id: string;

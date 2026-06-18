@@ -53,7 +53,7 @@ const getSourceIcon = (sourceType: string = "") => {
   return <DocumentIcon />;
 };
 
-const LiquidCitation = ({ citation, index, triggerType = 'click' }: LiquidCitationProps) => {
+const LiquidCitation = ({ citation, index, triggerType: _triggerType = 'click' }: LiquidCitationProps) => {
   const [isOpen, setIsOpen] = useState(false);
 
   if (!citation) {

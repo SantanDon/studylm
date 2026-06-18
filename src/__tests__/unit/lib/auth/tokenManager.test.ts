@@ -7,8 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TokenManager, TokenRecord } from '@/lib/auth/tokenManager';
-import { isTokenExpired } from '@/lib/auth/tokenUtils';
+import { TokenManager } from '@/lib/auth/tokenManager';
 
 describe('TokenManager', () => {
   let manager: TokenManager;

@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { useGuest } from '@/hooks/useGuest';
 import { useNavigate } from 'react-router-dom';
-import { Lock, BookOpen, MessageSquare, FileText, Headphones, Sparkles, User } from 'lucide-react';
+import { Lock, BookOpen, MessageSquare, FileText, Headphones, Sparkles } from 'lucide-react';
 
 export const AuthPromptModal = () => {
   const { authPromptOpen, authPromptFeature, closeAuthPrompt, remainingNotebooks } = useGuest();

@@ -22,6 +22,7 @@ export interface PodcastScript {
     host1Name: string;
     host2Name: string;
     type: PodcastType;
+    format?: 'dialogue' | 'solo';
   };
 }
 
@@ -315,7 +316,7 @@ function tryParseJSON(text: string): PodcastScript | null {
     if (parsed.title && Array.isArray(parsed.segments)) {
       return parsed as PodcastScript;
     }
-  } catch (e) {
+  } catch {
     // Try to fix truncated JSON
     try {
       let fixed = text.trim();

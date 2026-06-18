@@ -8,7 +8,6 @@ export class FlashcardFactory {
    * Create a new flashcard instance
    */
   static create(input: CreateFlashcardInput): Flashcard {
-    const now = new Date().toISOString();
     return {
       id: this.generateId(),
       ...input,

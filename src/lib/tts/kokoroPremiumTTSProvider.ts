@@ -5,7 +5,7 @@
  */
 
 import { TTSProvider, TTSVoice, TTSRequest, TTSResponse } from './ttsService';
-import { KOKORO_VOICES, KokoroVoiceId } from './kokoroTTSProvider';
+import { KokoroVoiceId } from './kokoroTTSProvider';
 
 // Premium voices with enhanced quality - more options than base
 export interface PremiumVoiceInfo {

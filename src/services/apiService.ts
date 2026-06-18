@@ -23,7 +23,7 @@ async function handleResponse(response: Response) {
     try {
       const errData = await response.json();
       errorMsg = errData.error || errorMsg;
-    } catch (e) {
+    } catch {
       console.warn('Silent JSON parsing fail for error body');
     }
     throw new Error(errorMsg);
@@ -140,7 +140,7 @@ export const ApiService = {
     return handleResponse(response);
   },
 
-  async mfaVerify(mfaToken: string, code: string): Promise<any> {
+  async mfaVerify(mfaToken: string, code: string): Promise<{ user: { id: string; email?: string; displayName?: string; account_type?: string; createdAt: string } }> {
     const response = await fetch(`${API_BASE_URL}/auth/mfa/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -204,6 +204,16 @@ export const ApiService = {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, description, id }),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
+
+  async joinNotebook(joinCode: string, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/join`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: joinCode }),
       credentials: 'include'
     });
     return handleResponse(response);
@@ -477,7 +487,7 @@ export const ApiService = {
     return handleResponse(response);
   },
 
-  async updateSignalQueueItem(id: string, token: string, updates: any) {
+  async updateSignalQueueItem(id: string, token: string, updates: Record<string, unknown>) {
     const response = await fetch(`${API_BASE_URL}/signal-queue/${id}`, {
       method: 'PUT',
       headers: { 
@@ -526,7 +536,7 @@ export const ApiService = {
   },
 
   async createResearchGoal(notebookId: string, title: string, description: string, token: string, extras: { parentGoalId?: string; priority?: 'low'|'medium'|'high'; status?: 'active'|'completed'|'paused'|'archived'; sourceId?: string } = {}) {
-    const body: any = { title, description };
+    const body: Record<string, unknown> = { title, description };
     if (extras.parentGoalId) body.parentGoalId = extras.parentGoalId;
     if (extras.priority) body.priority = extras.priority;
     if (extras.status) body.status = extras.status;
@@ -543,7 +553,7 @@ export const ApiService = {
     return handleResponse(response);
   },
 
-  async patchResearchGoal(notebookId: string, goalId: string, updates: Record<string, any>, token: string) {
+  async patchResearchGoal(notebookId: string, goalId: string, updates: Record<string, unknown>, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/research-goals/${goalId}`, {
       method: 'PATCH',
       headers: {
@@ -602,7 +612,20 @@ export const ApiService = {
       credentials: 'include'
     });
     return handleResponse(response);
-  }
+  },
+
+  async researchNotebook(notebookId: string, options: { query?: string; depth?: 'quick' | 'deep' }, token: string) {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/research`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(options),
+      credentials: 'include'
+    });
+    return handleResponse(response);
+  },
 };
 
 export default ApiService;

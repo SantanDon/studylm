@@ -469,7 +469,7 @@ export function chunkByTimestamp(
   text: string,
   options: { chunkSize?: number; overlap?: number; sourceId?: string } = {}
 ): Chunk[] {
-  const { chunkSize = DEFAULT_CHUNK_SIZE, overlap = DEFAULT_OVERLAP, sourceId } = options;
+  const { chunkSize = DEFAULT_CHUNK_SIZE } = options;
   const chunks: Chunk[] = [];
 
   if (!text || text.length === 0) {

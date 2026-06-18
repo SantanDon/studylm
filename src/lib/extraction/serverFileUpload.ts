@@ -33,7 +33,7 @@ export async function uploadPdfToServer(file: File): Promise<ExtractionResult> {
             pdfTitle: undefined, // PDF.js doesn't extract title in this approach
             pdfAuthor: undefined,
             pdfSubject: undefined
-          } as any,
+          } as ExtractionResult['metadata'],
           chunks: [] // Simplify for now - return empty chunks
         };
       } else {

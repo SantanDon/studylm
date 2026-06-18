@@ -34,6 +34,8 @@ export class NotebookFactory {
       audio_url_expires_at: data.audio_url_expires_at,
       icon: data.icon,
       example_questions: data.example_questions,
+      join_code: data.join_code || data.joinCode,
+      joinCode: data.joinCode || data.join_code,
     };
   }
 

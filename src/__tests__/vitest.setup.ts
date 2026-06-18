@@ -1,9 +1,7 @@
-import { vi } from "vitest";
 import "@testing-library/jest-dom";
 
 // localStorage mock with non-enumerable methods so Object.keys() returns stored items
 function createStorageMock() {
-  const mock: Record<string, string> = {};
 
   const handler: ProxyHandler<Record<string, string>> = {
     get(target, prop) {

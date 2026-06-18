@@ -77,7 +77,7 @@ export function MigrationFlow({ onComplete }: MigrationFlowProps) {
             );
           } catch {
             // If the raw value wasn't valid JSON, still try syncing the string
-            await syncManager.queueSync(key, key as any, rawData, 'update');
+            await syncManager.queueSync(key, key, rawData, 'update');
           }
 
           // Remove legacy unnamespaced key after successful migration

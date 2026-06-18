@@ -44,7 +44,7 @@ describe('EmailVerificationService - Core Functionality', () => {
     });
 
     it('should store token in localStorage', async () => {
-      const token = await emailVerificationService.generateVerificationToken(testUserId);
+      await emailVerificationService.generateVerificationToken(testUserId);
       
       const storedTokens = localStorageService.getVerificationTokens();
       expect(storedTokens).toHaveLength(1);
@@ -53,8 +53,7 @@ describe('EmailVerificationService - Core Functionality', () => {
 
     it('should set token expiration to 24 hours', async () => {
       const beforeTime = Date.now();
-      const token = await emailVerificationService.generateVerificationToken(testUserId);
-      const afterTime = Date.now();
+      await emailVerificationService.generateVerificationToken(testUserId);
       
       const storedTokens = localStorageService.getVerificationTokens();
       const expiresAt = new Date(storedTokens[0].expiresAt).getTime();
@@ -150,7 +149,7 @@ describe('EmailVerificationService - Core Functionality', () => {
 
   describe('resendVerificationEmail', () => {
     it('should generate new token on resend', async () => {
-      const token1 = await emailVerificationService.generateVerificationToken(testUserId);
+      await emailVerificationService.generateVerificationToken(testUserId);
       
       await emailVerificationService.resendVerificationEmail(testEmail);
       
@@ -162,7 +161,7 @@ describe('EmailVerificationService - Core Functionality', () => {
     });
 
     it('should invalidate old token on resend', async () => {
-      const token1 = await emailVerificationService.generateVerificationToken(testUserId);
+      await emailVerificationService.generateVerificationToken(testUserId);
       
       await emailVerificationService.resendVerificationEmail(testEmail);
       
@@ -227,7 +226,7 @@ describe('EmailVerificationService - Core Functionality', () => {
 
   describe('invalidateVerificationToken', () => {
     it('should invalidate a token', async () => {
-      const token = await emailVerificationService.generateVerificationToken(testUserId);
+      await emailVerificationService.generateVerificationToken(testUserId);
       const storedTokens = localStorageService.getVerificationTokens();
       const tokenId = storedTokens[0].id;
       
@@ -242,8 +241,8 @@ describe('EmailVerificationService - Core Functionality', () => {
 
   describe('invalidateAllVerificationTokens', () => {
     it('should invalidate all tokens for a user', async () => {
-      const token1 = await emailVerificationService.generateVerificationToken(testUserId);
-      const token2 = await emailVerificationService.generateVerificationToken(testUserId);
+      await emailVerificationService.generateVerificationToken(testUserId);
+      await emailVerificationService.generateVerificationToken(testUserId);
       
       const count = emailVerificationService.invalidateAllVerificationTokens(testUserId);
       

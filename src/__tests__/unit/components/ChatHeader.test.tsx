@@ -19,7 +19,7 @@ vi.mock('@/components/notebook/TutorSelector', () => ({
 
 // Mock getTutorById
 vi.mock('@/config/tutors', () => ({
-  getTutorById: (id: string) => ({
+  getTutorById: (_id: string) => ({
     name: 'Test Tutor',
     avatarIcon: '👨‍🏫',
   }),

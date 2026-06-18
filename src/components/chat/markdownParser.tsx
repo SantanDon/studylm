@@ -3,7 +3,6 @@ import CitationButton from './CitationButton';
 import LiquidCitation from './LiquidCitation';
 
 const CITATION_MARKER_PATTERN = /\[(\d+)\]/g;
-const FRAGMENT_PATTERN = /\[FRAGMENT:\s*(.*?)\]([\s\S]*?)(?=\[FRAGMENT:|$)/g;
 
 export const processInlineMarkdown = (text: string) => {
   const parts = text.split(/(\*\*.*?\*\*|__.*?__)/g);
@@ -311,8 +310,8 @@ export const renderTextWithCitationMarkers = (
   onCitationClick?: (citation: Citation) => void,
   hoveredCitation?: number | null,
   onHover?: (index: number | null) => void
-): JSX.Element => {
-  const parts: (string | JSX.Element)[] = [];
+): React.ReactNode => {
+  const parts: (string | React.ReactNode)[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   

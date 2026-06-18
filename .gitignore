@@ -7,35 +7,15 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+
+# Build output
 dist
 dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
 dist-codex-check/
-dist-ssr
-*.local
 
-# Editor directories and files
+# Editor directories
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -45,11 +25,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment files
 .env*
 !.env.example
+
+# Vercel
 .vercel
 
-# Scratch directory
+# Scratch
 scratch/
 
 # SQLite and Local state
@@ -72,4 +56,8 @@ uploads/
 .codex-alt-index-test
 .codex-index-*
 
-.vercel
+# Local overrides
+*.local
+
+# gstack
+.gstack/

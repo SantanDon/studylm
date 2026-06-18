@@ -8,15 +8,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { passwordRecoveryService, PasswordRecoveryService } from '@/lib/auth/passwordRecoveryService';
+import { PasswordRecoveryService } from '@/lib/auth/passwordRecoveryService';
 import { localStorageService } from '@/services/localStorageService';
-import { hashToken, validateToken } from '@/lib/auth/tokenUtils';
+import { validateToken } from '@/lib/auth/tokenUtils';
 import bcrypt from 'bcryptjs';
 
 describe('PasswordRecoveryService', () => {
   let service: PasswordRecoveryService;
   const testEmail = 'test@example.com';
-  const testPassword = 'TestPassword123!';
   const testUserId = 'test-user-id';
 
   beforeEach(async () => {
@@ -58,7 +57,7 @@ describe('PasswordRecoveryService', () => {
     });
 
     it('should store token in localStorage', async () => {
-      const token = await service.generateResetToken(testEmail);
+      await service.generateResetToken(testEmail);
       
       const storedTokens = localStorageService.getResetTokens();
       expect(storedTokens.length).toBeGreaterThan(0);
@@ -77,7 +76,7 @@ describe('PasswordRecoveryService', () => {
     });
 
     it('should set token expiration to 1 hour', async () => {
-      const token = await service.generateResetToken(testEmail);
+      await service.generateResetToken(testEmail);
       
       const storedTokens = localStorageService.getResetTokens();
       const tokenRecord = storedTokens[0];
@@ -355,7 +354,7 @@ describe('PasswordRecoveryService', () => {
 
   describe('resendRecoveryEmail', () => {
     it('should generate new token on resend', async () => {
-      const token1 = await service.generateResetToken(testEmail);
+      await service.generateResetToken(testEmail);
       
       await service.resendRecoveryEmail(testEmail);
       
@@ -364,7 +363,7 @@ describe('PasswordRecoveryService', () => {
     });
 
     it('should invalidate old token on resend', async () => {
-      const token1 = await service.generateResetToken(testEmail);
+      await service.generateResetToken(testEmail);
       
       await service.resendRecoveryEmail(testEmail);
       
@@ -377,7 +376,7 @@ describe('PasswordRecoveryService', () => {
     it('should send new email on resend', async () => {
       const consoleSpy = vi.spyOn(console, 'log');
       
-      const token1 = await service.generateResetToken(testEmail);
+      await service.generateResetToken(testEmail);
       await service.resendRecoveryEmail(testEmail);
       
       // Should have logged email twice (once for initial, once for resend)
@@ -421,7 +420,7 @@ describe('PasswordRecoveryService', () => {
     });
 
     it('should return invalid status for expired token', async () => {
-      const token = await service.generateResetToken(testEmail);
+      await service.generateResetToken(testEmail);
       
       // Expire the token
       const storedTokens = localStorageService.getResetTokens();
@@ -438,7 +437,7 @@ describe('PasswordRecoveryService', () => {
     });
 
     it('should return invalid status for used token', async () => {
-      const token = await service.generateResetToken(testEmail);
+      await service.generateResetToken(testEmail);
       
       // Mark as used
       const storedTokens = localStorageService.getResetTokens();

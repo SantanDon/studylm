@@ -30,12 +30,6 @@ const ABBREVIATIONS: Record<string, string> = {
   'i.e': 'that is',
 };
 
-const MONTHS = new Set([
-  'january', 'february', 'march', 'april', 'may', 'june',
-  'july', 'august', 'september', 'october', 'november', 'december',
-  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
-]);
-
 export class AudioContentCleaner {
   /**
    * Clean content for audio/playback display.

@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import SuggestedGoalsForSource from './SuggestedGoalsForSource';
+import { useAuth } from '@/hooks/useAuth';
+import ApiService from '@/services/apiService';
 
 interface ResearchGoalsPanelProps {
   notebookId: string;
@@ -31,6 +33,20 @@ const ResearchGoalsPanel = ({ notebookId, activeSourceId }: ResearchGoalsPanelPr
 
   const { goals, isLoading, createGoal, updateGoal, deleteGoal } = useResearchGoals(notebookId, { includeArchived: filter === 'all' });
   const { toast } = useToast();
+  const { token } = useAuth();
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
+
+  const handleClosedLoopSynthesis = async () => {
+    setIsSynthesizing(true);
+    try {
+      const res = await ApiService.sendChatMessage(notebookId, { message: 'closed-loop synthesis' }, token || '');
+      toast({ title: 'Goal Broker Synthesis Completed', description: res.answer || 'Goal Broker synthesis executed successfully.' });
+    } catch (err: unknown) {
+      toast({ title: 'Synthesis Failed', description: err instanceof Error ? err.message : 'An error occurred during synthesis.', variant: 'destructive' });
+    } finally {
+      setIsSynthesizing(false);
+    }
+  };
 
   const totals = useMemo(() => {
     const active = goals.filter(g => g.status !== 'completed' && g.status !== 'archived').length;
@@ -52,8 +68,8 @@ const ResearchGoalsPanel = ({ notebookId, activeSourceId }: ResearchGoalsPanelPr
       setIsAdding(false);
       setParentGoalId(null);
       toast({ title: 'Goal added', description: 'Your research goal is active.' });
-    } catch (err: any) {
-      toast({ title: 'Failed to add goal', description: err.message || 'An error occurred.', variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to add goal', description: err instanceof Error ? err.message : 'An error occurred.', variant: 'destructive' });
     }
   };
 
@@ -62,8 +78,8 @@ const ResearchGoalsPanel = ({ notebookId, activeSourceId }: ResearchGoalsPanelPr
     try {
       await deleteGoal(id);
       toast({ title: 'Goal removed', description: 'The research goal was deleted.' });
-    } catch (err: any) {
-      toast({ title: 'Failed to delete', description: err.message || 'An error occurred.', variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to delete', description: err instanceof Error ? err.message : 'An error occurred.', variant: 'destructive' });
     }
   };
 
@@ -71,8 +87,8 @@ const ResearchGoalsPanel = ({ notebookId, activeSourceId }: ResearchGoalsPanelPr
     try {
       await updateGoal({ goalId: goal.id, updates: { status: 'completed', progressPct: 100 } });
       toast({ title: 'Goal completed', description: goal.title });
-    } catch (err: any) {
-      toast({ title: 'Failed to complete', description: err?.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to complete', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
   };
 
@@ -198,18 +214,39 @@ const ResearchGoalsPanel = ({ notebookId, activeSourceId }: ResearchGoalsPanelPr
             </button>
           ))}
         </div>
-        <Button
-          size="sm"
-          onClick={() => { setIsAdding(!isAdding); setParentGoalId(null); }}
-          className={`h-7 text-[11px] rounded-lg font-semibold ${
-            isAdding
-              ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm'
-          }`}
-        >
-          <i className={`fi ${isAdding ? 'fi-rr-cross-small' : 'fi-rr-plus-small'} mr-1`}></i>
-          {isAdding ? 'Cancel' : parentGoalId ? '+ Child goal' : '+ Add goal'}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={isSynthesizing}
+            onClick={handleClosedLoopSynthesis}
+            className="h-7 text-[11px] rounded-lg font-semibold border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+          >
+            {isSynthesizing ? (
+              <>
+                <i className="fi fi-rr-spinner animate-spin mr-1"></i>
+                Syncing...
+              </>
+            ) : (
+              <>
+                <i className="fi fi-rr-refresh mr-1"></i>
+                Synthesize
+              </>
+            )}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => { setIsAdding(!isAdding); setParentGoalId(null); }}
+            className={`h-7 text-[11px] rounded-lg font-semibold ${
+              isAdding
+                ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm'
+            }`}
+          >
+            <i className={`fi ${isAdding ? 'fi-rr-cross-small' : 'fi-rr-plus-small'} mr-1`}></i>
+            {isAdding ? 'Cancel' : parentGoalId ? '+ Child goal' : '+ Add goal'}
+          </Button>
+        </div>
       </div>
 
       {isAdding && (

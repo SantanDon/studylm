@@ -7,7 +7,6 @@ import { useNotebookGeneration } from "@/hooks/useNotebookGeneration";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
-import { v4 as uuidv4 } from "uuid";
 
 function parseSourceMetadata(source: LocalSource): Record<string, unknown> {
   const rawMetadata = source.metadata as unknown;
@@ -79,7 +78,6 @@ export const useYoutubeProcessing = () => {
 
       console.log(`📺 YouTube: isFirstSource=${isFirstSource}, existingSources=${existingSources.length}`);
 
-      const sourceId = uuidv4();
       const sourcePayload = {
         title: result.title,
         summary: result.description,

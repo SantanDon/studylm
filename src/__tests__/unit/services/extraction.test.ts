@@ -69,7 +69,7 @@ describe('ExtractionService', () => {
         content: 'Website content',
       });
 
-      const result = await service.extract(url);
+      await service.extract(url);
 
       expect(service.extractWebsite).toHaveBeenCalledWith(url);
     });
@@ -82,7 +82,7 @@ describe('ExtractionService', () => {
         content: 'PDF content',
       });
 
-      const result = await service.extract(file);
+      await service.extract(file);
 
       expect(service.extractPDF).toHaveBeenCalledWith(file);
     });
@@ -95,7 +95,7 @@ describe('ExtractionService', () => {
         content: 'Audio transcript',
       });
 
-      const result = await service.extract(file);
+      await service.extract(file);
 
       expect(service.extractAudio).toHaveBeenCalledWith(file);
     });

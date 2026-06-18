@@ -9,7 +9,6 @@ import { LocalUser, LocalSession } from "@/services/localStorageService";
 import { localStorageService } from "@/services/localStorageService";
 import { useEncryptionStore } from "@/stores/encryptionStore";
 import { safeGetItem, safeParseJSON } from "@/lib/utils/contextUtils";
-import { migrateLocalToCloud } from "@/lib/sync/localToCloudMigration";
 import { ApiService } from "@/services/apiService";
 
 
@@ -54,7 +53,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setError(null);
   }, []);
 
-  const signIn = async (credentials: any, sessionData?: any) => {
+  const signIn = async (credentials: Record<string, unknown>, sessionData?: unknown) => {
     console.log("AuthContext: Starting sign in process...");
     setError(null);
     try {

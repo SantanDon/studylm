@@ -47,7 +47,7 @@ export const notebookMembers = sqliteTable('notebook_members', {
     notebookId: text('notebook_id').notNull().references(() => notebooks.id, { onDelete: 'cascade' }),
     userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     role: text('role').default('viewer'),
-    joinedAt: integer('joined_at'),
+    joinedAt: integer('joined_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
 export const sources = sqliteTable('sources', {
     id: text('id').primaryKey(),

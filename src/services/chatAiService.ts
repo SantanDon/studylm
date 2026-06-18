@@ -9,7 +9,7 @@ export async function generateAIResponse(
   userMessage: string,
   user: LocalUser,
   notebookId: string,
-  task: OllamaTask = "chat",
+  _task: OllamaTask = "chat",
   onChunk?: (chunk: string) => void,
 ): Promise<string> {
   try {

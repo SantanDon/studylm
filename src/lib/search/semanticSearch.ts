@@ -5,14 +5,8 @@
  * Enables intelligent search across notes, sources, and chat history.
  */
 
-import { generateEmbeddings } from "../ai/ollamaService";
 import { embeddingCache } from "./embeddingCache";
-import {
-  localStorageService,
-  LocalNote,
-  LocalSource,
-  LocalChatMessage,
-} from "@/services/localStorageService";
+import { localStorageService } from "@/services/localStorageService";
 
 const isSemanticDisabled = false;
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { LocalStorageServiceImpl } from '@/services/storage/LocalStorageServiceImpl';
-import { createTestNotebook, createTestSource, createTestChatMessage } from '../../utils/factories';
+
 
 describe('LocalStorageService', () => {
   let service: LocalStorageServiceImpl;

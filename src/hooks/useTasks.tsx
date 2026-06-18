@@ -1,5 +1,4 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuthState } from "@/hooks/useAuthState";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
 
@@ -29,7 +28,7 @@ export const useTasks = (notebookId?: string) => {
       const rawTasks = await ApiService.fetchTasks(notebookId, session!.access_token);
       
       // Auto-map keys if backend returns different naming
-      return rawTasks.map((t: any) => ({
+      return rawTasks.map((t: Record<string, unknown>) => ({
         ...t,
         notebook_id: t.notebookId || t.notebook_id,
         createdAt: t.createdAt || t.created_at,
@@ -45,7 +44,7 @@ export const useTasks = (notebookId?: string) => {
     mutationFn: async ({
       content,
       priority = "medium",
-      sourceId,
+      sourceId: _sourceId,
     }: {
       content: string;
       priority?: 'low' | 'medium' | 'high';

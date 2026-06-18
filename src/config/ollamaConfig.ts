@@ -2,23 +2,6 @@
 // Use Vite env `VITE_ENABLE_OLLAMA=1` or `VITE_ENABLE_OLLAMA=true` to enable Ollama in the frontend.
 // Also accepts `OLLAMA_ENABLED` in Node envs for server-side code.
 
-function readEnvValue(): string | undefined {
-  // Vite-style import.meta.env when running in the browser/dev with Vite
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const viteEnv = typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;
-
-  if (viteEnv && (viteEnv.VITE_ENABLE_OLLAMA !== undefined)) {
-    return viteEnv.VITE_ENABLE_OLLAMA;
-  }
-
-  // Fallback to process.env for Node contexts
-  if (typeof process !== 'undefined') {
-    return process.env.OLLAMA_ENABLED || process.env.VITE_ENABLE_OLLAMA;
-  }
-
-  return undefined;
-}
-
 export function isOllamaEnabled(): boolean {
   // USER explicitly requested Ollama be DISABLED as they have moved to cloud fallbacks
   // This is a hard-disable to prevent unwanted localhost:11434 calls.

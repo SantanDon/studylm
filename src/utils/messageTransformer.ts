@@ -113,7 +113,7 @@ export const transformMessage = (
             invalid_tool_calls: messageObj.invalid_tool_calls,
           };
         }
-      } catch (parseError) {
+      } catch (_parseError) {
         transformedMessage = {
           type: "ai",
           content: messageObj.content,

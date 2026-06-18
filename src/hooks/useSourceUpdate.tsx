@@ -1,11 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { localStorageService } from "@/services/localStorageService";
-import { useAuthState } from "@/hooks/useAuthState";
 import { useToast } from "@/hooks/use-toast";
 
 export const useSourceUpdate = () => {
   const queryClient = useQueryClient();
-  const { user } = useAuthState();
   const { toast } = useToast();
 
   const updateSource = useMutation({

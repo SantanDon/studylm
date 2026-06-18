@@ -117,7 +117,7 @@ describe('Bug Condition: Multi-User localStorage Isolation', () => {
     
     // Simulate account creation for each user
     for (const user of users) {
-      const { key, salt } = await generateKeyFromPassphrase(user.passphrase);
+      const { salt } = await generateKeyFromPassphrase(user.passphrase);
       const saltBase64 = arrayBufferToBase64(salt);
       
       // Store with user-namespaced keys
@@ -150,7 +150,7 @@ describe('Bug Condition: Multi-User localStorage Isolation', () => {
     
     // User A creates account (current buggy implementation)
     const userAPassphrase = 'password123';
-    const { key: keyA, salt: saltA } = await generateKeyFromPassphrase(userAPassphrase);
+    const { salt: saltA } = await generateKeyFromPassphrase(userAPassphrase);
     const saltABase64 = arrayBufferToBase64(saltA);
     
     // Current buggy code stores without namespace
@@ -162,7 +162,7 @@ describe('Bug Condition: Multi-User localStorage Isolation', () => {
     
     // User B creates account (current buggy implementation)
     const userBPassphrase = 'different-password';
-    const { key: keyB, salt: saltB } = await generateKeyFromPassphrase(userBPassphrase);
+    const { salt: saltB } = await generateKeyFromPassphrase(userBPassphrase);
     const saltBBase64 = arrayBufferToBase64(saltB);
     
     // Current buggy code OVERWRITES the same key

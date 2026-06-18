@@ -39,7 +39,6 @@ export default defineConfig(({ mode }) => {
         async configResolved() {
           const port = await resolveBackendPort();
           if (port !== explicit) {
-            // eslint-disable-next-line no-console
             console.log(`\n[vite] Backend not on ${explicit}; using ${port} for /api proxy.\n` +
               `  Set VITE_API_PORT=${port} to silence this. Backend log line should show\n` +
               `  "StudyPod Phoenix running on http://127.0.0.1:${port}".\n`);
@@ -62,7 +61,6 @@ export default defineConfig(({ mode }) => {
         secure: false,
         configure: (proxy) => {
           proxy.on('error', (err) => {
-            // eslint-disable-next-line no-console
             console.error(`\n[vite proxy] /api → http://127.0.0.1:${explicit} failed: ${err.code}\n` +
               `  Is the backend running? Check the backend log for "StudyPod Phoenix running on http://127.0.0.1:PORT".\n` +
               `  Set VITE_API_PORT=<port> in your .env if backend is on a different port.\n`);

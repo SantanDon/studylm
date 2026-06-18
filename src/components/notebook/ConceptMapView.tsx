@@ -13,7 +13,8 @@ import {
   Panel,
   MarkerType,
   Handle,
-  Position
+  Position,
+  type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -21,8 +22,13 @@ import { NODE_COLORS, EDGE_COLORS } from '@/lib/conceptMap/constants';
 import { calculateNodePositions } from '@/lib/conceptMap/layoutUtils';
 import { motion } from 'framer-motion';
 
+interface CustomNodeData {
+  node: ConceptNode;
+  isDarkMode: boolean;
+}
+
 // --- Custom Node Implementation ---
-const CustomNode = ({ data, id, isConnectable }: any) => {
+const CustomNode = ({ data, id, isConnectable }: NodeProps<CustomNodeData>) => {
   const { node, isDarkMode } = data;
   const colors = NODE_COLORS[node.type as NodeType];
   

@@ -114,7 +114,7 @@ export const useNotebookGeneration = () => {
             cachedTitle = cachedFile.name || "Untitled";
           }
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
 

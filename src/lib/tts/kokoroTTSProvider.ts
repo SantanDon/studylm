@@ -85,7 +85,7 @@ async function loadKokoro(): Promise<KokoroTtsInstance> {
       try {
         const voices = kokoroInstance.list_voices?.() || [];
         console.log('Available Kokoro voices:', voices);
-      } catch (e) {
+      } catch {
         // Ignore if list_voices not available
       }
       

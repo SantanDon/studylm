@@ -39,7 +39,7 @@ export const useNotes = (notebookId?: string) => {
         console.log("useNotes: Fetching from backend API...");
         const rawNotes = await ApiService.fetchNotes(notebookId, session!.access_token);
         // Map Drizzle camelCase to Supabase-style snake_case the frontend expects
-        notes = rawNotes.map((n: any) => ({
+        notes = rawNotes.map((n: Record<string, unknown>) => ({
           ...n,
           notebook_id: n.notebookId || n.notebook_id,
           author_id: n.authorId || n.author_id,

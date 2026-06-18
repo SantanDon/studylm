@@ -1,4 +1,4 @@
-import { Bot, Scale, Atom, BookOpen, Zap, Search, MonitorPlay } from 'lucide-react';
+import { Bot, Scale, Atom, BookOpen, Zap, Search } from 'lucide-react';
 
 export interface Tutor {
   id: string;

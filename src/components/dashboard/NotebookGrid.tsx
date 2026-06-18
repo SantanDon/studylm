@@ -12,6 +12,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useToast } from "@/hooks/use-toast";
 import { useNotebookBatchDelete } from '@/hooks/useNotebookBatchDelete';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 const NotebookGrid = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -23,13 +31,18 @@ const NotebookGrid = () => {
     notebooks,
     isLoading,
     createNotebook,
-    isCreating
+    isCreating,
+    joinNotebookAsync,
+    isJoining
   } = useNotebooks();
   
   const { deleteMultiple, isDeleting: isBatchDeleting } = useNotebookBatchDelete();
   const navigate = useNavigate();
   const { canCreateNotebook, showAuthPrompt, isGuest } = useGuest();
   const { toast } = useToast();
+
+  const [isJoinOpen, setIsJoinOpen] = useState(false);
+  const [joinCodeInput, setJoinCodeInput] = useState('');
 
   const sortedNotebooks = useMemo(() => {
     if (!notebooks) return [];
@@ -95,6 +108,29 @@ const NotebookGrid = () => {
     });
   };
 
+  const handleJoinNotebook = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!joinCodeInput.trim()) return;
+
+    try {
+      const data = await joinNotebookAsync(joinCodeInput.trim());
+      toast({
+        title: "Joined notebook!",
+        description: `Successfully joined "${data.title || 'shared notebook'}"`,
+      });
+      setIsJoinOpen(false);
+      setJoinCodeInput('');
+      navigate(`/notebook/${data.id}`);
+    } catch (err: unknown) {
+      console.error(err);
+      toast({
+        title: "Failed to join",
+        description: err instanceof Error ? err.message : "Invalid or expired join code",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleNotebookClick = (notebookId: string, e: React.MouseEvent) => {
     if (isSelectionMode) {
       toggleSelection(notebookId, e);
@@ -121,9 +157,16 @@ const NotebookGrid = () => {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center space-x-3">
           {!isSelectionMode ? (
-            <Button className="bg-black hover:bg-gray-800 text-white rounded-full px-6" onClick={handleCreateNotebook} disabled={isCreating}>
-              {isCreating ? 'Creating...' : '+ Create new'}
-            </Button>
+            <div className="flex items-center space-x-3">
+              <Button className="bg-black hover:bg-gray-800 text-white rounded-full px-6" onClick={handleCreateNotebook} disabled={isCreating}>
+                {isCreating ? 'Creating...' : '+ Create new'}
+              </Button>
+              {!isGuest && (
+                <Button variant="outline" className="border-gray-300 dark:border-border text-foreground hover:bg-muted rounded-full px-6" onClick={() => setIsJoinOpen(true)} disabled={isJoining}>
+                  Join notebook
+                </Button>
+              )}
+            </div>
           ) : (
             <div className="flex items-center space-x-2 bg-blue-50 border border-blue-100 px-4 py-2 rounded-full">
               <span className="text-sm font-medium text-blue-700">{selectedIds.length} selected</span>
@@ -186,7 +229,8 @@ const NotebookGrid = () => {
               }) : 'No date',
               sources: notebook.sources?.[0]?.count || 0,
               icon: notebook.icon || '📝',
-              color: notebook.color || 'bg-gray-100'
+              color: notebook.color || 'bg-gray-100',
+              joinCode: notebook.joinCode || notebook.join_code
             }}
             isSelectionMode={isSelectionMode} />
             
@@ -226,6 +270,36 @@ const NotebookGrid = () => {
           </div>
         </div>
       )}
+
+      <Dialog open={isJoinOpen} onOpenChange={setIsJoinOpen}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-card border border-border rounded-2xl shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-medium text-foreground">Join shared notebook</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Enter the 6-character shared join code to access your teammate's research package.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleJoinNotebook} className="space-y-4 pt-2">
+            <Input
+              placeholder="e.g. A4K9B2"
+              value={joinCodeInput}
+              onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+              maxLength={6}
+              className="font-mono text-center text-lg tracking-widest uppercase h-12 rounded-xl"
+              disabled={isJoining}
+              autoFocus
+            />
+            <div className="flex justify-end space-x-3">
+              <Button type="button" variant="ghost" onClick={() => setIsJoinOpen(false)} disabled={isJoining} className="rounded-xl">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isJoining || joinCodeInput.length < 6} className="bg-black hover:bg-gray-800 text-white rounded-xl px-6">
+                {isJoining ? 'Joining...' : 'Join'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>;
 };
 

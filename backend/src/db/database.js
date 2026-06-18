@@ -616,6 +616,16 @@ export const dbHelpers = {
     return { changes: result.rowsAffected };
   },
 
+  async deleteSource(id, userId) {
+    const db = await getDatabase();
+    const result = await db.delete(schema.sources)
+      .where(and(
+        eq(schema.sources.id, id),
+        eq(schema.sources.userId, userId)
+      ));
+    return { changes: result.rowsAffected };
+  },
+
   // Chat
   async getChatMessagesByNotebookId(notebookId, userId) {
     const db = await getDatabase();
@@ -939,6 +949,37 @@ export const dbHelpers = {
       embedding: JSON.stringify(embedding),
       metadata: JSON.stringify(metadata),
     });
+  },
+
+  async getSuggestedSources(notebookId, userId) {
+    const db = await getDatabase();
+    return await db.select().from(schema.sources)
+      .where(and(
+        eq(schema.sources.notebookId, notebookId),
+        eq(schema.sources.userId, userId),
+        eq(schema.sources.processingStatus, 'suggested')
+      ))
+      .orderBy(desc(schema.sources.createdAt));
+  },
+
+  async acceptSource(sourceId, userId) {
+    const db = await getDatabase();
+    return await db.update(schema.sources)
+      .set({ processingStatus: 'pending', updatedAt: new Date() })
+      .where(and(
+        eq(schema.sources.id, sourceId),
+        eq(schema.sources.userId, userId)
+      ));
+  },
+
+  async rejectSource(sourceId, userId) {
+    const db = await getDatabase();
+    return await db.update(schema.sources)
+      .set({ processingStatus: 'rejected', updatedAt: new Date() })
+      .where(and(
+        eq(schema.sources.id, sourceId),
+        eq(schema.sources.userId, userId)
+      ));
   },
 
   async getMemoriesByNotebook(notebookId) {

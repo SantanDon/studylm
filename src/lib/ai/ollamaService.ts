@@ -10,8 +10,8 @@
  * - Optimized model selection
  */
 
-import { generateText, generateTextToString, listModels } from "./ollamaClient";
-import { DOCUMENT_PROMPTS, formatPrompt, IMMERSIVE_PROMPTS } from "@/config/prompts";
+import { generateTextToString, listModels } from "./ollamaClient";
+import { DOCUMENT_PROMPTS, formatPrompt } from "@/config/prompts";
 import { getModelForTask } from "@/config/ollamaModels";
 import { isOllamaEnabled } from "@/config/ollamaConfig";
 import { generateGroqResponse, generateVoyageEmbeddings as voyageFallback } from "./cloudClient";
@@ -71,7 +71,7 @@ function sanitizeText(input: string | undefined | null): string {
       .trim();
 
     return cleaned;
-  } catch (err) {
+  } catch {
     // Fallback conservative cleaning
     return String(input)
       .replace(/[^\t\n\r\u0020-\u007E]/g, "")
@@ -331,7 +331,7 @@ export async function chatCompletion(params: {
               fullResponse += json.response;
               params.onChunk(json.response);
             }
-          } catch (e) {
+          } catch {
             // Skip invalid JSON
           }
         }
@@ -584,7 +584,7 @@ export async function checkOllamaHealth(): Promise<boolean> {
       return true;
     }
     return false;
-  } catch (error) {
+  } catch {
     return false;
   }
 }

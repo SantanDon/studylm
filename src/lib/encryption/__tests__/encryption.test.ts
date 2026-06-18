@@ -64,7 +64,7 @@ describe('Key Derivation', () => {
   });
 
   it('should export and import salt correctly', async () => {
-    const { key, salt } = await generateKeyFromPassphrase('test-pass');
+    const { salt } = await generateKeyFromPassphrase('test-pass');
     const saltBase64 = exportSalt(salt);
     
     expect(typeof saltBase64).toBe('string');

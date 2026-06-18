@@ -165,7 +165,7 @@ export function useOllamaModels() {
         if (!response.ok) throw new Error("Failed to fetch model details");
         const data = await response.json();
         return data.models || [];
-      } catch (err) {
+      } catch {
         return [];
       }
     },

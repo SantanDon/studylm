@@ -86,7 +86,7 @@ export function parseJsonResponse<T>(
       return null;
     }
     return parsed as T;
-  } catch (error) {
+  } catch (_error) {
     console.warn('Initial JSON parse failed, attempting line-by-line extraction');
     return tryLineByLineParse<T>(response, validator);
   }

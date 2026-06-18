@@ -62,7 +62,7 @@ export class UltimateTTSProvider implements TTSProvider {
       
 
       return false;
-    } catch (error) {
+    } catch {
 
       return false;
     }

@@ -22,8 +22,7 @@ import {
   chunkDocument,
   Chunk,
   ChunkingMethod,
-  DocumentType,
-  getChunkStats
+  DocumentType
 } from "../chunking";
 
 export interface ProcessedDocument {
@@ -97,7 +96,6 @@ export async function processDocument(
     generateEmbeddings: shouldGenerateEmbeddings = true,
     chunkSize = 800,
     overlap = 100,
-    generateSummary = false,
     documentType,
     chunkingMethod,
     autoDetectType = true
@@ -113,8 +111,6 @@ export async function processDocument(
     sourceId,
     autoDetect: autoDetectType
   });
-
-  const stats = getChunkStats(chunkingResult.chunks);
 
   // Step 2: Convert to DocumentChunk format with metadata
   const chunks = convertToDocumentChunks(chunkingResult.chunks, sourceId);
@@ -138,7 +134,7 @@ export async function processDocument(
             const embedding = await generateEmbeddings(chunk.content);
             chunk.embedding = embedding;
             return chunk;
-          } catch (error) {
+          } catch {
             console.warn(
               `⚠️ Failed to generate embedding for chunk ${chunk.index}`,
             );
@@ -154,7 +150,6 @@ export async function processDocument(
         }
       }
 
-      const chunksWithEmbeddings = chunks.filter((c) => c.embedding).length;
     } catch (error) {
       console.error("❌ Embedding generation failed:", error);
     }
@@ -167,7 +162,7 @@ export async function processDocument(
       // Use first 800 chars for document-level embedding
       const sampleText = content.substring(0, 800);
       documentEmbedding = await generateEmbeddings(sampleText);
-    } catch (error) {
+    } catch {
       console.warn("⚠️ Failed to generate document embedding");
     }
   }
@@ -189,9 +184,6 @@ export async function processDocuments(
   documents: Array<{ sourceId: string; content: string; documentType?: DocumentType }>,
   options?: ProcessDocumentOptions,
 ): Promise<ProcessedDocument[]> {
-  const { maxParallel = 2 } = options as { maxParallel?: number } || {};
-
-
   const results: ProcessedDocument[] = [];
 
   // Process sequentially for better performance with Ollama
@@ -288,7 +280,7 @@ export function extractKeyChunks(
  */
 export function mergeChunks(
   chunks: DocumentChunk[],
-  overlap: number = 100,
+  _overlap: number = 100,
 ): string {
   if (chunks.length === 0) return "";
   if (chunks.length === 1) return chunks[0].content;

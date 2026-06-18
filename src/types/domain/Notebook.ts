@@ -16,6 +16,8 @@ export const NotebookSchema = z.object({
   audio_url_expires_at: z.string().datetime().optional().describe('Audio URL expiration'),
   icon: z.string().optional().describe('Notebook icon emoji or URL'),
   example_questions: z.array(z.string()).optional().describe('Example questions for the notebook'),
+  join_code: z.string().optional().describe('Shared join code'),
+  joinCode: z.string().optional().describe('Shared join code'),
 });
 
 export type Notebook = z.infer<typeof NotebookSchema>;

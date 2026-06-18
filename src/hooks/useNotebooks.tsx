@@ -36,13 +36,15 @@ export const useNotebooks = () => {
         console.log("useNotebooks: Fetching from backend API...");
         const rawNotebooks = await ApiService.fetchNotebooks(session.access_token);
         // Map Drizzle camelCase to Supabase-style snake_case the frontend expects
-        return rawNotebooks.map((n: any) => ({
+        return rawNotebooks.map((n: Record<string, unknown>) => ({
           ...n,
           example_questions: n.exampleQuestions || n.example_questions,
           generation_status: n.generationStatus || n.generation_status,
           created_at: n.createdAt || n.created_at,
           updated_at: n.updatedAt || n.updated_at,
           user_id: n.userId || n.user_id,
+          join_code: n.joinCode || n.join_code,
+          joinCode: n.joinCode || n.join_code,
         }));
       } else {
         // Get notebooks from the local store
@@ -124,6 +126,22 @@ export const useNotebooks = () => {
     },
   });
 
+  const joinNotebook = useMutation({
+    mutationFn: async (joinCode: string) => {
+      if (!effectiveUserId) {
+        throw new Error("Unable to join notebook. Please sign in.");
+      }
+      if (!isAuthenticated || !session?.access_token) {
+        throw new Error("Notebook sharing is only available for cloud-sync accounts. Please sign in.");
+      }
+      return await ApiService.joinNotebook(joinCode, session.access_token);
+    },
+    onSuccess: () => {
+      console.log("Join success, invalidating queries");
+      queryClient.invalidateQueries({ queryKey: ["notebooks", effectiveUserId] });
+    }
+  });
+
   return {
     notebooks,
     isLoading: isLoading,
@@ -131,5 +149,8 @@ export const useNotebooks = () => {
     isError,
     createNotebook: createNotebook.mutate,
     isCreating: createNotebook.isPending,
+    joinNotebook: joinNotebook.mutate,
+    joinNotebookAsync: joinNotebook.mutateAsync,
+    isJoining: joinNotebook.isPending,
   };
 };

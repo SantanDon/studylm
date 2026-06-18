@@ -55,6 +55,7 @@ const decryptSecret = (text) => {
 const router = express.Router();
 const DEFAULT_AGENT_SCOPES = [
   'notebooks:read',
+  'notebooks:write',
   'sources:read',
   'sources:write',
   'notes:read',

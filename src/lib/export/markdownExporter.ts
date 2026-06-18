@@ -23,10 +23,6 @@ export interface ExportData {
   chatHistory?: ChatMessage[];
 }
 
-function escapeMarkdown(text: string): string {
-  return text.replace(/([\\`*_{}[\]()#+\-.!])/g, '\\$1');
-}
-
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', {
     year: 'numeric',
@@ -56,7 +52,7 @@ function generateTableOfContents(options: ExportOptions, data: ExportData): stri
   return `## Table of Contents\n\n${sections.join('\n')}\n`;
 }
 
-function generateYamlFrontmatter(data: ExportData, options: ExportOptions): string {
+function generateYamlFrontmatter(data: ExportData, _options: ExportOptions): string {
   const tags: string[] = ['studylm', 'notebook'];
   
   if (data.sources?.length) {
@@ -190,7 +186,7 @@ function generateChatSection(chatHistory: ChatMessage[]): string {
 
   const lines = ['## Chat History\n'];
 
-  chatHistory.forEach((message, index) => {
+  chatHistory.forEach((message, _index) => {
     const roleEmoji = message.role === 'user' ? '👤' : '🤖';
     const roleName = message.role === 'user' ? 'You' : 'Assistant';
     

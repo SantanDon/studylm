@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiService } from "@/services/apiService";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Globe, Mail, Smartphone, Shield, RefreshCw } from "lucide-react";
+import { Loader2, Globe, Mail, Shield, RefreshCw } from "lucide-react";
 
 interface CloudLoginProps {
   onSuccess?: () => void;

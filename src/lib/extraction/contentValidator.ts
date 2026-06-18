@@ -172,7 +172,7 @@ export async function validateDocumentContent(
 /**
  * Performs detailed content quality checks
  */
-function checkContentQuality(content: string, fileName: string): string[] {
+function checkContentQuality(content: string, _fileName: string): string[] {
   const issues: string[] = [];
   const lines = content.split('\n').filter(line => line.trim().length > 0);
 
@@ -194,11 +194,6 @@ function checkContentQuality(content: string, fileName: string): string[] {
     issues.push("Document has extremely low character diversity, may contain repetitive artifacts");
   }
 
-  // Check if content appears to be primarily non-text
-  const nonTextRegex = /[^a-zA-Z0-9\s.,;:!?'"()[\]{}\-_+=|\\/@#$%^&*~`<>\n\r\t]/g;
-  const nonTextChars = content.match(nonTextRegex) || [];
-  const nonTextRatio = nonTextChars.length / Math.max(1, content.length);
-
   // Check for sequences that look like binary or encoded content
   const longNumberSequences = content.match(/\d{20,}/g) || []; // Very long number sequences
   if (longNumberSequences.length > 0) {
@@ -212,7 +207,6 @@ function checkContentQuality(content: string, fileName: string): string[] {
   }
 
   // Check for content that's mostly numbers
-  const numberCount = (content.match(/\d/g) || []).length;
   const letterCount = (content.match(/[a-zA-Z]/g) || []).length;
   if (letterCount / Math.max(1, content.length) < 0.1) {
     issues.push("Document contains only numbers or symbols, not meaningful text");
@@ -324,7 +318,7 @@ export async function validateQueryContext(
 export async function validateAIResponse(
   response: string,
   sourceContents: string[],
-  query: string
+  _query: string
 ): Promise<{
   isGrounded: boolean;
   hallucinationRisk: 'low' | 'medium' | 'high';

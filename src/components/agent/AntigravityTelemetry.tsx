@@ -24,7 +24,7 @@ interface TelemetryPulse {
   checklist: ChecklistItem[];
 }
 
-export const AntigravityTelemetry: React.FC<{ notebookId?: string }> = ({ notebookId }) => {
+export const AntigravityTelemetry: React.FC<{ notebookId?: string }> = ({ notebookId: _notebookId }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [pulse, setPulse] = useState<TelemetryPulse>({
     status: 'idle',
@@ -42,7 +42,7 @@ export const AntigravityTelemetry: React.FC<{ notebookId?: string }> = ({ notebo
         if (data.success && data.pulse) {
           setPulse(data.pulse);
         }
-      } catch (err) {
+      } catch (_err) {
         // Keep telemetry failing silently in background
       }
     };
