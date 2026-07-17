@@ -6,7 +6,6 @@ import { useNotebookGeneration } from "@/hooks/useNotebookGeneration";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
-import { v4 as uuidv4 } from "uuid";
 
 export const useTextPaste = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -62,7 +61,6 @@ export const useTextPaste = () => {
       console.log(`📝 Text: isFirstSource=${isFirstSource}, existingSources=${existingSources.length}`);
 
       // Create a source object for the pasted text
-      const sourceId = uuidv4();
       const sourcePayload = {
         title: title,
         type: "text",
@@ -82,10 +80,7 @@ export const useTextPaste = () => {
         savedSource = await ApiService.createSource(notebookId, sourcePayload, session.access_token);
       } else {
         savedSource = localStorageService.createSource({
-          id: sourceId,
           notebook_id: notebookId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
           ...sourcePayload,
           type: "text"
         });

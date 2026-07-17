@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 // import { Send, Upload, FileText, Loader2, RefreshCw } from 'lucide-react'; // Removed Lucide imports
-import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 import { useChatMessages } from '@/hooks/useChatMessages';
 import { useSources } from '@/hooks/useSources';
 import { useGuest, useNotebookLimits } from '@/hooks/useGuest';
@@ -36,6 +34,8 @@ interface ChatAreaProps {
     generation_status?: string;
     icon?: string;
     example_questions?: string[];
+    joinCode?: string;
+    join_code?: string;
   } | null;
   onCitationClick?: (citation: Citation) => void;
 }
@@ -84,7 +84,6 @@ const ChatArea = ({
   
   const {
     messages,
-    sendMessage,
     sendMessageAsync,
     isSending,
     deleteChatHistory,
@@ -381,7 +380,7 @@ const ChatArea = ({
 
                 {/* Chat Messages */}
                 {(messages.length > 0 || pendingUserMessage || showAiLoading) && <div className="mb-6 space-y-4">
-                    {messages.map((msg, index) => <div key={msg.id} className={`flex ${isUserMessage(msg) ? 'justify-end' : 'justify-start'}`}>
+                    {messages.map((msg) => <div key={msg.id} className={`flex ${isUserMessage(msg) ? 'justify-end' : 'justify-start'}`}>
                         <div className={`${isUserMessage(msg) ? 'max-w-xs lg:max-w-md px-4 py-2 bg-blue-500 text-white rounded-lg' : 'w-full'}`}>
                           <div className={isUserMessage(msg) ? '' : 'prose prose-gray dark:prose-invert max-w-none text-gray-800 dark:text-gray-200'}>
                             <MarkdownRenderer content={msg.message.content} className={isUserMessage(msg) ? '' : ''} onCitationClick={handleCitationClick} isUserMessage={isUserMessage(msg)} />
@@ -461,7 +460,7 @@ const ChatArea = ({
       
       {/* Footer */}
       <div className="p-4 border-t border-border flex-shrink-0 bg-background">
-        <p className="text-center text-sm text-muted-foreground">StudyPodLM can be inaccurate; please double-check its responses.</p>
+        <p className="pr-16 text-center text-xs text-muted-foreground sm:pr-0 sm:text-sm">StudyPodLM can be inaccurate; please double-check its responses.</p>
       </div>
       
       {/* Add Sources Dialog */}

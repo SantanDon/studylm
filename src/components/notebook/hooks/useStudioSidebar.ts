@@ -48,7 +48,6 @@ export function useStudioSidebar(notebookId?: string) {
 
   const {
     conceptMaps,
-    isLoading: isLoadingMaps,
     generatingProgress,
     generateMap,
     isGenerating: isGeneratingMap,
@@ -56,7 +55,7 @@ export function useStudioSidebar(notebookId?: string) {
     isDeleting: isDeletingMap,
   } = useConceptMap(notebookId);
 
-  const notebook = notebooks?.find(n => n.id === notebookId);
+  const notebook = notebooks?.find((n: { id: string }) => n.id === notebookId);
 
   const handleGenerateConceptMap = () => {
     if (!notebookId || !sources || sources.length === 0) return;

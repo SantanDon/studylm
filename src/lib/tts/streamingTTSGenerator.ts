@@ -72,7 +72,6 @@ class StreamingTTSGenerator {
   private currentScript: PodcastScript | null = null;
   private workerManager: TTSWorkerManager | null = null;
   private usingKokoro = false;
-  private currentPlaybackIndex = 0;
   private audioElements: HTMLAudioElement[] = [];
   private isPlaying = false; // Prevent double playback
   private isSequencePlaying = false;
@@ -242,7 +241,7 @@ class StreamingTTSGenerator {
             cleanText,
             voice,
             config.speed,
-            (msg, pct) => {
+            (_msg, pct) => {
               // Per-segment progress
               const overallPct = 20 + ((i + pct / 100) / totalSegments) * 75;
               onProgress({
@@ -521,8 +520,7 @@ class StreamingTTSGenerator {
 
     // Stop any existing playback first
     this.stopPlayback();
-    
-    this.currentPlaybackIndex = index;
+
     this.isPlaying = true;
 
     if (segment.isKokoro) {

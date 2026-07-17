@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Key } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { ApiService } from '@/services/apiService';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -22,7 +22,6 @@ interface RecoveryAccessProps {
 }
 
 export function RecoveryAccess({ onSuccess, onCancel }: RecoveryAccessProps) {
-  const [activeTab, setActiveTab] = useState('recovery-key');
   const [isRecovering, setIsRecovering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -34,7 +33,7 @@ export function RecoveryAccess({ onSuccess, onCancel }: RecoveryAccessProps) {
   const [resetToken, setResetToken] = useState('');
   const [newPassphrase, setNewPassphrase] = useState('');
   
-  const { signIn } = useAuth();
+  const { signInWithCloud } = useAuth();
 
   const handleRecoveryKeySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,13 +48,8 @@ export function RecoveryAccess({ onSuccess, onCancel }: RecoveryAccessProps) {
         setRecoveryStep('reset');
       } else {
         const res = await ApiService.resetPassphrase(resetToken, newPassphrase);
-        const { user, accessToken, refreshToken } = res;
-        signIn(user, {
-           access_token: accessToken,
-           refresh_token: refreshToken,
-           expires_at: Date.now() + 60 * 60 * 1000,
-           user
-        });
+        const { user } = res;
+        signInWithCloud(user);
         setSuccess('Passphrase reset successfully! Logging you in...');
         setTimeout(() => onSuccess?.(), 1500);
       }

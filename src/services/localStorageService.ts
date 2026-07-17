@@ -16,12 +16,15 @@ export interface LocalUser {
   account_type?: string;
   created_at: string;
   emailVerified?: boolean;
+  is_verified?: boolean;
+  twoFactorEnabled?: boolean;
 }
 
 export interface LocalSession {
   user: LocalUser;
   expires_at: number;
   access_token?: string;
+  refresh_token?: string;
 }
 
 export interface LocalNotebook {
@@ -36,6 +39,8 @@ export interface LocalNotebook {
   audio_url_expires_at?: string;
   icon?: string;
   example_questions?: string[];
+  joinCode?: string;
+  join_code?: string;
 }
 
 export interface LocalSource {
@@ -43,7 +48,19 @@ export interface LocalSource {
   notebook_id: string;
   title: string;
   summary?: string;
-  type: "pdf" | "text" | "website" | "youtube" | "audio";
+  type:
+    | "pdf"
+    | "text"
+    | "website"
+    | "youtube"
+    | "audio"
+    | "image"
+    | "ebook"
+    | "tweet"
+    | "multiple-websites"
+    | "video"
+    | "copied-text"
+    | "doc";
   content?: string;
   url?: string;
   file_path?: string;
@@ -52,6 +69,7 @@ export interface LocalSource {
   metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  updatedAt?: string;
 }
 
 export interface LocalNote {
@@ -160,10 +178,6 @@ class LocalStorageService {
         error: error instanceof Error ? error.message : "Unknown error",
       };
     }
-  }
-
-  private async hashPassword(password: string): Promise<string> {
-    return encryptionService.hashPassword(password);
   }
 
   private async verifyPassword(password: string, storedHash: string): Promise<boolean> {
@@ -401,8 +415,6 @@ class LocalStorageService {
     const filteredMessages = messages.filter((m) => m.notebook_id !== id);
     this.saveToStorage("chat_messages", filteredMessages);
 
-    this.saveToStorage("chat_messages", filteredMessages);
-
     // Clean up audio blob from IndexedDB
     // We don't await this to keep the method synchronous-compatible, but it will run in background
     import('./blobStorageService').then(({ blobStorageService }) => {
@@ -428,6 +440,14 @@ class LocalStorageService {
   getSourceById(id: string): LocalSource | null {
     const sources = this.getFromStorage<LocalSource>("sources");
     return sources.find((s) => s.id === id) || null;
+  }
+
+  getSourceContent(id: string): string | undefined {
+    return this.getSourceById(id)?.content;
+  }
+
+  getSourcesWithContent(notebookId: string): LocalSource[] {
+    return this.getSources(notebookId);
   }
 
   createSource(
@@ -546,6 +566,11 @@ class LocalStorageService {
   getChatMessages(notebookId: string): LocalChatMessage[] {
     const messages = this.getFromStorage<LocalChatMessage>("chat_messages");
     return messages.filter((m) => m.notebook_id === notebookId);
+  }
+
+  getChatMessageById(id: string): LocalChatMessage | null {
+    const messages = this.getFromStorage<LocalChatMessage>("chat_messages");
+    return messages.find((message) => message.id === id) || null;
   }
 
   createChatMessage(

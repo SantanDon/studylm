@@ -21,7 +21,6 @@ import {
 import { useFlashcards } from '@/hooks/useFlashcards';
 import { useSources } from '@/hooks/useSources';
 import FlashcardView from './FlashcardView';
-import { FlashcardDeck as FlashcardDeckType, FlashcardStats } from '@/types/flashcard';
 
 interface FlashcardDeckProps {
   notebookId: string;

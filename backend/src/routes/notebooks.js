@@ -6,8 +6,10 @@ import { authenticateToken, requireScope } from "../middleware/auth.js";
 import { deepDiveBookmarks } from "../services/bookmarkDeepDiveService.js";
 import { brokerResearchGoals } from "../services/goalBrokerService.js";
 import { MemoryService } from "../services/memoryService.js";
-import { chatWithNotebook, generateNotebookTitleAndDescription } from "../services/aiChatService.js";
+import { chatWithNotebook } from "../services/aiChatService.js";
+import { getLwcChatProvider } from "./chatgpt.js";
 import { researchNotebook } from "../services/researchService.js";
+import { discoverSources } from "../services/discoverService.js";
 import { MasticationService } from "../services/masticationService.js";
 import { agentPulse } from "../services/agentPulse.js";
 import { WebhookDispatcher } from "../services/webhookDispatcher.js";
@@ -810,10 +812,11 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
     const sources = await dbHelpers.getSourcesByNotebookId(notebookId, userId);
     const notes = await dbHelpers.getNotesByNotebookId(notebookId, userId);
     const messages = await dbHelpers.getChatMessagesByNotebookId(notebookId, userId);
-    // Save the user's message to history
+    // Allocate the turn IDs now, but persist the user's message only once a
+    // corresponding response exists. Provider outages must not leave orphaned
+    // or duplicate questions in notebook history when the user retries.
     const userMsgId = uuidv4();
     const callerIsAgent = isAgentRequest(req, agentId);
-    await dbHelpers.createChatMessage(userMsgId, notebookId, userId, callerIsAgent ? 'agent' : 'user', message);
 
     // Closed-Loop Interceptors
     const normalizedMsg = message.toLowerCase().trim();
@@ -908,6 +911,13 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
     }
 
     if (interceptedResponse) {
+      await dbHelpers.createChatMessage(
+        userMsgId,
+        notebookId,
+        userId,
+        callerIsAgent ? 'agent' : 'user',
+        message,
+      );
       const aiMsgId = uuidv4();
       await dbHelpers.createChatMessage(aiMsgId, notebookId, userId, 'assistant', interceptedResponse, null);
 
@@ -934,6 +944,15 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
     }
 
     try {
+      // If a ChatGPT (Login with ChatGPT) session is active, use it as the
+      // reasoning provider; otherwise fall back to the default Titan chain.
+      let chatgptProvider = null;
+      try {
+        chatgptProvider = await getLwcChatProvider(req);
+      } catch (e) {
+        logger.debug(`[chat] LWC provider check skipped: ${e?.message}`);
+      }
+
       // Call Gemini using our context service
       const chatResult = await chatWithNotebook({
         notebook,
@@ -942,10 +961,18 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
         message,
         history: messages,
         callerType: callerIsAgent ? 'agent' : 'human',
-        responseStyle
+        responseStyle,
+        chatgpt: chatgptProvider,
       });
 
-      // Save the AI's response to history
+      // Persist the complete turn only after a response was generated.
+      await dbHelpers.createChatMessage(
+        userMsgId,
+        notebookId,
+        userId,
+        callerIsAgent ? 'agent' : 'user',
+        message,
+      );
       const aiMsgId = uuidv4();
       await dbHelpers.createChatMessage(aiMsgId, notebookId, userId, 'assistant', chatResult.answer, chatResult.groundedSources);
 
@@ -965,6 +992,7 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
       res.json({
         answer: chatResult.answer,
         groundedSources: chatResult.groundedSources,
+        citations: chatResult.citations || [],
         tokensUsed: chatResult.tokensUsed,
         messageId: aiMsgId,
         noteId,
@@ -973,7 +1001,13 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
 
     } catch (aiError) {
       logger.error("AI chat processing error:", aiError);
-      res.status(500).json({ error: "AI processing failed", details: aiError.message });
+      if (aiError?.code === 'PROVIDER_UNAVAILABLE') {
+        return res.status(503).json({
+          error: "AI providers are temporarily unavailable. Please try again shortly.",
+          code: 'PROVIDER_UNAVAILABLE',
+        });
+      }
+      res.status(500).json({ error: "AI processing failed" });
     }
 
   } catch (error) {
@@ -1313,6 +1347,30 @@ router.post("/:id/research-goals", requireScope('notes:create'), async (req, res
   } catch (error) {
     logger.error("Failed to create research goal:", error);
     res.status(500).json({ error: "Failed to create research goal" });
+  }
+});
+
+/**
+ * POST /api/notebooks/:id/discover
+ * Discover agent: takes a loose research goal, runs web search, and queues
+ * candidate source URLs to the signal queue for human approval.
+ */
+router.post("/:id/discover", requireScope('notes:create'), async (req, res) => {
+  try {
+    const { goal, maxQueries } = req.body;
+    if (!goal || typeof goal !== 'string' || goal.length < 3) {
+      return res.status(400).json({ error: "goal is required (min 3 chars)" });
+    }
+    const result = await discoverSources(
+      req.params.id,
+      req.user.userId,
+      goal,
+      Math.min(Number(maxQueries) || 3, 5),
+    );
+    res.json(result);
+  } catch (error) {
+    logger.error("Discover endpoint error:", error);
+    res.status(500).json({ error: "Discovery failed", details: error.message });
   }
 });
 

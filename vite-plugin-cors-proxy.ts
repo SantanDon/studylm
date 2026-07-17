@@ -4,6 +4,8 @@ import https from 'https';
 import { URL } from 'url';
 import { YoutubeTranscript } from '@danielxceron/youtube-transcript';
 
+const YOUTUBE_INNERTUBE_API_KEY = process.env.YOUTUBE_INNERTUBE_API_KEY || '';
+
 // Helper to follow redirects and fetch content
 function fetchWithRedirects(
   targetUrl: string,
@@ -245,7 +247,7 @@ export function corsProxyPlugin(): Plugin {
             const html = pageResult.body.toString('utf-8');
 
             const apiKeyMatch = html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/);
-            const apiKey = apiKeyMatch ? apiKeyMatch[1] : 'AIzaSyA8eiZmM1FaDVjRy-df2KoPYpae5kqj3Vk';
+            const apiKey = apiKeyMatch ? apiKeyMatch[1] : YOUTUBE_INNERTUBE_API_KEY;
             console.log(`[YouTube API] Strategy 1: Innertube API key found: ${!!apiKeyMatch}`);
 
             // Try Android client (most reliable for bypassing restrictions)

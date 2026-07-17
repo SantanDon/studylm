@@ -1,8 +1,8 @@
-import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ConceptMap, ConceptNode, ConceptEdge, NodeType } from '@/types/conceptMap';
+import { ConceptMap, ConceptNode, NodeType } from '@/types/conceptMap';
 import { cn } from '@/lib/utils';
 import { 
   ReactFlow, 
@@ -14,7 +14,9 @@ import {
   MarkerType,
   Handle,
   Position,
+  type Node,
   type NodeProps,
+  type NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -22,13 +24,15 @@ import { NODE_COLORS, EDGE_COLORS } from '@/lib/conceptMap/constants';
 import { calculateNodePositions } from '@/lib/conceptMap/layoutUtils';
 import { motion } from 'framer-motion';
 
-interface CustomNodeData {
+interface CustomNodeData extends Record<string, unknown> {
   node: ConceptNode;
   isDarkMode: boolean;
 }
 
+type CustomFlowNode = Node<CustomNodeData, 'custom'>;
+
 // --- Custom Node Implementation ---
-const CustomNode = ({ data, id, isConnectable }: NodeProps<CustomNodeData>) => {
+const CustomNode = ({ data, isConnectable }: NodeProps<CustomFlowNode>) => {
   const { node, isDarkMode } = data;
   const colors = NODE_COLORS[node.type as NodeType];
   
@@ -61,7 +65,7 @@ const CustomNode = ({ data, id, isConnectable }: NodeProps<CustomNodeData>) => {
 
 const nodeTypes = {
   custom: CustomNode,
-};
+} satisfies NodeTypes;
 
 // --- Main Component ---
 interface ConceptMapViewProps {
@@ -87,7 +91,7 @@ const ConceptMapView: React.FC<ConceptMapViewProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<CustomFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   useEffect(() => {
@@ -160,13 +164,13 @@ const ConceptMapView: React.FC<ConceptMapViewProps> = ({
         isFullscreen ? "fixed inset-0 z-50 rounded-none h-screen bg-background" : "h-[500px]"
       )}
     >
-      <ReactFlow
+      <ReactFlow<CustomFlowNode>
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
-        onNodeClick={(e, node) => onNodeClick && onNodeClick(node.data.node as ConceptNode)}
+        onNodeClick={(_e, node) => onNodeClick?.(node.data.node)}
         fitView
         className="touch-none"
       >

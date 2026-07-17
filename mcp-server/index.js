@@ -283,6 +283,57 @@ const TOOLS = [
       },
       required: ['notebook_id', 'query']
     }
+  },
+  {
+    name: 'add_source_from_url',
+    description: 'Fetch a URL via the StudyPodLM web extractor and add it as a source to a notebook. Returns { sourceId, success } or { error }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notebookId: { type: 'string', description: 'The notebook ID to add the source to' },
+        url: { type: 'string', description: 'The URL to extract content from' },
+        title: { type: 'string', description: 'Optional title; derived from the URL hostname if omitted' }
+      },
+      required: ['notebookId', 'url']
+    }
+  },
+  {
+    name: 'add_source_from_arxiv',
+    description: 'Fetch an arXiv paper abstract page, extract title + abstract, and add it as a source to a notebook. Returns { sourceId, success } or { error }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notebookId: { type: 'string', description: 'The notebook ID to add the source to' },
+        arxivId: { type: 'string', description: 'The arXiv paper ID (e.g. 2401.12345 or 2401.12345v1)' }
+      },
+      required: ['notebookId', 'arxivId']
+    }
+  },
+  {
+    name: 'add_source_from_github',
+    description: 'Fetch a GitHub repo README (main branch, falls back to master) and add it as a source to a notebook. Returns { sourceId, success } or { error }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notebookId: { type: 'string', description: 'The notebook ID to add the source to' },
+        repoUrl: { type: 'string', description: 'The GitHub repository URL (e.g. https://github.com/owner/repo)' }
+      },
+      required: ['notebookId', 'repoUrl']
+    }
+  },
+  {
+    name: 'add_source_from_text',
+    description: 'Add a source to a notebook from raw text content. Use when the agent already has the content. Returns { sourceId, success } or { error }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notebookId: { type: 'string', description: 'The notebook ID to add the source to' },
+        title: { type: 'string', description: 'Title for the source' },
+        content: { type: 'string', description: 'The full text content of the source' },
+        type: { type: 'string', description: 'Source type (default: "text")' }
+      },
+      required: ['notebookId', 'title', 'content']
+    }
   }
 ];
 
@@ -401,6 +452,129 @@ async function handleToolCall({ params: { name, arguments: args } }) {
           body: { query: args.query, limit: args.limit || 5 }
         });
         return { content: text(res) };
+      }
+
+      case 'add_source_from_url': {
+        const extract = await api(`/api/proxy/extract-web?url=${encodeURIComponent(args.url)}`);
+        if (extract.error) return { content: text({ error: extract.error }) };
+        if (!extract.content) return { content: text({ error: 'Web extraction returned no content' }) };
+        let title = args.title || extract.title;
+        if (!title) {
+          try { title = new URL(args.url).hostname; } catch { title = args.url; }
+        }
+        const res = await api(`/api/notebooks/${args.notebookId}/sources`, {
+          method: 'POST',
+          body: {
+            title,
+            type: 'website',
+            content: extract.content,
+            url: args.url,
+            metadata: {
+              description: extract.description,
+              ...(extract.metadata || {})
+            }
+          }
+        });
+        if (res.id) return { content: text({ sourceId: res.id, success: true }) };
+        return { content: text({ error: res.error || res }) };
+      }
+
+      case 'add_source_from_arxiv': {
+        const absUrl = `https://arxiv.org/abs/${args.arxivId}`;
+        let pageRes;
+        try {
+          pageRes = await fetch(absUrl, {
+            headers: { 'User-Agent': 'StudyPodLM-MCP/2.0 (research agent)' }
+          });
+        } catch (e) {
+          return { content: text({ error: `Failed to fetch arXiv page: ${e.message}` }) };
+        }
+        if (!pageRes.ok) return { content: text({ error: `arXiv returned status ${pageRes.status} for ${absUrl}` }) };
+        const html = await pageRes.text();
+        const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
+        let title = titleMatch
+          ? titleMatch[1].replace(/\s*\[\s*arXiv.*$/i, '').replace(/\s*-\s*arXiv.*$/i, '').trim()
+          : `arXiv:${args.arxivId}`;
+        if (!title) title = `arXiv:${args.arxivId}`;
+        const abstractMatch = html.match(/<blockquote[^>]*class="abstract[^"]*"[^>]*>([\s\S]*?)<\/blockquote>/i);
+        let abstract = abstractMatch
+          ? abstractMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+          : '';
+        if (abstract.toLowerCase().startsWith('abstract:')) abstract = abstract.slice(9).trim();
+        const content = abstract
+          ? `# ${title}\n\nSource: ${absUrl}\n\n## Abstract\n\n${abstract}`
+          : `# ${title}\n\nSource: ${absUrl}`;
+        const res = await api(`/api/notebooks/${args.notebookId}/sources`, {
+          method: 'POST',
+          body: {
+            title,
+            type: 'website',
+            content,
+            url: absUrl,
+            metadata: { arxivId: args.arxivId, source: 'arxiv' }
+          }
+        });
+        if (res.id) return { content: text({ sourceId: res.id, success: true }) };
+        return { content: text({ error: res.error || res }) };
+      }
+
+      case 'add_source_from_github': {
+        let owner, repo;
+        try {
+          const u = new URL(args.repoUrl);
+          if (!/github\.com$/i.test(u.hostname) && !/^(www\.)?github\.com$/i.test(u.hostname)) {
+            return { content: text({ error: 'URL is not a github.com repository' }) };
+          }
+          const parts = u.pathname.split('/').filter(Boolean);
+          owner = parts[0];
+          repo = parts[1];
+        } catch {
+          return { content: text({ error: 'Invalid GitHub repo URL' }) };
+        }
+        if (!owner || !repo) return { content: text({ error: 'Could not parse owner/repo from URL' }) };
+        repo = repo.replace(/\.git$/, '');
+        let readme = null;
+        let usedBranch = null;
+        for (const branch of ['main', 'master']) {
+          const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/README.md`;
+          try {
+            const r = await fetch(rawUrl);
+            if (r.ok) {
+              readme = await r.text();
+              usedBranch = branch;
+              break;
+            }
+          } catch {
+            // try next branch
+          }
+        }
+        if (!readme) return { content: text({ error: `README.md not found on main or master branch for ${owner}/${repo}` }) };
+        const title = `${owner}/${repo}`;
+        const res = await api(`/api/notebooks/${args.notebookId}/sources`, {
+          method: 'POST',
+          body: {
+            title,
+            type: 'website',
+            content: readme,
+            url: args.repoUrl,
+            metadata: { owner, repo, branch: usedBranch, source: 'github-readme' }
+          }
+        });
+        if (res.id) return { content: text({ sourceId: res.id, success: true }) };
+        return { content: text({ error: res.error || res }) };
+      }
+
+      case 'add_source_from_text': {
+        const res = await api(`/api/notebooks/${args.notebookId}/sources`, {
+          method: 'POST',
+          body: {
+            title: args.title,
+            type: args.type || 'text',
+            content: args.content
+          }
+        });
+        if (res.id) return { content: text({ sourceId: res.id, success: true }) };
+        return { content: text({ error: res.error || res }) };
       }
 
       default:

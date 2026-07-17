@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSources } from '@/hooks/useSources';
 import { useUsageLimits } from '@/hooks/useUsageLimits';
 import { motion, AnimatePresence } from 'framer-motion';

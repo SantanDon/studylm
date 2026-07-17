@@ -63,12 +63,10 @@ interface SourcesSidebarProps {
 }
 
 const SourcesSidebar = ({
-  hasSource,
   notebookId,
   selectedCitation,
   onCitationClose,
   setSelectedCitation,
-  activeSourceId,
   onActiveSourceChange,
 }: SourcesSidebarProps) => {
   const [showAddSourcesDialog, setShowAddSourcesDialog] = useState(false);
@@ -172,7 +170,7 @@ const SourcesSidebar = ({
     return selectedSourceForViewing?.url || "";
   };
 
-  const renderSourceIcon = (type: string, url?: string | null) => {
+  const renderSourceIcon = (type: string) => {
     if (type === "youtube" || type === "video") {
       return (
         <svg className="w-full h-full text-red-500 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -181,23 +179,14 @@ const SourcesSidebar = ({
       );
     }
 
-    if (type === "website" && url) {
-      try {
-        const domain = new URL(url).hostname;
-        return (
-          <img
-            src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
-            alt="website icon"
-            className="w-full h-full object-contain"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.src = "/file-types/WEB.svg";
-            }}
-          />
-        );
-      } catch {
-        // Fallback below
-      }
+    if (type === "website") {
+      return (
+        <img
+          src="/file-types/WEB.svg"
+          alt="website icon"
+          className="w-full h-full object-contain"
+        />
+      );
     }
 
     const iconMap: Record<string, string> = {
@@ -494,7 +483,7 @@ const SourcesSidebar = ({
                         <div className="flex items-start justify-between space-x-3">
                           <div className="flex items-center space-x-2 flex-1 min-w-0">
                             <div className="w-6 h-6 bg-white dark:bg-zinc-950 rounded border border-gray-200 dark:border-border flex items-center justify-center flex-shrink-0 overflow-hidden">
-                              {renderSourceIcon(source.type, source.url)}
+                              {renderSourceIcon(source.type)}
                             </div>
                             <div className="flex-1 min-w-0">
                               <span className="text-sm text-gray-900 dark:text-foreground truncate block font-medium">

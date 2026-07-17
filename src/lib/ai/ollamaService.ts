@@ -14,7 +14,7 @@ import { generateTextToString, listModels } from "./ollamaClient";
 import { DOCUMENT_PROMPTS, formatPrompt } from "@/config/prompts";
 import { getModelForTask } from "@/config/ollamaModels";
 import { isOllamaEnabled } from "@/config/ollamaConfig";
-import { generateGroqResponse, generateVoyageEmbeddings as voyageFallback } from "./cloudClient";
+import { generateGroqResponse } from "./cloudClient";
 
 const OLLAMA_BASE_URL = import.meta.env.VITE_OLLAMA_URL || "http://localhost:11434";
 
@@ -377,11 +377,9 @@ const EMBEDDING_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
  * Generate embeddings for document processing with caching
  */
 export async function generateEmbeddings(text: string): Promise<number[]> {
-  // If Ollama disabled, use Voyage fallback
-  if (!isOllamaEnabled()) {
-    console.log("☁️  Ollama disabled, routing embedding to Voyage AI fallback...");
-    return await voyageFallback(text.substring(0, 1000));
-  }
+  // Cloud embedding keys must never be shipped in the browser bundle. When
+  // local Ollama is disabled, callers use deterministic keyword ranking.
+  if (!isOllamaEnabled()) return [];
 
   // Create cache key using hash of full text to avoid collisions from substring
   let hash = 0;

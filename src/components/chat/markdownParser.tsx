@@ -1,6 +1,7 @@
 import React from 'react';
 import CitationButton from './CitationButton';
 import LiquidCitation from './LiquidCitation';
+import { Citation, MessageSegment } from '@/types/message';
 
 const CITATION_MARKER_PATTERN = /\[(\d+)\]/g;
 
@@ -51,9 +52,9 @@ export const processTextWithMarkdown = (text: string) => {
 export const processTextWithMarkdownAndCitations = (
   text: string,
   citations: Citation[],
-  onCitationClick?: (citation: Citation) => void,
-  hoveredCitation?: number | null,
-  onHover?: (index: number | null) => void
+  _onCitationClick?: (citation: Citation) => void,
+  _hoveredCitation?: number | null,
+  _onHover?: (index: number | null) => void
 ): (string | JSX.Element)[] => {
   const lines = text.split('\n');
   
@@ -142,9 +143,9 @@ export const processMarkdownWithCitations = (
     preprocessed = preprocessed.replace(/([*_]{1,2})\s*(#{1,3}\s|[-*]\s)/g, '$1\n$2');
     
     // Split into blocks but keep single-newline lists/headers together as potential groups
-    const blocks = preprocessed.split(/\n\s*\n/).filter(text => text.trim());
-    
-    blocks.forEach((block, blockIndex) => {
+    const blocks = preprocessed.split(/\n\s*\n/).filter((text: string) => text.trim());
+
+    blocks.forEach((block: string, blockIndex: number) => {
       const lines = block.split('\n');
       let i = 0;
       
@@ -307,9 +308,9 @@ export const processMarkdownWithCitations = (
 export const renderTextWithCitationMarkers = (
   text: string,
   citations: Citation[],
-  onCitationClick?: (citation: Citation) => void,
-  hoveredCitation?: number | null,
-  onHover?: (index: number | null) => void
+  _onCitationClick?: (citation: Citation) => void,
+  _hoveredCitation?: number | null,
+  _onHover?: (index: number | null) => void
 ): React.ReactNode => {
   const parts: (string | React.ReactNode)[] = [];
   let lastIndex = 0;

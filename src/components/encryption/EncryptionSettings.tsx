@@ -13,7 +13,8 @@ import { DataExport } from './DataExport';
 import { SecurityLogs } from './SecurityLogs';
 import { MfaSettings } from './MfaSettings';
 import { DeveloperSettings } from '../settings/DeveloperSettings';
-import { Shield, Cloud, Download, ScrollText, Code2 } from 'lucide-react';
+import { ChatGPTSettings } from '../settings/ChatGPTSettings';
+import { Shield, Cloud, Download, ScrollText, Code2, Sparkles } from 'lucide-react';
 
 export function EncryptionSettings() {
   const [activeTab, setActiveTab] = useState('sync');
@@ -28,7 +29,7 @@ export function EncryptionSettings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="sync" className="flex items-center gap-2">
             <Cloud className="w-4 h-4" />
             <span className="hidden sm:inline">Sync</span>
@@ -48,6 +49,10 @@ export function EncryptionSettings() {
           <TabsTrigger value="logs" className="flex items-center gap-2">
             <ScrollText className="w-4 h-4" />
             <span className="hidden sm:inline">Logs</span>
+          </TabsTrigger>
+          <TabsTrigger value="models" className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4" />
+            <span className="hidden sm:inline">Models</span>
           </TabsTrigger>
           <TabsTrigger value="developer" className="flex items-center gap-2">
             <Code2 className="w-4 h-4" />
@@ -117,6 +122,10 @@ export function EncryptionSettings() {
 
         <TabsContent value="developer" className="space-y-6">
           <DeveloperSettings />
+        </TabsContent>
+
+        <TabsContent value="models" className="space-y-6">
+          <ChatGPTSettings />
         </TabsContent>
 
       </Tabs>

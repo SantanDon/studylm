@@ -128,7 +128,7 @@ const BookmarkImportDialog = ({
           return;
         }
 
-        const res = await importTweets({ notebookId, urls });
+        await importTweets({ notebookId, urls });
         toast({
           title: "Importing bookmarks",
           description: `Successfully started import of ${urls.length} tweet(s). Finding referenced resources & replies in background...`,

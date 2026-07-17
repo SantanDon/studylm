@@ -17,10 +17,9 @@ interface PodcastHistoryProps {
   currentAudioUrl?: string | null;
 }
 
-export const PodcastHistory: React.FC<PodcastHistoryProps> = ({ 
-  notebookId, 
+export const PodcastHistory: React.FC<PodcastHistoryProps> = ({
+  notebookId,
   onPlay,
-  currentAudioUrl 
 }) => {
   const { podcasts, isLoading, deletePodcast, isDeleting } = usePodcastHistory(notebookId);
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);

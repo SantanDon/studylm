@@ -51,9 +51,6 @@ const FlashcardView: React.FC<FlashcardViewProps> = ({
     }
   }, [currentCard, currentIndex, cards.length, deckId, onReview, isReviewing]);
 
-  const handleReview = useCallback((quality: 0 | 1 | 2 | 3 | 4 | 5) => {
-    processReview(quality, quality > 2 ? 1 : -1);
-  }, [processReview]);
 
   const handleRestart = useCallback(() => {
     setCurrentIndex(0);
@@ -138,7 +135,7 @@ const FlashcardView: React.FC<FlashcardViewProps> = ({
             drag={isFlipped ? "x" : false}
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={0.6}
-            onDragEnd={(e, { offset, velocity }) => {
+            onDragEnd={(_e, { offset, velocity }) => {
               const swipe = swipePower(offset.x, velocity.x);
               if (swipe < -swipeConfidenceThreshold) {
                 processReview(0, -1);

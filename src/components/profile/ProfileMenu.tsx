@@ -21,7 +21,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { localStorageService } from '@/services/localStorageService';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEncryptionStore } from '@/stores/encryptionStore';
 import { DeveloperSettings } from '@/components/settings/DeveloperSettings';

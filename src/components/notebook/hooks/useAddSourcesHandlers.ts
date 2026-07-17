@@ -68,8 +68,8 @@ export function useAddSourcesHandlers(
 
           const uploadResult = await uploadFile(file, notebookId, sourceId);
           
-          if (!uploadResult || !uploadResult.success) {
-            const errorContext = uploadResult?.error || 'File upload failed - no result returned by hook';
+          if (uploadResult.success === false) {
+            const errorContext = uploadResult.error;
             console.error(`[SourcePipeline] Upload failed for ${file.name}:`, errorContext);
             throw new Error(`Upload Error: ${errorContext}`);
           }
@@ -195,6 +195,7 @@ export function useAddSourcesHandlers(
       sourcesRemaining,
       showAuthPrompt,
       incrementUsage,
+      updateNotebook,
     ],
   );
 

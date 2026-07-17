@@ -28,7 +28,6 @@ interface SourceComparisonViewProps {
 
 const SourceComparisonView: React.FC<SourceComparisonViewProps> = ({
   sources,
-  notebookId,
   onClose,
 }) => {
 

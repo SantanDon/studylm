@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Citation } from '@/types/message';
 import {
@@ -202,7 +202,11 @@ const SourceContentViewer = ({
   };
 
   return (
-    <div className={`flex flex-col h-full overflow-hidden ${className}`}>
+    <div
+      className={`flex flex-col h-full overflow-hidden ${className}`}
+      data-testid="source-content-viewer"
+      aria-label={`${citation.source_title} source content`}
+    >
       {/* Header */}
       <div className="p-4 border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center space-x-2 mb-2">

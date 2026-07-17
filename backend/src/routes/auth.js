@@ -10,7 +10,7 @@ const authLimiter = rateLimit({
   message: { error: 'Too many attempts. Please try again in 5 minutes.' },
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV !== 'production' || !!process.env.VERCEL,
+  skip: (req) => process.env.NODE_ENV !== 'production',
 });
 import {
   generateToken,
@@ -22,6 +22,7 @@ import {
 } from "../middleware/auth.js";
 import crypto, { randomBytes } from "crypto";
 import { AppError } from "../middleware/errorHandler.js";
+import { lwcAuth } from "../routes/chatgpt.js";
 import * as otplib from 'otplib';
 const { authenticator } = otplib;
 import QRCode from 'qrcode';
@@ -29,9 +30,15 @@ import jwt from 'jsonwebtoken';
 import { logger } from "../utils/logger.js";
 
 // Encryption for MFA secrets — lazy getter prevents import-time crash on Vercel
-// where process.env is not fully populated until the first request
-const getMfaKey = () =>
-  (process.env.JWT_SECRET || 'studypod_fallback_key_for_mfa_32bytes').substring(0, 32).padEnd(32, '0');
+// where process.env is not fully populated until the first request.
+// JWT_SECRET is required: no fallback to a known-weak key.
+const getMfaKey = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('JWT_SECRET is required and must be at least 32 chars for MFA encryption');
+  }
+  return secret.substring(0, 32).padEnd(32, '0');
+};
 const encryptSecret = (text) => {
   if (!text) return null;
   const iv = crypto.randomBytes(16);
@@ -138,8 +145,7 @@ router.post("/signup", authLimiter, async (req, res, next) => {
 
     // Support display name + passphrase registration without email (Local mode / Agent mode)
     const isLocalMode = !!(displayName && passphrase && !email);
-    const isAutoVerifiedEmail = finalEmail && finalEmail.toLowerCase() === 'don16santos@gmail.com';
-    let isVerified = isLocalMode || isAutoVerifiedEmail ? 1 : 0; // Local/Agent modes bypass email verification
+    let isVerified = isLocalMode ? 1 : 0; // Local/Agent modes bypass email verification
 
     if (isLocalMode) {
       if (passphrase.length < 8) {
@@ -314,6 +320,88 @@ router.post("/signin", authLimiter, async (req, res, next) => {
 
     res.json({
       message: "Sign in successful",
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        bio: user.bio,
+        createdAt: user.createdAt,
+      },
+      preferences,
+      stats,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Login (or sign up) with a ChatGPT OAuth session.
+// Reuses the Login-with-ChatGPT device-code session established by the
+// @opencoredev/loginwithchatgpt handler at /api/chatgpt. Finds or creates a
+// StudyPodLM account keyed on the ChatGPT user's email, then issues our normal
+// auth cookies so the rest of the app treats the user as signed in.
+router.post("/chatgpt-login", async (req, res, next) => {
+  try {
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host') || `localhost:${process.env.PORT || 3001}`;
+    const sessionUrl = `${protocol}://${host}/api/chatgpt/session`;
+    const headers = new Headers();
+    if (req.headers.cookie) headers.set('cookie', req.headers.cookie);
+    headers.set('host', host);
+    const origin = req.headers.origin || req.headers.referer;
+    if (origin) headers.set('origin', origin);
+    const sessionReq = new Request(sessionUrl, { method: 'GET', headers });
+
+    const session = await lwcAuth.getSession(sessionReq);
+    if (!session || session.status !== 'authenticated' || !session.user) {
+      throw new AppError(401, 'CHATGPT_NOT_AUTHENTICATED', 'No active ChatGPT session. Complete the ChatGPT login first.');
+    }
+
+    const cgUser = session.user;
+    const email = (cgUser.email || '').toLowerCase().trim();
+    if (!email) {
+      throw new AppError(400, 'CHATGPT_NO_EMAIL', 'ChatGPT account did not provide an email address.');
+    }
+
+    let user = await dbHelpers.getUserByEmail(email);
+    if (!user) {
+      const userId = uuidv4();
+      const displayName = cgUser.name || email.split('@')[0] || 'ChatGPT User';
+      await dbHelpers.createUser(
+        userId,
+        email,
+        '',
+        displayName,
+        'human',
+        null,
+        null,
+        1,
+        0
+      );
+      await dbHelpers.createUserPreferences(uuidv4(), userId);
+      await dbHelpers.createUserStats(uuidv4(), userId);
+      user = await dbHelpers.getUserByEmail(email);
+    }
+
+    const accessToken = generateToken(user.id, user.email);
+    const refreshToken = generateRefreshToken(user.id, user.email);
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    };
+
+    res.cookie('accessToken', accessToken, cookieOptions);
+    res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 * 1000 });
+
+    const preferences = await dbHelpers.getUserPreferences(user.id);
+    const stats = await dbHelpers.getUserStats(user.id);
+
+    res.json({
+      message: "Signed in with ChatGPT",
       user: {
         id: user.id,
         email: user.email,

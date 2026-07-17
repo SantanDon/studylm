@@ -152,7 +152,7 @@ export const AntigravityTelemetry: React.FC<{ notebookId?: string }> = ({ notebo
           </motion.div>
         ) : (
           <motion.button
-            whileHover={{ scale: 1.05, shadow: '0 0 15px rgba(99, 102, 241, 0.4)' }}
+            whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(99, 102, 241, 0.4)' }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsOpen(true)}
             className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-500 transition-all border border-white/10"

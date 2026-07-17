@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useNotebooks } from '@/hooks/useNotebooks';
 import { useSources } from '@/hooks/useSources';
@@ -24,7 +24,7 @@ const Notebook = () => {
   const isDesktop = useIsDesktop();
   const { isIngesting, ingestionStatus } = useAgentIngestion(notebookId);
 
-  const notebook = notebooks?.find(n => n.id === notebookId);
+  const notebook = notebooks?.find((n: { id: string }) => n.id === notebookId);
   const hasSource = sources && sources.length > 0;
   const isSourceDocumentOpen = !!selectedCitation;
 

@@ -3,6 +3,7 @@ import { localStorageService, LocalSource } from "@/services/localStorageService
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
+import { SourceSchema } from "@/types/domain";
 
 /**
  * Generate source-type specific fallback questions
@@ -133,13 +134,18 @@ export const useNotebookGeneration = () => {
         sources = [];
       }
       
-      let source = sources.find((s) => s.file_path === filePath) ||
+      let source: Partial<LocalSource> | undefined = sources.find((s) => s.file_path === filePath) ||
                      sources.find((s) => s.url === filePath) ||
                      sources[0]; // Fallback to first source if no match
 
       // 3. Patch the race condition: Inject cached content if the cloud missed it
       if (!source) {
-        source = { title: cachedTitle, content: cachedContent, type: sourceType };
+        const parsedSourceType = SourceSchema.shape.type.safeParse(sourceType);
+        source = {
+          title: cachedTitle,
+          content: cachedContent,
+          type: parsedSourceType.success ? parsedSourceType.data : 'text',
+        };
       } else {
         source.content = source.content || cachedContent;
         source.title = source.title || cachedTitle;
@@ -309,6 +315,7 @@ FORMAT: Just the questions, nothing else.`,
       return {
         title,
         description,
+        notebookId,
         notebook: updatedNotebook,
       };
     },
@@ -318,9 +325,9 @@ FORMAT: Just the questions, nothing else.`,
       // Invalidate relevant queries to refresh the UI
       // Use the specific notebook ID to ensure the correct notebook is refreshed
       queryClient.invalidateQueries({ queryKey: ["notebooks"] });
-      queryClient.invalidateQueries({ queryKey: ["notebook", data.notebook?.id] });
+      queryClient.invalidateQueries({ queryKey: ["notebook", data.notebookId] });
       // Also invalidate sources to ensure UI is updated
-      queryClient.invalidateQueries({ queryKey: ["sources", data.notebook?.id] });
+      queryClient.invalidateQueries({ queryKey: ["sources", data.notebookId] });
 
       toast({
         title: "Content Generated",

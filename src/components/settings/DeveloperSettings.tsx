@@ -59,7 +59,7 @@ export function DeveloperSettings() {
   };
 
   const [pairingCode, setPairingCode] = useState<string | null>(null);
-  const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
+  const [, setPairingExpiresAt] = useState<string | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
 
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);

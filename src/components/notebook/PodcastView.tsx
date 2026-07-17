@@ -5,23 +5,20 @@ import {
   faPlay,
   faArrowsRotate,
   faGear,
-  faSliders,
   faXmark,
   faMinimize,
   faExpand,
   faClock,
   faKeyboard,
-  faWandMagicSparkles,
   faHourglassHalf,
   faFlask,
 } from "@fortawesome/free-solid-svg-icons";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { 
-  Tabs, 
-  TabsContent, 
-  TabsList, 
-  TabsTrigger 
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger
 } from "@/components/ui/tabs";
 import { useSources } from "@/hooks/useSources";
 import { generatePodcastScript } from "@/lib/podcastGenerator";

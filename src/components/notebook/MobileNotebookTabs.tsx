@@ -1,5 +1,4 @@
 
-import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 // import { FileText, MessageCircle, NotebookPen } from 'lucide-react'; // Removed Lucide imports
 import SourcesSidebar from './SourcesSidebar';

@@ -24,6 +24,9 @@ const MetallicText: React.FC<MetallicTextProps> = ({
   const containerRef = useRef<HTMLElement>(null);
   const animationRef = useRef<number | null>(null);
   const offsetRef = useRef(0);
+  const setContainerRef = (element: HTMLElement | null) => {
+    containerRef.current = element;
+  };
 
   useEffect(() => {
     if (!enabled || !containerRef.current) return;
@@ -51,7 +54,7 @@ const MetallicText: React.FC<MetallicTextProps> = ({
 
   return (
     <Component
-      ref={containerRef as unknown as React.RefObject<HTMLSpanElement>}
+      ref={setContainerRef}
       className={`metallic-text ${className}`}
       style={{
         background: `linear-gradient(

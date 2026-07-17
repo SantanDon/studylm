@@ -6,12 +6,10 @@
 
 import { useState } from 'react';
 import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Cloud, CloudOff, BookOpen, Loader2 } from 'lucide-react';
-import { useSyncStore } from '@/stores/syncStore';
 
 interface Notebook {
   id: string;
@@ -22,8 +20,7 @@ interface Notebook {
 }
 
 export function SelectiveSync() {
-  const syncStore = useSyncStore();
-  
+
   const updateSyncConfig = async (config: Record<string, boolean>) => {
     // Store sync config in localStorage
     localStorage.setItem('sync_config', JSON.stringify(config));

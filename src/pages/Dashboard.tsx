@@ -1,4 +1,3 @@
-import React from "react";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import NotebookGrid from "@/components/dashboard/NotebookGrid";
 import EmptyDashboard from "@/components/dashboard/EmptyDashboard";
@@ -110,13 +109,14 @@ const Dashboard = () => {
     <div className="min-h-screen bg-white dark:bg-background">
       <DashboardHeader userEmail={user?.email} />
 
-      <main className="max-w-7xl mx-auto px-6 py-[60px]">
-        <div className="mb-8">
-          <h1 className={`font-medium text-gray-900 dark:text-foreground mb-2 text-5xl ${useCustomFonts ? 'font-heading' : ''}`}>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        <div className="mb-6 border-b border-border/70 pb-5">
+          <h1 className={`font-medium text-gray-900 dark:text-foreground text-3xl ${useCustomFonts ? 'font-heading' : ''}`}>
             <MetallicText enabled={metallicTextEnabled} speed={metallicTextSpeed}>
-              Welcome to StudyPodLM
+              Your research workspace
             </MetallicText>
           </h1>
+          <p className="mt-1 text-sm text-muted-foreground">Open a notebook, continue a study thread, or start with a new source.</p>
         </div>
 
         {hasNotebooks ? (

@@ -6,7 +6,8 @@
  * Handles identity authentication and cloud content management.
  */
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+export { API_BASE_URL } from '@/config/api';
+import { API_BASE_URL } from '@/config/api';
 
 /**
  * Handle HTTP response globally for Auth events.
@@ -59,6 +60,21 @@ export const ApiService = {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error || "Signup failed");
+    }
+
+    return response.json();
+  },
+
+  async chatgptLogin() {
+    const response = await fetch(`${API_BASE_URL}/auth/chatgpt-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || "ChatGPT sign-in failed");
     }
 
     return response.json();

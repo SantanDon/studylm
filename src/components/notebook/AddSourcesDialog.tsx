@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -194,6 +194,7 @@ const AddSourcesDialog = ({
         open={showCopiedTextDialog}
         onOpenChange={setShowCopiedTextDialog}
         notebookId={notebookId}
+        onSuccess={() => onOpenChange(false)}
       />
 
       <MultipleWebsiteUrlsDialog

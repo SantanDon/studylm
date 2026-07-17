@@ -16,7 +16,7 @@ interface AudiobookState {
 }
 
 export const useAudiobookStore = create<AudiobookState>((set) => ({
-  selectedVoice: 'af_bella',
+  selectedVoice: 'soothing_mix',
   isGenerating: false,
   currentChapterId: null,
   audioUrl: null,

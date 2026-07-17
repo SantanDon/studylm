@@ -142,20 +142,15 @@ export async function authenticateToken(req, res, next) {
   // JWT path
   try {
     const user = jwt.verify(token, JWT_SECRET);
-    
-    // VERCEL WORKAROUND: If user exists in JWT but not in DB (DB reset)
-    // We auto-provision a shell record so Foreign Keys don't break across isolated endpoints
+
     const userId = user.userId || user.id;
     if (userId) {
       const existing = await dbHelpers.getUserById(userId);
       if (!existing) {
-        logger.warn(`Auto-provisioning missing user ${userId} after DB reset...`);
-        try {
-          const fallbackEmail = user.email || `recovered_${userId.substring(0, 8)}@studypod.local`;
-          await dbHelpers.createUser(userId, fallbackEmail, 'AUTOPROVISIONED_SESSION_RECOVERY', user.displayName || 'Recovered User', user.accountType || 'human');
-        } catch (provisionError) {
-          logger.error('Failed to auto-provision user:', provisionError);
-        }
+        // Token references a user that no longer exists (DB reset / stale token).
+        // Reject rather than silently auto-provision a ghost account.
+        logger.warn(`Rejected token for missing user ${userId}`);
+        return res.status(401).json({ error: 'Account no longer exists. Please sign in again.' });
       }
     }
 

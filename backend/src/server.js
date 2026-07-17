@@ -27,13 +27,14 @@ import searchRouter from './routes/search.js';
 import signalRouter from './routes/signal.js';
 import audiobookRoutes from './routes/audiobook.js';
 import signalQueueRoutes from './routes/signalQueue.js';
+import chatgptRouter, { lwcAuth } from './routes/chatgpt.js';
 // Middleware / DB Imports
 import { initializeDatabase } from './db/database.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { normalizeBodyKeys } from './middleware/normalizeKeys.js';
 import { logger, requestLogger } from './utils/logger.js';
 
-// ENI: Services only loaded outside Vercel — Hocuspocus + @xenova/transformers are
+// Services only loaded outside Vercel because collaboration and model runtimes are
 // incompatible with serverless (no persistent WebSocket + WASM > 250 MB limit).
 // String() wrapping prevents Vercel's Node File Tracer (nft) from statically
 // resolving this path and including the heavy deps in the serverless bundle.
@@ -59,7 +60,17 @@ const REQUIRED_ENVS = ['TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN', 'VITE_GROQ_API_
 const missingEnvs = REQUIRED_ENVS.filter(env => !process.env[env]);
 
 if (missingEnvs.length > 0 && process.env.NODE_ENV === 'production') {
-  logger.warn(`Missing required environment variables: ${missingEnvs.join(', ')}`);
+  logger.error(`Missing required environment variables: ${missingEnvs.join(', ')}`);
+}
+// JWT_SECRET is security-critical (signs auth tokens + encrypts MFA secrets).
+// Abort boot if missing in production; warn loudly in dev.
+if (!process.env.JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    logger.error('FATAL: JWT_SECRET is not set. Refusing to start in production.');
+    process.exit(1);
+  } else {
+    logger.warn('WARNING: JWT_SECRET is not set. Auth and MFA will be impaired. Set it before using real accounts.');
+  }
 }
 
 const app = express();
@@ -101,7 +112,7 @@ const apiLimiter = rateLimit({
   limit: 10000,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV !== 'production' || !!process.env.VERCEL,
+  skip: (req) => process.env.NODE_ENV !== 'production',
 });
 
 // STRICTOR Rate Limiting for Auth (Brute Force Protection)
@@ -111,7 +122,7 @@ const authLimiter = rateLimit({
   message: { error: 'Too many login attempts. Please try again in 5 minutes.' },
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV !== 'production' || !!process.env.VERCEL,
+  skip: (req) => process.env.NODE_ENV !== 'production',
 });
 
 // Middleware
@@ -150,8 +161,16 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Login with ChatGPT handler — mounted BEFORE express.json() so /responses
+// receives the raw body. The handler owns the entire /api/chatgpt/* prefix.
+app.use('/api/chatgpt', chatgptRouter);
+
+// Extracted documents and their chunk metadata can exceed Express's 100 KB
+// default. Keep a bounded, configurable limit so normal research PDFs can be
+// persisted without accepting unbounded request bodies.
+const structuredBodyLimit = process.env.STRUCTURED_BODY_LIMIT || '20mb';
+app.use(express.json({ limit: structuredBodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: structuredBodyLimit }));
 app.use(cookieParser());
 app.use(requestLogger);
 app.use(normalizeBodyKeys);
@@ -254,10 +273,10 @@ if (!process.env.VERCEL) {
   server.on('upgrade', async (request, socket, head) => {
     const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
     if (pathname === '/api/sync-relay' && hocuspocusServer) {
-      const pkg = '@xenova/transformers';
+      const pkg = '@huggingface/transformers';
       const { pipeline: transformersPipeline, env } = await import(pkg);
       env.cacheDir = './.cache/transformers';
-      await transformersPipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { quantized: true });
+      await transformersPipeline('feature-extraction', 'onnx-community/all-MiniLM-L6-v2-ONNX', { dtype: 'q8' });
       hocuspocusServer.handleUpgrade(request, socket, head);
     } else {
       socket.destroy();

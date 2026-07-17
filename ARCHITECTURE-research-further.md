@@ -148,7 +148,7 @@ export async function researchNotebook({ notebookId, userId, query, depth = 'qui
 | Web extraction | `extractionService.extractWebSource()` | 3-tier pipeline (Cheerio → Jina → Firecrawl) |
 | Context building | `aiChatService.buildNotebookContext()` | Ranks sources by relevance, builds structured snapshot |
 | LLM dispatch | `titanProvider.dispatchToTitan()` | Multi-model failover with concurrency limiting |
-| Memory storage | `memoryService.storeMemory()` | Local embedding with @xenova/transformers |
+| Memory storage | `memoryService.storeMemory()` | Local embedding with Hugging Face Transformers.js |
 | Memory search | `memoryService.searchMemories()` | Semantic search across notebook memories |
 | Note creation | `dbHelpers.createNote()` | Existing DB helper |
 | Source creation | `dbHelpers.createSource()` | Existing DB helper |

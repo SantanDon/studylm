@@ -18,7 +18,7 @@ import NotFound from "./pages/NotFound";
 import VerifyEmail from "./pages/VerifyEmail";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Analytics, type BeforeSendEvent } from "@vercel/analytics/react";
 
 const queryClient = new QueryClient();

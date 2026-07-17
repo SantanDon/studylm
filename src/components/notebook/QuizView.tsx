@@ -28,7 +28,6 @@ const QuizView: React.FC<QuizViewProps> = ({
   onComplete,
   onCancel,
   isLastQuestion,
-  timeLimit = 60,
 }) => {
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [result, setResult] = useState<QuizResult | null>(null);

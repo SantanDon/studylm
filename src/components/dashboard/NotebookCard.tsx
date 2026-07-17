@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useNotebookDelete } from '@/hooks/useNotebookDelete';
 import { useToast } from '@/hooks/use-toast';
+import { Share2, Trash2 } from 'lucide-react';
 
 interface NotebookCardProps {
   notebook: {
@@ -55,25 +56,20 @@ const NotebookCard = ({
     setShowDeleteDialog(false);
   };
 
-  // Generate CSS classes from color name
-  const colorName = notebook.color || 'gray';
-  const backgroundClass = `bg-${colorName}-100`;
-  const borderClass = `border-${colorName}-200`;
-
   return <div 
-      className={`rounded-lg border ${borderClass} ${backgroundClass} p-4 hover:shadow-md transition-shadow cursor-pointer relative h-48 flex flex-col`}
+      className="rounded-lg border border-border bg-card p-4 hover:border-muted-foreground/30 hover:shadow-sm transition-all cursor-pointer relative h-40 flex flex-col"
     >
       {!isSelectionMode && (
         <div className="absolute top-3 right-3 flex items-center space-x-1" data-delete-action="true">
           {notebook.joinCode && (
             <button onClick={handleShareClick} className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded text-gray-400 hover:text-foreground transition-colors" title="Copy share join code" data-delete-action="true">
-              <i className="fi fi-rr-share h-4 w-4"></i>
+              <Share2 className="h-4 w-4" />
             </button>
           )}
           <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
             <AlertDialogTrigger asChild>
-              <button onClick={handleDeleteClick} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500 transition-colors delete-button" disabled={isDeleting} data-delete-action="true">
-                <i className="fi fi-rr-trash h-4 w-4"></i>
+              <button onClick={handleDeleteClick} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500 transition-colors delete-button" disabled={isDeleting} data-delete-action="true" aria-label={`Delete ${notebook.title}`}>
+                <Trash2 className="h-4 w-4" />
               </button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -94,15 +90,15 @@ const NotebookCard = ({
         </div>
       )}
       
-      <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4">
-        <span className="text-3xl">{notebook.icon}</span>
+      <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3">
+        <span className="text-2xl">{notebook.icon}</span>
       </div>
       
-      <h3 className="text-gray-900 mb-2 pr-6 line-clamp-2 text-2xl font-normal flex-grow">
+      <h3 className="text-foreground mb-2 pr-6 line-clamp-2 text-lg font-medium flex-grow leading-snug">
         {notebook.title}
       </h3>
       
-      <div className="flex items-center justify-between text-sm text-gray-500 mt-auto">
+      <div className="flex items-center justify-between text-xs text-muted-foreground mt-auto">
         <span>{notebook.date} • {notebook.sources} source{notebook.sources !== 1 ? 's' : ''}</span>
       </div>
     </div>;

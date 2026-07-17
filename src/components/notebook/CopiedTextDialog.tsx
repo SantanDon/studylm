@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -12,12 +12,14 @@ interface CopiedTextDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   notebookId?: string; // Add notebook ID to allow direct text paste
+  onSuccess?: () => void;
 }
 
 const CopiedTextDialog = ({
   open,
   onOpenChange,
-  notebookId
+  notebookId,
+  onSuccess,
 }: CopiedTextDialogProps) => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -54,6 +56,7 @@ const CopiedTextDialog = ({
         setTitle('');
         setContent('');
         onOpenChange(false);
+        onSuccess?.();
       }
     } catch (error) {
       console.error('Error submitting copied text:', error);

@@ -1,8 +1,7 @@
-import React from 'react';
 import { useTasks, Task } from '@/hooks/useTasks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, Circle, Clock, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Circle, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const TaskPulse = ({ notebookId }: { notebookId: string }) => {

@@ -6,14 +6,15 @@
  */
 
 import * as pdfjsLib from "pdfjs-dist";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import type { TextItem, TextMarkedContent } from "pdfjs-dist/types/src/display/api";
 
-// Configure PDF.js for Vite environment - attempt to set up worker or fall back gracefully
-try {
-  // Try to set up the worker with CDN (common approach for development)
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.mjs';
-} catch (e) {
-  console.warn("Could not configure PDF.js worker initially. Will configure in extraction methods.", e);
+function isTextItem(item: TextItem | TextMarkedContent): item is TextItem {
+  return 'str' in item;
 }
+
+// Vite emits the worker as a versioned asset and supplies its final public URL.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export interface PDFExtractionOptions {
   maxPages?: number;
@@ -63,7 +64,7 @@ export async function extractPDFWithFallbacks(
     console.warn("Worker-based extraction failed, proceeding to alternatives:", error);
   }
 
-  // Strategy 2: Try without worker
+  // Strategy 2: Retry with a simpler document-loading configuration
   try {
     result = await tryExtractWithoutWorker(arrayBuffer, maxPages, verbosity);
     if (result.success && result.content.trim().length > 0) {
@@ -104,7 +105,7 @@ async function tryExtractWithWorker(
 ): Promise<PDFExtractionResult> {
   // Try to set up worker specifically for this extraction
   try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   } catch (workerSetupError) {
     console.warn("Could not set up worker for this extraction:", workerSetupError);
   }
@@ -115,8 +116,7 @@ async function tryExtractWithWorker(
       cMapUrl: "https://unpkg.com/pdfjs-dist@5.4.394/cmaps/",
       cMapPacked: true,
       verbosity,
-      useSystemFont: true // Try to use system fonts for better text extraction
-    } as pdfjsLib.DocumentInitParameters);
+    });
 
     const pdf = await loadingTask.promise;
 
@@ -131,8 +131,8 @@ async function tryExtractWithWorker(
 
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageText = textContent.items
-            .filter((item: { str: string }) => item && "str" in item && typeof item.str === "string")
-            .map((item: { str: string }) => item.str)
+            .filter(isTextItem)
+            .map((item) => item.str)
             .join(" ")
             .trim();
 
@@ -164,39 +164,25 @@ async function tryExtractWithWorker(
     };
   } catch (error) {
     console.warn("PDF extraction with worker failed:", error);
-    // Try to disable worker for subsequent attempts
-    try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = undefined as typeof pdfjsLib.GlobalWorkerOptions.workerSrc;
-    } catch (disableError) {
-      console.warn("Could not disable worker:", disableError);
-    }
     return createEmptyResult("pdfjs-worker", maxPages, error);
   }
 }
 
 /**
- * Strategy 2: Try extraction without worker
+ * Strategy 2: Retry with a simpler document-loading configuration
  */
 async function tryExtractWithoutWorker(
   arrayBuffer: ArrayBuffer,
   maxPages: number,
   verbosity: number
 ): Promise<PDFExtractionResult> {
-  // Explicitly disable worker for this extraction
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = undefined as typeof pdfjsLib.GlobalWorkerOptions.workerSrc;
-  } catch (e) {
-    console.warn("Could not disable worker:", e);
-  }
-
   try {
     const loadingTask = pdfjsLib.getDocument({
       data: arrayBuffer,
       cMapUrl: "https://unpkg.com/pdfjs-dist@5.4.394/cmaps/",
       cMapPacked: true,
       verbosity,
-      disableWorker: true
-    } as pdfjsLib.DocumentInitParameters);
+    });
 
     const pdf = await loadingTask.promise;
 
@@ -211,8 +197,8 @@ async function tryExtractWithoutWorker(
 
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageText = textContent.items
-            .filter((item: { str: string }) => item && "str" in item && typeof item.str === "string")
-            .map((item: { str: string }) => item.str)
+            .filter(isTextItem)
+            .map((item) => item.str)
             .join(" ")
             .trim();
 
@@ -222,7 +208,7 @@ async function tryExtractWithoutWorker(
           }
         }
       } catch (pageError) {
-        console.warn(`Page ${i} extraction failed without worker:`, pageError);
+        console.warn(`Page ${i} extraction failed with basic parameters:`, pageError);
         continue;
       }
     }
@@ -243,7 +229,7 @@ async function tryExtractWithoutWorker(
       success: true
     };
   } catch (error) {
-    console.warn("PDF extraction without worker failed:", error);
+    console.warn("PDF extraction with basic parameters failed:", error);
     return createEmptyResult("pdfjs-no-worker", maxPages, error);
   }
 }
@@ -256,23 +242,15 @@ async function tryExtractWithAlternativeParams(
   maxPages: number,
   verbosity: number
 ): Promise<PDFExtractionResult> {
-  // Explicitly disable worker for this extraction
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = undefined as typeof pdfjsLib.GlobalWorkerOptions.workerSrc;
-  } catch (e) {
-    console.warn("Could not disable worker:", e);
-  }
-
   try {
     const loadingTask = pdfjsLib.getDocument({
       data: arrayBuffer,
       cMapUrl: "https://unpkg.com/pdfjs-dist@5.4.394/cmaps/",
       cMapPacked: true,
       verbosity,
-      disableWorker: true,
       disableRange: true,
       disableStream: true
-    } as pdfjsLib.DocumentInitParameters);
+    });
 
     const pdf = await loadingTask.promise;
 
@@ -287,8 +265,8 @@ async function tryExtractWithAlternativeParams(
 
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageText = textContent.items
-            .filter((item: { str: string }) => item && "str" in item && typeof item.str === "string")
-            .map((item: { str: string }) => item.str)
+            .filter(isTextItem)
+            .map((item) => item.str)
             .join(" ")
             .trim();
 
@@ -334,21 +312,13 @@ async function tryExtractWithPageRendering(
 ): Promise<PDFExtractionResult> {
   // This is a last resort and might not work well for text-heavy PDFs
   // but can help with some image-heavy PDFs
-  // Explicitly disable worker for this extraction
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = undefined as typeof pdfjsLib.GlobalWorkerOptions.workerSrc;
-  } catch (e) {
-    console.warn("Could not disable worker:", e);
-  }
-
   try {
     const loadingTask = pdfjsLib.getDocument({
       data: arrayBuffer,
       cMapUrl: "https://unpkg.com/pdfjs-dist@5.4.394/cmaps/",
       cMapPacked: true,
       verbosity,
-      disableWorker: true
-    } as pdfjsLib.DocumentInitParameters);
+    });
 
     const pdf = await loadingTask.promise;
 
@@ -360,12 +330,12 @@ async function tryExtractWithPageRendering(
       try {
         const page = await pdf.getPage(i);
         // Try to extract text content one more time with different approach
-        const textContent = await page.getTextContent({ normalizeWhitespace: true } as unknown as { normalizeWhitespace: boolean });
+        const textContent = await page.getTextContent();
 
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageText = textContent.items
-            .filter((item: { str: string }) => item && "str" in item && typeof item.str === "string")
-            .map((item: { str: string }) => item.str)
+            .filter(isTextItem)
+            .map((item) => item.str)
             .join(" ")
             .trim();
 
@@ -406,7 +376,7 @@ async function tryExtractWithPageRendering(
  */
 function createEmptyResult(
   method: string,
-  maxPages: number,
+  _maxPages: number,
   error: unknown
 ): PDFExtractionResult {
   return {

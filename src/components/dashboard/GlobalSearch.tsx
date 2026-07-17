@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ApiService } from '@/services/apiService';
@@ -36,10 +36,24 @@ const GlobalSearch = ({ open, setOpen }: { open: boolean, setOpen: (v: boolean) 
   const [isSearching, setIsSearching] = useState(false);
   const { session } = useAuth();
   const navigate = useNavigate();
+  const accessToken = session?.access_token;
+
+  const handleSearch = useCallback(async () => {
+    if (!accessToken) return;
+    setIsSearching(true);
+    try {
+      const data = await ApiService.globalSearch(query, accessToken);
+      setResults(data);
+    } catch (err) {
+      console.error('Search error:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [accessToken, query]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
-      if (query.trim() && session?.access_token) {
+      if (query.trim() && accessToken) {
         handleSearch();
       } else {
         setResults(null);
@@ -47,19 +61,7 @@ const GlobalSearch = ({ open, setOpen }: { open: boolean, setOpen: (v: boolean) 
     }, 300);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [query]);
-
-  const handleSearch = async () => {
-    setIsSearching(true);
-    try {
-      const data = await ApiService.globalSearch(query, session!.access_token);
-      setResults(data);
-    } catch (err) {
-      console.error('Search error:', err);
-    } finally {
-      setIsSearching(false);
-    }
-  };
+  }, [accessToken, handleSearch, query]);
 
   const goToNotebook = (id: string) => {
     setOpen(false);

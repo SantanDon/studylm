@@ -321,7 +321,7 @@ const SignalQueuePanel = ({ notebookId }: SignalQueuePanelProps) => {
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {items.map((item) => {
+            {items.map((item: SignalQueueItem) => {
               const platform = getPlatformConfig(item.platform);
               const isEditing = editingId === item.id;
 

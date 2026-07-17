@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { ApiService } from '@/services/apiService';
 
@@ -14,7 +14,7 @@ export const useUsageLimits = () => {
   const [status, setStatus] = useState<UsageStatus | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     if (!session?.access_token) return;
     setLoading(true);
     try {
@@ -24,11 +24,11 @@ export const useUsageLimits = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [session?.access_token]);
 
   useEffect(() => {
     fetchStatus();
-  }, [session?.access_token]);
+  }, [fetchStatus]);
 
   const canExtract = () => {
     if (!status) return true; // Fail open for the first request

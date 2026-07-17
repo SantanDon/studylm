@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  Book, Play, Pause, User, ChevronDown, 
+  Book, Play, Pause, User,
   Headphones, Download, Loader2, BookOpen,
-  Sparkles, CheckCircle2, Globe
+  Sparkles, CheckCircle2, Globe, Upload, ShieldCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -10,24 +10,31 @@ import { Card } from '@/components/ui/card';
 import { useSources } from '@/hooks/useSources';
 import { useNotebooks } from '@/hooks/useNotebooks';
 import { useNotebookUpdate } from '@/hooks/useNotebookUpdate';
+import { useAuth } from '@/hooks/useAuth';
+import { useGuest } from '@/hooks/useGuest';
 import { useAudiobookStore } from '@/stores/audiobookStore';
 import { toast } from 'sonner';
 import type { Source } from '@/types/domain/Source';
+import { API_BASE_URL } from '@/config/api';
 
-// Use empty string (relative URLs) by default — Vite proxy handles /api → backend.
-// Set VITE_BACKEND_URL for production or custom setups.
-const BACKEND_URL = (import.meta.env as { VITE_BACKEND_URL?: string }).VITE_BACKEND_URL || '';
 
 interface AudiobookViewProps {
   notebookId: string;
 }
 
+type AudiobookSource = Source & {
+  type: string;
+  metadata?: unknown;
+};
+
 export default function AudiobookView({ notebookId }: AudiobookViewProps) {
   const { sources, addSourceAsync } = useSources(notebookId);
   const { notebooks } = useNotebooks();
   const { updateNotebook } = useNotebookUpdate();
+  const { session } = useAuth();
+  const { guestId } = useGuest();
   
-  const currentNotebook = notebooks.find(n => n.id === notebookId);
+  const currentNotebook = notebooks.find((n: { id: string }) => n.id === notebookId);
   const { 
     selectedVoice, setSelectedVoice, 
     isGenerating, setGenerating,
@@ -44,7 +51,9 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
   const [fullBookUrl, setFullBookUrl] = useState<string | null>(null);
   const [gutenbergId, setGutenbergId] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [isUploadingBook, setIsUploadingBook] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const bookUploadRef = useRef<HTMLInputElement>(null);
 
   // Filter for ebook sources
   const ebooks = sources?.map(s => {
@@ -57,11 +66,34 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
       }
     }
     return parsed;
-  }).filter(s => s.type === 'ebook') || [];
+  }).filter(s => String(s.type) === 'ebook') as AudiobookSource[] || [];
+
+  const authToken = session?.access_token || guestId || 'guest_audiobook_local';
+  const authHeaders = useCallback(() => ({ Authorization: `Bearer ${authToken}` }), [authToken]);
+  const jsonHeaders = () => ({ 'Content-Type': 'application/json', ...authHeaders() });
+  const selectedProvider = selectedVoice === 'mock_narrator' ? 'mock' : 'kokoro';
+
+  const fetchVoices = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/audiobook/voices`, {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      setVoices(data.voices);
+    } catch (err) {
+      console.error('Failed to load voices', err);
+    }
+  }, [authHeaders]);
 
   useEffect(() => {
     fetchVoices();
-  }, []);
+  }, [fetchVoices]);
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl?.startsWith('blob:')) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
 
   useEffect(() => {
     if (audioRef.current && audioUrl) {
@@ -85,10 +117,12 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
     if (fullBookJobId) {
       interval = setInterval(async () => {
         try {
-          const res = await fetch(`${BACKEND_URL}/api/audiobook/job-status/${fullBookJobId}`);
+          const res = await fetch(`${API_BASE_URL}/audiobook/job-status/${fullBookJobId}`, {
+            headers: authHeaders(),
+          });
           const data = await res.json();
           if (data.status === 'completed') {
-            setFullBookUrl(`${BACKEND_URL}${data.url}`);
+            setFullBookUrl(data.url);
             setFullBookJobId(null);
             setFullBookProgress(100);
             toast.success("Full audiobook generated!");
@@ -104,17 +138,7 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
       }, 2000);
     }
     return () => clearInterval(interval);
-  }, [fullBookJobId]);
-
-  const fetchVoices = async () => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/audiobook/voices`);
-      const data = await res.json();
-      setVoices(data.voices);
-    } catch (err) {
-      console.error('Failed to load voices');
-    }
-  };
+  }, [authHeaders, fullBookJobId]);
 
   const formatTime = (time: number) => {
     if (isNaN(time)) return '0:00';
@@ -135,19 +159,23 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
     }
   };
 
-  const generateAudio = async (sourceId: string, chapterId: string, title: string) => {
+  const generateAudio = async (sourceId: string, chapterId: string, title?: string) => {
     setGenerating(true);
     setCurrentChapterId(chapterId);
+    setIsPlaying(false);
     try {
       const source = sources?.find(s => s.id === sourceId);
-      const fileName = source?.metadata?.fileName || source?.title || 'unknown.epub';
-      
-      const url = `${BACKEND_URL}/api/audiobook/generate/${chapterId}?voice=${selectedVoice}&file=${encodeURIComponent(fileName)}`;
-      
-      setAudioUrl(url);
+      const meta = source?.metadata as Record<string, unknown> | undefined;
+      const fileName = (meta?.fileName as string) || source?.title || 'unknown.epub';
+      const url = `${API_BASE_URL}/audiobook/generate/${chapterId}?voice=${selectedVoice}&provider=${selectedProvider}&file=${encodeURIComponent(fileName)}`;
+      const res = await fetch(url, { headers: authHeaders() });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      setAudioUrl(URL.createObjectURL(blob));
       setIsPlaying(true);
-      toast.success(`Narration started for ${title}`);
+      toast.success(`Narration started for ${title || 'chapter'}`);
     } catch (err) {
+      console.error(err);
       toast.error('Failed to generate narration');
     } finally {
       setGenerating(false);
@@ -161,11 +189,12 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
       const chapters = (meta?.chapters as Array<{ id: string }>) || [];
       const chapterIds = chapters.map(c => c.id);
       
-      const res = await fetch(`${BACKEND_URL}/api/audiobook/generate-full`, {
+      const res = await fetch(`${API_BASE_URL}/audiobook/generate-full`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName, voice: selectedVoice, chapterIds })
+        headers: jsonHeaders(),
+        body: JSON.stringify({ fileName, voice: selectedVoice, provider: selectedProvider, chapterIds })
       });
+      if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setFullBookJobId(data.jobId);
       setFullBookUrl(null);
@@ -182,9 +211,9 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
     const id = gutenbergId.trim();
     
     try {
-      const res = await fetch(`${BACKEND_URL}/api/audiobook/import-gutenberg`, {
+      const res = await fetch(`${API_BASE_URL}/audiobook/import-gutenberg`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders(),
         body: JSON.stringify({ bookId: id })
       });
       
@@ -225,15 +254,79 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
     }
   };
 
-  const handleDownload = (url: string | null) => {
+  const handleBookUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingBook(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`${API_BASE_URL}/audiobook/extract`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+
+      await addSourceAsync({
+        notebookId,
+        title: data.title,
+        type: 'ebook',
+        content: data.content,
+        metadata: {
+          author: data.author,
+          description: data.description,
+          chapters: data.chapters,
+          fileName: data.fileName,
+          format: data.format,
+          stats: data.stats,
+          source: 'upload',
+        }
+      });
+
+      toast.success(`Imported "${data.title}" with ${data.chapters?.length || 0} chapters`);
+
+      if (currentNotebook && (
+          currentNotebook.title === 'Untitled notebook' ||
+          currentNotebook.title === 'Untitled Notebook' ||
+          !currentNotebook.title
+      )) {
+        updateNotebook({ id: notebookId, updates: { title: data.title } });
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Book upload failed');
+    } finally {
+      setIsUploadingBook(false);
+      if (event.target) event.target.value = '';
+    }
+  };
+
+  const handleDownload = async (url: string | null) => {
     const downloadUrl = url || audioUrl;
     if (!downloadUrl) return;
+
+    let href = downloadUrl;
+    if (!downloadUrl.startsWith('blob:')) {
+      const res = await fetch(downloadUrl, { headers: authHeaders() });
+      if (!res.ok) {
+        toast.error('Download failed');
+        return;
+      }
+      href = URL.createObjectURL(await res.blob());
+    }
+
     const link = document.createElement('a');
-    link.href = downloadUrl;
+    link.href = href;
     link.download = url ? 'full-audiobook.wav' : `chapter-${currentChapterId}.wav`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    if (href.startsWith('blob:') && href !== audioUrl) URL.revokeObjectURL(href);
   };
 
   if (ebooks.length === 0) {
@@ -255,14 +348,37 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
             <Book className="w-6 h-6" />
           </div>
           <h3 className="text-sm font-semibold text-white/40 mb-2">Source an E-book</h3>
-          <p className="text-[10px] text-white/20 leading-relaxed max-w-[200px] mx-auto mb-6">
-            Enter a Book ID from Project Gutenberg to pull free literature into your studio.
+          <p className="text-[10px] text-white/20 leading-relaxed max-w-[260px] mx-auto mb-6">
+            Upload your own EPUB, PDF, TXT, MD or DOCX, or import a public-domain Project Gutenberg book.
           </p>
+
+          <input
+            ref={bookUploadRef}
+            type="file"
+            accept=".epub,.pdf,.txt,.md,.markdown,.docx"
+            onChange={handleBookUpload}
+            className="hidden"
+          />
+
+          <Button
+            size="sm"
+            onClick={() => bookUploadRef.current?.click()}
+            disabled={isUploadingBook}
+            className="mb-4 bg-white text-black hover:bg-white/90 border-0"
+          >
+            {isUploadingBook ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
+            Upload Book
+          </Button>
+
+          <div className="flex items-center gap-2 max-w-[260px] mx-auto mb-4 text-[9px] text-white/20 text-left">
+            <ShieldCheck className="w-3 h-3 text-green-400/60 flex-shrink-0" />
+            <span>Use books you own, created, licensed, or public-domain sources.</span>
+          </div>
           
-          <div className="flex gap-2 max-w-[240px] mx-auto">
+          <div className="flex gap-2 max-w-[260px] mx-auto">
             <input 
               type="text" 
-              placeholder="Book ID (e.g. 1342)"
+              placeholder="Gutenberg ID (e.g. 1342)"
               value={gutenbergId}
               onChange={(e) => setGutenbergId(e.target.value)}
               className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/10 focus:outline-none focus:border-indigo-500/50 transition-all"
@@ -277,7 +393,7 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
             </Button>
           </div>
           <p className="mt-4 text-[9px] text-white/10">
-            Find IDs at <a href="https://www.gutenberg.org" target="_blank" rel="noreferrer" className="text-indigo-400/50 hover:underline">gutenberg.org</a>
+            Find public-domain IDs at <a href="https://www.gutenberg.org" target="_blank" rel="noreferrer" className="text-indigo-400/50 hover:underline">gutenberg.org</a>
           </p>
         </div>
       </Card>
@@ -296,6 +412,23 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
             <p className="text-[10px] text-white/30">Narrate your library</p>
           </div>
         </div>
+        <input
+          ref={bookUploadRef}
+          type="file"
+          accept=".epub,.pdf,.txt,.md,.markdown,.docx"
+          onChange={handleBookUpload}
+          className="hidden"
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => bookUploadRef.current?.click()}
+          disabled={isUploadingBook}
+          className="h-8 px-2 text-[10px] text-white/50 hover:text-white hover:bg-white/[0.05]"
+        >
+          {isUploadingBook ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" /> : <Upload className="w-3 h-3 mr-1.5" />}
+          Add Book
+        </Button>
       </div>
 
       <div className="p-4 space-y-6">
@@ -303,7 +436,7 @@ export default function AudiobookView({ notebookId }: AudiobookViewProps) {
         <div className="space-y-3">
           <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/20 px-1">Selected Narrator</label>
           <div className="flex flex-wrap gap-2">
-            {voices.slice(0, 4).map((voice) => (
+            {voices.map((voice) => (
               <button
                 key={voice}
                 onClick={() => setSelectedVoice(voice)}

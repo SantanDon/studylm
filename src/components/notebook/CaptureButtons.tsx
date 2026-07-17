@@ -1,32 +1,44 @@
-import React from 'react';
 import { Button } from '@/components/ui/button';
-import { FileText, CheckSquare, MoreHorizontal } from 'lucide-react';
+import { FileText, CheckSquare } from 'lucide-react';
 import { useNotes } from '@/hooks/useNotes';
 import { useTasks } from '@/hooks/useTasks';
-import { MessageSegment, Citation } from '@/types/message';
 import { toast } from 'sonner';
+import type { EnhancedChatMessage } from '@/types/message';
 
 interface CaptureButtonsProps {
-  content: string;
+  content: EnhancedChatMessage['message']['content'];
   notebookId?: string;
 }
 
 const CaptureButtons = ({ content, notebookId }: CaptureButtonsProps) => {
-  const { createNote, isCreating: isSavingNote } = useNotes(notebookId);
-  const { createTask, isCreating: isSavingTask } = useTasks(notebookId);
+  const { createNoteAsync, isCreating: isSavingNote } = useNotes(notebookId);
+  const { createTaskAsync, isCreating: isSavingTask } = useTasks(notebookId);
+  const plainText = typeof content === 'string'
+    ? content
+    : content.segments.map((segment) => segment.text).join('\n');
 
-  const handleSaveToNote = () => {
+  const handleSaveToNote = async () => {
     if (!notebookId) return;
-    const firstLine = content.split('\n')[0];
+    const firstLine = plainText.split('\n')[0] || 'Captured insight';
     const title = firstLine.length > 50 ? firstLine.substring(0, 47) + '...' : firstLine;
-    createNote({ title, content, source_type: 'ai_response' });
-    toast.success('Insight captured as Note');
+    try {
+      await createNoteAsync({ title, content: plainText, source_type: 'ai_response' });
+      toast.success('Insight captured as Note');
+    } catch (error) {
+      console.error('Failed to capture insight as note:', error);
+      toast.error('Could not save this response as a Note');
+    }
   };
 
-  const handleSaveToTask = () => {
+  const handleSaveToTask = async () => {
     if (!notebookId) return;
-    createTask({ content, priority: 'medium' });
-    toast.success('Insight captured as Task');
+    try {
+      await createTaskAsync({ content: plainText, priority: 'medium' });
+      toast.success('Insight captured as Task');
+    } catch (error) {
+      console.error('Failed to capture insight as task:', error);
+      toast.error('Could not save this response as a Task');
+    }
   };
 
   if (!notebookId) return null;
@@ -40,6 +52,7 @@ const CaptureButtons = ({ content, notebookId }: CaptureButtonsProps) => {
         disabled={isSavingNote}
         className="h-8 px-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50/50 transition-colors"
         title="Capture as Note"
+        aria-label="Capture as Note"
       >
         <FileText className="w-3.5 h-3.5 mr-1.5" />
         <span className="text-[10px] font-medium">{isSavingNote ? 'Saving...' : 'Note'}</span>
@@ -54,6 +67,7 @@ const CaptureButtons = ({ content, notebookId }: CaptureButtonsProps) => {
         disabled={isSavingTask}
         className="h-8 px-2 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50/50 transition-colors"
         title="Capture as Task"
+        aria-label="Capture as Task"
       >
         <CheckSquare className="w-3.5 h-3.5 mr-1.5" />
         <span className="text-[10px] font-medium">{isSavingTask ? 'Saving...' : 'Task'}</span>

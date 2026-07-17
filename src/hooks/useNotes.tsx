@@ -16,6 +16,7 @@ export interface Note {
   extracted_text?: string;
   created_at: string;
   updated_at: string;
+  updatedAt?: string;
 }
 
 export const useNotes = (notebookId?: string) => {
@@ -155,6 +156,7 @@ export const useNotes = (notebookId?: string) => {
     notes,
     isLoading,
     createNote: createNoteMutation.mutate,
+    createNoteAsync: createNoteMutation.mutateAsync,
     isCreating: createNoteMutation.isPending,
     updateNote: updateNoteMutation.mutate,
     isUpdating: updateNoteMutation.isPending,

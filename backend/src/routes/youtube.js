@@ -9,6 +9,7 @@ import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 const YT_FETCH_TIMEOUT = 15000;
+const YOUTUBE_INNERTUBE_API_KEY = process.env.YOUTUBE_INNERTUBE_API_KEY || '';
 
 function isPlaceholderKey(key) {
   return !key || key.includes('Placeholder') || key.startsWith('AIzaSyA88_') || key.startsWith('AIzaSyB99_') || key.length < 20;
@@ -289,10 +290,12 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
   // YouTube applies to MWEB requests from AWS/Vercel datacenter IPs.
   try {
     logger.info(`[YouTube] Direct InnerTube WEB player API fetch for video ${videoId}`);
-    const staticApiKey = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+    const webPlayerUrl = YOUTUBE_INNERTUBE_API_KEY
+      ? `https://www.youtube.com/youtubei/v1/player?key=${YOUTUBE_INNERTUBE_API_KEY}&prettyPrint=false`
+      : 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
     const webClientVersion = '2.20240415.01.00';
     
-    const playerResponse = await fetchWithTimeout(`https://www.youtube.com/youtubei/v1/player?key=${staticApiKey}&prettyPrint=false`, {
+    const playerResponse = await fetchWithTimeout(webPlayerUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -386,77 +389,109 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
     logger.warn(`[YouTube] Direct InnerTube WEB attempt failed: ${directError.message}`);
   }
 
-  // Strategy 1.5: Direct InnerTube ANDROID client (bypasses bot verification completely)
-  try {
-    logger.info(`[YouTube] Direct InnerTube ANDROID player API fetch for video ${videoId}`);
-    const androidUA = 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)';
-    const androidBody = JSON.stringify({
-      context: {
-        client: {
-          clientName: 'ANDROID',
-          clientVersion: '20.10.38',
-          hl: 'en',
-          gl: 'US'
-        }
-      },
-      videoId
-    });
+  // Strategy 1.5: Direct InnerTube ANDROID client. This path is the most
+  // reliable from datacenter IPs, but caption URLs can occasionally return an
+  // empty body. Retry the complete player + caption exchange before falling
+  // back to the rate-limit-prone watch-page scraper.
+  for (let androidAttempt = 1; androidAttempt <= 3; androidAttempt += 1) {
+    try {
+      logger.info(`[YouTube] Direct InnerTube ANDROID attempt ${androidAttempt}/3 for video ${videoId}`);
+      const androidUA = 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)';
+      const androidBody = JSON.stringify({
+        context: {
+          client: {
+            clientName: 'ANDROID',
+            clientVersion: '20.10.38',
+            hl: 'en',
+            gl: 'US'
+          }
+        },
+        videoId
+      });
 
-    const playerResponse = await fetchWithTimeout(`https://www.youtube.com/youtubei/v1/player?prettyPrint=false`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': androidUA,
-      },
-      body: androidBody
-    });
+      const playerResponse = await fetchWithTimeout('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': androidUA,
+        },
+        body: androidBody
+      });
 
-    if (playerResponse.ok) {
+      if (!playerResponse.ok) {
+        throw new Error(`ANDROID player API returned HTTP ${playerResponse.status}`);
+      }
+
       const playerData = await playerResponse.json();
       const playabilityStatus = playerData?.playabilityStatus || {};
       const videoDetails = playerData?.videoDetails || {};
+      if (!videoDetails?.title || playabilityStatus.status === 'UNPLAYABLE') {
+        throw new Error(`ANDROID player response unavailable: ${playabilityStatus.status || 'missing video details'}`);
+      }
 
-      if (videoDetails?.title && playabilityStatus.status !== 'UNPLAYABLE') {
-        const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-        let transcript = [];
+      const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      if (captionTracks.length === 0) {
+        throw new Error('ANDROID player returned no caption tracks');
+      }
 
-        if (captionTracks.length > 0) {
-          try {
-            const track = captionTracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en')) || captionTracks[0];
-            const captionUrl = track.baseUrl;
-            logger.info(`[YouTube] Fetching ANDROID captions (XML) from: ${captionUrl.slice(0, 120)}`);
-            
-            const xmlResult = await fetchWithTimeout(captionUrl, {
-              headers: { 'User-Agent': androidUA }
-            });
+      const track = captionTracks.find(candidate =>
+        candidate.languageCode === 'en' || candidate.languageCode?.startsWith('en')
+      ) || captionTracks[0];
+      let transcript = [];
 
-            if (xmlResult.ok) {
-              transcript = parseXmlCaptions(await xmlResult.text());
-              logger.info(`[YouTube] ANDROID parsed ${transcript.length} transcript lines`);
-            }
-          } catch (innerError) {
-            logger.warn(`[YouTube] ANDROID caption fetch failed: ${innerError.message}`);
-          }
+      // json3 is less sensitive to IP-bound caption tokens than the default XML
+      // representation. Keep XML as a second attempt because some ASR tracks
+      // still return an empty json3 payload.
+      const jsonCaptionUrl = buildCaptionUrl(track.baseUrl);
+      logger.info(`[YouTube] Fetching ANDROID captions (json3) attempt ${androidAttempt}`);
+      const jsonResult = await fetchWithTimeout(jsonCaptionUrl, {
+        headers: { 'User-Agent': androidUA, 'Accept-Language': 'en-US,en;q=0.9' }
+      });
+      if (jsonResult.ok) {
+        transcript = parseJson3Captions(await jsonResult.text());
+        logger.info(`[YouTube] ANDROID json3 parsed ${transcript.length} transcript lines`);
+      }
+
+      if (transcript.length === 0) {
+        logger.info(`[YouTube] ANDROID json3 empty; trying XML attempt ${androidAttempt}`);
+        const xmlResult = await fetchWithTimeout(track.baseUrl, {
+          headers: { 'User-Agent': androidUA, 'Accept-Language': 'en-US,en;q=0.9' }
+        });
+        if (xmlResult.ok) {
+          transcript = parseXmlCaptions(await xmlResult.text());
+          logger.info(`[YouTube] ANDROID XML parsed ${transcript.length} transcript lines`);
         }
+      }
 
-        const metadata = {
-          title: videoDetails?.title || `YouTube Video: ${videoId}`,
-          description: videoDetails?.shortDescription || '',
-          author: videoDetails?.author || 'Unknown Channel',
-          keywords: videoDetails?.keywords || [],
-          extractedBy: 'innertube_android_direct',
-          attempt: 1
-        };
+      if (transcript.length === 0) {
+        throw new Error('ANDROID caption tracks returned no transcript lines');
+      }
 
-        return { transcript, metadata, identity: { name: 'ANDROID_DIRECT', ua: androidUA, clientName: 'ANDROID' } };
+      const metadata = {
+        title: videoDetails.title,
+        description: videoDetails.shortDescription || '',
+        author: videoDetails.author || 'Unknown Channel',
+        keywords: videoDetails.keywords || [],
+        extractedBy: 'innertube_android_direct',
+        attempt: androidAttempt
+      };
+
+      return {
+        transcript,
+        metadata,
+        identity: { name: 'ANDROID_DIRECT', ua: androidUA, clientName: 'ANDROID' }
+      };
+    } catch (androidError) {
+      logger.warn(`[YouTube] Direct InnerTube ANDROID attempt ${androidAttempt} failed: ${androidError.message}`);
+      if (androidAttempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, 750 * androidAttempt));
       }
     }
-  } catch (androidError) {
-    logger.warn(`[YouTube] Direct InnerTube ANDROID attempt failed: ${androidError.message}`);
   }
 
   // Strategy 2: HTML scraping for session cookies + InnerTube (handles bot detection via cookies)
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let apiKey = null;
     try {
       logger.info(`[YouTube] extractWithRetry scraping attempt ${attempt}/${maxAttempts} for video ${videoId}`);
 
@@ -497,14 +532,14 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
 
       // Extract INNERTUBE_API_KEY
       const apiKeyMatch = html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/) || html.match(/"innertubeApiKey"\s*:\s*"([^"]+)"/);
-      let apiKey = apiKeyMatch ? apiKeyMatch[1] : null;
+      apiKey = apiKeyMatch ? apiKeyMatch[1] : null;
 
       if (!apiKey) {
         // Fallback to key from videoKeyPool if available, or static key
         const poolBundle = videoKeyPool.getStealthBundle();
         apiKey = (poolBundle && poolBundle.key && !isPlaceholderKey(poolBundle.key))
           ? poolBundle.key
-          : 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+          : YOUTUBE_INNERTUBE_API_KEY;
       }
 
       // Extract clientVersion

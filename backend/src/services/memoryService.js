@@ -1,7 +1,7 @@
 /**
  * Memory Service (Self-Hosted Concept Proof)
  * 
- * Replaces EverMemOS with local @xenova/transformers embeddings 
+ * Replaces EverMemOS with local Hugging Face Transformers.js embeddings
  * and SQLite vector storage using Cosine Similarity.
  */
 
@@ -23,13 +23,13 @@ async function getPipeline() {
   }
 
   if (!pipeline) {
-    logger.info('[MemoryEngine] Booting @xenova/transformers pipeline (Local)...');
+    logger.info('[MemoryEngine] Booting @huggingface/transformers pipeline (Local)...');
     try {
-      const pkg = '@xenova/transformers';
+      const pkg = '@huggingface/transformers';
       const { pipeline: transformersPipeline, env } = await import(pkg);
       env.cacheDir = './.cache/transformers';
-      pipeline = await transformersPipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-        quantized: true
+      pipeline = await transformersPipeline('feature-extraction', 'onnx-community/all-MiniLM-L6-v2-ONNX', {
+        dtype: 'q8'
       });
       logger.info('[MemoryEngine] Pipeline booted successfully.');
     } catch (err) {

@@ -76,23 +76,6 @@ export function SyncStatus() {
     }
   };
 
-  const getStatusColor = () => {
-    if (!isOnline) {
-      return 'bg-muted text-muted-foreground';
-    }
-
-    switch (status) {
-      case 'syncing':
-        return 'bg-blue-500/10 text-blue-500';
-      case 'synced':
-        return 'bg-green-500/10 text-green-500';
-      case 'error':
-        return 'bg-red-500/10 text-red-500';
-      default:
-        return 'bg-muted text-muted-foreground';
-    }
-  };
-
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024;

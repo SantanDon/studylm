@@ -30,11 +30,7 @@ export default async (req, res) => {
     console.error('Fatal API Bridge Error:', error);
     return res.status(500).json({
       error: 'API Bridge Crash',
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      stack: error.stack,
-      hint: 'Check Vercel logs for full context.'
+      message: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
     });
   }
 };

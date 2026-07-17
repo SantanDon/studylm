@@ -7,7 +7,7 @@ import { buildChatHistoryMessages } from "@/utils/chatHistoryBuilder";
 // Function to generate AI response using Ollama with ultra-fast processing and semantic search
 export async function generateAIResponse(
   userMessage: string,
-  user: LocalUser,
+  _user: LocalUser,
   notebookId: string,
   _task: OllamaTask = "chat",
   onChunk?: (chunk: string) => void,

@@ -26,7 +26,6 @@ interface StudioSidebarProps {
 
 const StudioSidebar = ({
   notebookId,
-  isExpanded,
   onCitationClick,
   activeSourceId
 }: StudioSidebarProps) => {
@@ -38,7 +37,7 @@ const StudioSidebar = ({
     editingNote, isQuizSectionOpen, setIsQuizSectionOpen,
     isFlashcardSectionOpen, setIsFlashcardSectionOpen,
     isConceptMapSectionOpen, setIsConceptMapSectionOpen,
-    isComparisonOpen, setIsComparisonOpen, showQuizResults, setShowQuizResults
+    isComparisonOpen, setIsComparisonOpen, showQuizResults
   } = state;
 
   const [isSignalQueueSectionOpen, setIsSignalQueueSectionOpen] = React.useState(false);
