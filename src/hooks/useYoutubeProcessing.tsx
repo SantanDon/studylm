@@ -84,7 +84,7 @@ export const useYoutubeProcessing = () => {
         type: "youtube",
         content: result.content,
         url: result.url,
-        processing_status: "processing",
+        processing_status: "processing" as const,
         metadata: {
           sourceType: "youtube-transcript",
           wordCount: result.content.split(/\s+/).length,

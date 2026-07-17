@@ -94,6 +94,7 @@ export const useChatMessages = (notebookId?: string) => {
       content: string;
       saveAsNote?: boolean;
       responseStyle?: 'dense' | 'conversational';
+      sourceIds?: string[];
     }) => {
       if (!effectiveUserId) throw new Error("User not authenticated");
 
@@ -104,7 +105,8 @@ export const useChatMessages = (notebookId?: string) => {
           { 
             message: messageData.content, 
             saveAsNote: messageData.saveAsNote,
-            responseStyle: messageData.responseStyle
+            responseStyle: messageData.responseStyle,
+            sourceIds: messageData.sourceIds,
           }, 
           session.access_token
         );
@@ -116,9 +118,15 @@ export const useChatMessages = (notebookId?: string) => {
         messageData.content,
         user as unknown as LocalUser,
         messageData.notebookId,
+        "chat",
+        undefined,
+        messageData.sourceIds,
       );
 
-      const sources = localStorageService.getSources(messageData.notebookId);
+      const allSources = localStorageService.getSources(messageData.notebookId);
+      const sources = messageData.sourceIds?.length
+        ? allSources.filter((source) => messageData.sourceIds?.includes(source.id))
+        : allSources;
       const sourcesForValidation = sources.map(s => ({
         id: s.id,
         title: s.title,
@@ -161,7 +169,7 @@ export const useChatMessages = (notebookId?: string) => {
       toast({
         title: isOffline ? "AI Temporarily Unavailable" : isImageBlock ? "Attachment Not Supported" : "Error",
         description: isOffline
-          ? "AI providers are currently unreachable. Your message is saved and you can try again later."
+          ? "AI providers are currently unreachable. Your draft is still available, so you can retry when the connection recovers."
           : isImageBlock
             ? "This AI model processes text only. Images and files cannot be read."
             : msg,

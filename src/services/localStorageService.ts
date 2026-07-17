@@ -9,6 +9,7 @@ import {
 
 import { encryptionService } from "./encryptionService";
 import { getSyncManager } from "@/lib/sync/syncManager";
+import type { SourceProcessingStatus } from "@/lib/sources/sourceProcessing";
 export interface LocalUser {
   id: string;
   email: string;
@@ -65,7 +66,7 @@ export interface LocalSource {
   url?: string;
   file_path?: string;
   file_size?: number;
-  processing_status?: string;
+  processing_status?: SourceProcessingStatus;
   metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;

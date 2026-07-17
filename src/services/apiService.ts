@@ -358,7 +358,7 @@ export const ApiService = {
     return response.json();
   },
 
-  async sendChatMessage(notebookId: string, params: { message: string, saveAsNote?: boolean, agentId?: string, responseStyle?: 'dense' | 'conversational' }, token: string) {
+  async sendChatMessage(notebookId: string, params: { message: string; saveAsNote?: boolean; agentId?: string; responseStyle?: 'dense' | 'conversational'; sourceIds?: string[] }, token: string) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/chat`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },

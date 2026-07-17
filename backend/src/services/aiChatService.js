@@ -9,6 +9,7 @@ import { dispatchToChatGPT } from './chatgptProvider.js';
 import { performWebSearch } from './webSearchService.js';
 import { logger } from '../utils/logger.js';
 import { dbHelpers } from '../db/database.js';
+import { isSourceUsableForGroundedChat, parseSourceMetadata } from '../utils/sourceProcessing.js';
 
 const BASE64_IMAGE_RE = /data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+/g;
 
@@ -243,18 +244,6 @@ export function shouldUseConversationHistory(message = '') {
 
   return /^(and|also|but|so|then|what about|how about|why|continue|expand|elaborate|clarify|summarize that)\b/.test(normalized)
     || /\b(previous|earlier|above|last answer|that answer|this point|those sources|same source)\b/.test(normalized);
-}
-
-function parseSourceMetadata(source) {
-  if (!source?.metadata) return {};
-  if (typeof source.metadata === 'string') {
-    try {
-      return JSON.parse(source.metadata);
-    } catch {
-      return {};
-    }
-  }
-  return source.metadata || {};
 }
 
 /**
@@ -519,13 +508,8 @@ Caller: ${callerType}`;
 /**
  * Main chat function — the core of the AI-Human collaboration feature.
  */
-export async function chatWithNotebook({ notebook, sources, notes, message, history = [], callerType = 'human', responseStyle = 'dense', chatgpt = null }) {
-  let contextSources = sources.filter((source) => {
-    const status = source.processingStatus || source.processing_status;
-    const metadata = parseSourceMetadata(source);
-    const isMetadataOnlyYoutube = source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only';
-    return status === 'completed' && typeof source.content === 'string' && source.content.trim().length > 0 && !isMetadataOnlyYoutube;
-  });
+export async function chatWithNotebook({ notebook, sources, notes, message, history = [], callerType = 'human', responseStyle = 'dense', chatgpt = null, allowWebFallback = true }) {
+  let contextSources = sources.filter(isSourceUsableForGroundedChat);
   let searchResult = null;
   let isFallbackUsed = false;
 
@@ -540,8 +524,9 @@ export async function chatWithNotebook({ notebook, sources, notes, message, hist
     return await dispatchToTitan(args);
   };
 
-  // If there are no sources, run proactive web search
-  if (contextSources.length === 0) {
+  // Web fallback is only allowed for unscoped notebook chat. Explicit source
+  // scopes must fail clearly rather than silently changing the evidence base.
+  if (contextSources.length === 0 && allowWebFallback) {
     logger.info(`[aiChatService] No sources in notebook. Running proactive web search.`);
     try {
       searchResult = await performWebSearch(message);
@@ -561,6 +546,12 @@ export async function chatWithNotebook({ notebook, sources, notes, message, hist
     } catch (searchError) {
       logger.error(`[aiChatService] Proactive web search failed:`, searchError);
     }
+  }
+
+  if (contextSources.length === 0) {
+    const error = new Error('No usable source content is available for this chat scope.');
+    error.code = 'NO_USABLE_SOURCES';
+    throw error;
   }
 
   let { context: notebookContext, sourceRefs } = buildNotebookContext(notebook, contextSources, notes, message);

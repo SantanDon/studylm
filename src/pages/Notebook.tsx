@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useNotebooks } from '@/hooks/useNotebooks';
 import { useSources } from '@/hooks/useSources';
@@ -7,13 +7,21 @@ import { useAgentIngestion } from '@/hooks/useAgentIngestion';
 import NotebookHeader from '@/components/notebook/NotebookHeader';
 import SourcesSidebar from '@/components/notebook/SourcesSidebar';
 import ChatArea from '@/components/notebook/ChatArea';
-import StudioSidebar from '@/components/notebook/StudioSidebar';
 import MobileNotebookTabs from '@/components/notebook/MobileNotebookTabs';
 import PodcastGenerationIndicator from '@/components/notebook/PodcastGenerationIndicator';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { Citation } from '@/types/message';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import AntigravityTelemetry from '@/components/agent/AntigravityTelemetry';
+
+const StudioSidebar = lazy(() => import('@/components/notebook/StudioSidebar'));
+
+const StudioLoading = () => (
+  <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
+    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    Loading Studio…
+  </div>
+);
 
 const Notebook = () => {
   const { id: notebookId } = useParams();
@@ -30,6 +38,7 @@ const Notebook = () => {
 
   const handleCitationClick = (citation: Citation) => {
     setSelectedCitation(citation);
+    setActiveSourceId(citation.source_id);
   };
 
   const handleCitationClose = () => {
@@ -132,13 +141,14 @@ const Notebook = () => {
                 message="Failed to load chat. Please try again."
                 showHomeButton={false}
               >
-                <ChatArea 
-                  hasSource={hasSource || false} 
+                <ChatArea
+                  hasSource={hasSource || false}
                   notebookId={notebookId}
                   notebook={notebook}
+                  activeSourceId={activeSourceId}
                   onCitationClick={handleCitationClick}
                 />
-              </ErrorBoundary>
+        </ErrorBoundary>
             </ResizablePanel>
             
             <ResizableHandle withHandle className="w-1.5 bg-gray-100/50 hover:bg-primary/30 transition-colors" />
@@ -154,11 +164,13 @@ const Notebook = () => {
                 message="Failed to load studio. Please try again."
                 showHomeButton={false}
               >
-                <StudioSidebar
-                  notebookId={notebookId}
-                  onCitationClick={handleCitationClick}
-                  activeSourceId={activeSourceId}
-                />
+                <Suspense fallback={<StudioLoading />}>
+                  <StudioSidebar
+                    notebookId={notebookId}
+                    onCitationClick={handleCitationClick}
+                    activeSourceId={activeSourceId}
+                  />
+                </Suspense>
               </ErrorBoundary>
             </ResizablePanel>
           </ResizablePanelGroup>
@@ -178,6 +190,8 @@ const Notebook = () => {
             onCitationClose={handleCitationClose}
             setSelectedCitation={setSelectedCitation}
             onCitationClick={handleCitationClick}
+            activeSourceId={activeSourceId}
+            onActiveSourceChange={handleActiveSourceChange}
           />
         </ErrorBoundary>
       )}

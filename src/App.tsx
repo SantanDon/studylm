@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { GuestProvider } from "@/contexts/GuestContext";
@@ -11,17 +12,27 @@ import RibbonsCursor from "@/components/ui/RibbonsCursor";
 import { useVisualEffectsStore } from "@/stores/visualEffectsStore";
 import { ProtectedRoute } from "@/components/routing/ProtectedRoute";
 import { EncryptionFlow } from "@/components/encryption/EncryptionFlow";
-import Dashboard from "./pages/Dashboard";
-import Notebook from "./pages/Notebook";
-import Settings from "./pages/Settings";
-import NotFound from "./pages/NotFound";
-import VerifyEmail from "./pages/VerifyEmail";
-import Privacy from "./pages/Privacy";
-import Terms from "./pages/Terms";
-import { useState, useEffect } from "react";
+
 import { Analytics, type BeforeSendEvent } from "@vercel/analytics/react";
 
 const queryClient = new QueryClient();
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Notebook = lazy(() => import('./pages/Notebook'));
+const Settings = lazy(() => import('./pages/Settings'));
+const NotFound = lazy(() => import('./pages/NotFound'));
+const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
+const Privacy = lazy(() => import('./pages/Privacy'));
+const Terms = lazy(() => import('./pages/Terms'));
+
+const RouteFallback = () => (
+  <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+      <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+      Loading StudyPod…
+    </div>
+  </div>
+);
 
 const redactAnalyticsEvent = (event: BeforeSendEvent): BeforeSendEvent | null => {
   try {
@@ -60,7 +71,8 @@ const AppContent = () => {
       <Analytics beforeSend={redactAnalyticsEvent} />
       <GuestBanner />
       <GlobalSearch open={searchOpen} setOpen={setSearchOpen} />
-      <Routes>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
         {/* Dedicated authentication route */}
         <Route 
           path="/auth" 
@@ -118,7 +130,8 @@ const AppContent = () => {
         
         {/* 404 */}
         <Route path="*" element={<NotFound />} />
-      </Routes>
+        </Routes>
+      </Suspense>
       <AuthPromptModal />
     </>
   );

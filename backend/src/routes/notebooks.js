@@ -14,6 +14,7 @@ import { MasticationService } from "../services/masticationService.js";
 import { agentPulse } from "../services/agentPulse.js";
 import { WebhookDispatcher } from "../services/webhookDispatcher.js";
 import { logger } from "../utils/logger.js";
+import { getSourceTrust } from "../utils/sourceProcessing.js";
 
 const router = express.Router();
 
@@ -29,32 +30,6 @@ function getActorName(req) {
 
 function isAgentRequest(req, agentId = null) {
   return req.user?.authMethod === 'api_key' || !!agentId;
-}
-
-function parseSourceMetadata(source) {
-  if (!source?.metadata) return {};
-  if (typeof source.metadata === 'string') {
-    try {
-      return JSON.parse(source.metadata);
-    } catch {
-      return {};
-    }
-  }
-  return source.metadata || {};
-}
-
-function getSourceTrust(source) {
-  const metadata = parseSourceMetadata(source);
-  const status = source.processingStatus || source.processing_status;
-  const isMetadataOnlyYoutube = source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only';
-  return {
-    videoId: metadata.videoId || null,
-    transcriptStatus: metadata.transcriptStatus || null,
-    transcriptLineCount: metadata.transcriptLineCount || 0,
-    extractionWarning: metadata.extractionWarning || null,
-    extractedBy: metadata.extractedBy || null,
-    usableForGroundedChat: status === 'completed' && !isMetadataOnlyYoutube,
-  };
 }
 
 async function getNotebookOrRecover(id, userId, description = "Auto-provisioned") {
@@ -733,17 +708,22 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
       },
       sources: sources.map(s => {
         const trust = getSourceTrust(s);
-        const hasContent = typeof s.content === 'string' && s.content.length > 0;
-        const contentStatus = !s.processingStatus || s.processingStatus === 'pending'
+        const hasContent = typeof s.content === 'string' && s.content.trim().length > 0;
+        const processingStatus = trust.status;
+        const contentStatus = ['pending', 'uploading'].includes(processingStatus)
           ? 'pending'
-          : (s.processingStatus === 'processing' ? 'processing'
-          : (s.processingStatus === 'failed' ? 'failed'
-          : (hasContent ? 'available' : 'empty')));
+          : (['extracting', 'processing', 'indexing'].includes(processingStatus)
+            ? 'processing'
+            : (processingStatus === 'failed'
+              ? 'failed'
+              : (processingStatus === 'degraded'
+                ? 'degraded'
+                : (hasContent ? 'available' : 'empty'))));
         return {
           id: s.id,
           title: s.title,
           type: s.type,
-          status: s.processingStatus,
+          status: processingStatus,
           url: s.url || null,
           ...trust,
           contentStatus,
@@ -752,8 +732,7 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
             ? s.content.substring(0, 500) + (s.content.length > 500 ? '...' : '')
             : null,
           fullContentAvailable: hasContent,
-          usableForGroundedChat: hasContent && (s.type === 'youtube' || s.type === 'document' || s.type === 'website'),
-          transcriptStatus: s.transcriptStatus || (s.type === 'youtube' ? 'unknown' : null)
+          transcriptStatus: trust.transcriptStatus || (s.type === 'youtube' ? 'unknown' : null)
         };
       }),
       notes: notes.map(n => ({
@@ -800,7 +779,7 @@ router.post("/:id/immerse", requireScope('missions:write'), async (req, res) => 
  */
 router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
   try {
-    const { message, saveAsNote = false, agentId = null, responseStyle = 'dense' } = req.body;
+    const { message, saveAsNote = false, agentId = null, responseStyle = 'dense', sourceIds = [] } = req.body;
     if (!message) return res.status(400).json({ error: "message is required" });
 
     const notebookId = req.params.id;
@@ -810,6 +789,19 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
     if (!notebook) return res.status(404).json({ error: "Notebook not found" });
 
     const sources = await dbHelpers.getSourcesByNotebookId(notebookId, userId);
+    const requestedSourceIds = Array.isArray(sourceIds)
+      ? [...new Set(sourceIds.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()))].slice(0, 50)
+      : [];
+    const scopedSources = requestedSourceIds.length > 0
+      ? sources.filter((source) => requestedSourceIds.includes(source.id))
+      : sources;
+
+    if (requestedSourceIds.length > 0 && scopedSources.length !== requestedSourceIds.length) {
+      return res.status(400).json({
+        error: "One or more selected sources are unavailable in this notebook.",
+        code: "INVALID_SOURCE_SCOPE",
+      });
+    }
     const notes = await dbHelpers.getNotesByNotebookId(notebookId, userId);
     const messages = await dbHelpers.getChatMessagesByNotebookId(notebookId, userId);
     // Allocate the turn IDs now, but persist the user's message only once a
@@ -939,7 +931,8 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
         tokensUsed: 0,
         messageId: aiMsgId,
         noteId,
-        joinCode: notebook.joinCode
+        joinCode: notebook.joinCode,
+        sourceScope: requestedSourceIds,
       });
     }
 
@@ -956,13 +949,14 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
       // Call Gemini using our context service
       const chatResult = await chatWithNotebook({
         notebook,
-        sources,
+        sources: scopedSources,
         notes,
         message,
         history: messages,
         callerType: callerIsAgent ? 'agent' : 'human',
         responseStyle,
         chatgpt: chatgptProvider,
+        allowWebFallback: requestedSourceIds.length === 0,
       });
 
       // Persist the complete turn only after a response was generated.
@@ -996,11 +990,18 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
         tokensUsed: chatResult.tokensUsed,
         messageId: aiMsgId,
         noteId,
-        joinCode: notebook.joinCode
+        joinCode: notebook.joinCode,
+        sourceScope: requestedSourceIds,
       });
 
     } catch (aiError) {
       logger.error("AI chat processing error:", aiError);
+      if (aiError?.code === 'NO_USABLE_SOURCES') {
+        return res.status(422).json({
+          error: aiError.message,
+          code: 'NO_USABLE_SOURCES',
+        });
+      }
       if (aiError?.code === 'PROVIDER_UNAVAILABLE') {
         return res.status(503).json({
           error: "AI providers are temporarily unavailable. Please try again shortly.",

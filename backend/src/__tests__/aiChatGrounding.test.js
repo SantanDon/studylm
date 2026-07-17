@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildNotebookContext,
   buildSystemPrompt,
+  chatWithNotebook,
   ensurePrimaryGrounding,
   inferCitationsFromMarkers,
   parseCitationExcerpts,
@@ -153,6 +154,23 @@ describe('AI chat grounding', () => {
     expect(result.context).toContain('Human dignity');
     expect(result.context).toContain('achievement of equality');
     expect(result.context).toContain('Supremacy of the constitution');
+  });
+  it('rejects an unusable explicit source scope instead of falling back to the web', async () => {
+    await expect(chatWithNotebook({
+      notebook: { id: 'notebook-1', title: 'Scoped research' },
+      sources: [{
+        id: 'failed-source',
+        title: 'Failed PDF',
+        type: 'pdf',
+        content: '',
+        processing_status: 'failed',
+      }],
+      notes: [],
+      message: 'Summarize only this source.',
+      allowWebFallback: false,
+    })).rejects.toMatchObject({
+      code: 'NO_USABLE_SOURCES',
+    });
   });
 
   it('uses history for clear follow-ups but not unrelated fresh questions', () => {

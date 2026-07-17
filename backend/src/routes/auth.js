@@ -162,16 +162,18 @@ router.post("/signup", authLimiter, async (req, res, next) => {
         throw new AppError(400, 'WEAK_PASSWORD', 'Password must be at least 6 characters');
       }
     }
+    // Check display-name and email uniqueness concurrently. These are remote
+    // Turso reads in cloud mode, so serialising them doubles signup latency.
+    const [existingName, existingUser] = await Promise.all([
+      finalDisplayName
+        ? dbHelpers.getUserByDisplayName(finalDisplayName)
+        : Promise.resolve(null),
+      dbHelpers.getUserByEmail(finalEmail),
+    ]);
 
-    if (finalDisplayName) {
-      const existingName = await dbHelpers.getUserByDisplayName(finalDisplayName);
-      if (existingName) {
-        throw new AppError(400, 'DISPLAY_NAME_TAKEN', 'Display name is already taken');
-      }
+    if (existingName) {
+      throw new AppError(400, 'DISPLAY_NAME_TAKEN', 'Display name is already taken');
     }
-
-    // Check if user already exists
-    const existingUser = await dbHelpers.getUserByEmail(finalEmail);
     if (existingUser) {
       throw new AppError(400, 'USER_EXISTS', 'User already exists');
     }
@@ -200,15 +202,19 @@ router.post("/signup", authLimiter, async (req, res, next) => {
     if (recovery_key_hash) {
       await dbHelpers.storeRecoveryHash(userId, recovery_key_hash);
     }
-
-    // Create user preferences and stats
-    await dbHelpers.createUserPreferences(uuidv4(), userId);
-    await dbHelpers.createUserStats(uuidv4(), userId);
-
-    // Get user data
-    const user = await dbHelpers.getUserById(userId);
-    const preferences = await dbHelpers.getUserPreferences(userId);
-    const stats = await dbHelpers.getUserStats(userId);
+    // Preferences and stats are compatibility defaults today; avoid a redundant
+    // user refetch after insertion and return the known canonical signup data.
+    const createdAt = new Date().toISOString();
+    const user = {
+      id: userId,
+      email: finalEmail,
+      displayName: finalDisplayName || null,
+      avatarUrl: null,
+      bio: null,
+      createdAt,
+    };
+    const preferences = { theme: 'dark', language: 'en' };
+    const stats = { level: 1, xp: 0, notebooks_created: 0 };
 
     // Since we auto-verify domains upfront, user is instantly logged in
     if (isVerified) {
@@ -642,18 +648,13 @@ router.post("/resend-verification", async (req, res, next) => {
     if (user.isVerified) {
       throw new AppError(400, 'ALREADY_VERIFIED', 'Email is already verified');
     }
-
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h expiration
-
-    dbHelpers.updateUser(user.id, { verificationToken: verificationToken, tokenExpiresAt: tokenExpiresAt });
-    const success = await sendVerificationEmail(email, verificationToken);
-
-    if (!success) {
-      return res.status(500).json({ error: "Failed to send verification email" });
-    }
-
-    res.json({ message: "Verification email resent successfully" });
+    // New StudyPod accounts are verified immediately, and legacy unverified
+    // accounts are permitted to sign in after valid credential checks. Keep
+    // this compatibility endpoint honest instead of calling a removed mailer.
+    res.json({
+      message: "Email verification is no longer required. You may sign in normally.",
+      verificationRequired: false,
+    });
   } catch (error) {
     next(error);
   }

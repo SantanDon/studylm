@@ -89,18 +89,15 @@ export function useAddSourcesHandlers(
             }
           }
 
-          try {
-            await processDocumentAsync({ sourceId, filePath, sourceType: fileType, notebookId });
+          await processDocumentAsync({
+            sourceId,
+            filePath,
+            sourceType: fileType,
+            notebookId,
+            content,
+          });
 
-            if (notebookId && fileType) {
-              await generateNotebookContentAsync({ notebookId, filePath, sourceType: fileType });
-            } else {
-              console.error("Missing required parameters for notebook generation:", { notebookId, fileType });
-            }
-          } catch (processingError) {
-            console.error("Document processing failed:", processingError);
-            updateSource({ sourceId, updates: { processing_status: "completed" } });
-          }
+          await generateNotebookContentAsync({ notebookId, filePath, sourceType: fileType });
         } catch (error) {
           console.error("File processing failed for:", file.name, error);
           updateSource({ sourceId, updates: { processing_status: "failed" } });

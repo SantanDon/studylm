@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
 import { useNotebookGeneration } from "./useNotebookGeneration";
 import { useEffect } from "react";
+import type { SourceProcessingStatus } from "@/lib/sources/sourceProcessing";
 
 export interface Source extends LocalSource {
   author_name?: string;
@@ -78,7 +79,7 @@ export const useSources = (notebookId?: string) => {
       url?: string;
       file_path?: string;
       file_size?: number;
-      processing_status?: string;
+      processing_status?: SourceProcessingStatus;
       metadata?: unknown;
     }) => {
       if (!effectiveUserId) throw new Error("User not authenticated");
@@ -209,7 +210,7 @@ export const useSources = (notebookId?: string) => {
       updates: {
         title?: string;
         file_path?: string;
-        processing_status?: string;
+        processing_status?: SourceProcessingStatus;
         content?: string;
         metadata?: unknown;
       };

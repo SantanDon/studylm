@@ -19,14 +19,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import AddSourcesDialog from "./AddSourcesDialog";
 import RenameSourceDialog from "./RenameSourceDialog";
-import SourceContentViewer from "@/components/chat/SourceContentViewer";
 import { useSources } from "@/hooks/useSources";
 import { useSourceDelete } from "@/hooks/useSourceDelete";
 import { useWebsiteProcessing } from "@/hooks/useWebsiteProcessing";
 import { Citation } from "@/types/message";
 import { LocalSource } from "@/services/localStorageService";
+import { useDocumentProcessing } from "@/hooks/useDocumentProcessing";
+import { useToast } from "@/hooks/use-toast";
+import {
+  getSourceProcessingStatus,
+  parseSourceProcessingMetadata,
+  type SourceProcessingError,
+} from "@/lib/sources/sourceProcessing";
+
+const AddSourcesDialog = React.lazy(() => import('./AddSourcesDialog'));
+const SourceContentViewer = React.lazy(() => import('@/components/chat/SourceContentViewer'));
 
 type Source = LocalSource;
 
@@ -37,19 +45,12 @@ interface SourceMetadata {
   extractionWarning?: string;
   extractedBy?: string;
   duration?: number;
+  processingStage?: string;
+  processingError?: SourceProcessingError;
 }
 
 function parseSourceMetadata(source: Source): SourceMetadata {
-  const rawMetadata = source.metadata as unknown;
-  if (!rawMetadata) return {};
-  if (typeof rawMetadata === "string") {
-    try {
-      return JSON.parse(rawMetadata) as SourceMetadata;
-    } catch {
-      return {};
-    }
-  }
-  return rawMetadata as SourceMetadata;
+  return parseSourceProcessingMetadata(source.metadata) as SourceMetadata;
 }
 
 interface SourcesSidebarProps {
@@ -73,6 +74,7 @@ const SourcesSidebar = ({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
+  const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const [selectedSourceForViewing, setSelectedSourceForViewing] =
     useState<Source | null>(null);
 
@@ -99,6 +101,8 @@ const SourcesSidebar = ({
   }, [sources, searchQuery, selectedType]);
 
   const { deleteSource, isDeleting } = useSourceDelete();
+  const { processDocumentAsync } = useDocumentProcessing();
+  const { toast } = useToast();
 
   const [importingUrls, setImportingUrls] = useState<Record<string, boolean>>({});
   const { addWebsitesAsSources, isProcessing: isAddingSuggested } = useWebsiteProcessing();
@@ -221,10 +225,14 @@ const SourcesSidebar = ({
     switch (status) {
       case "uploading":
         return <i className="fi fi-rr-upload h-4 w-4 animate-pulse text-blue-500"></i>;
+      case "extracting":
       case "processing":
+      case "indexing":
         return <i className="fi fi-rr-spinner h-4 w-4 animate-spin text-blue-500"></i>;
       case "completed":
         return <i className="fi fi-rr-check-circle h-4 w-4 text-green-500"></i>;
+      case "degraded":
+        return <i className="fi fi-rr-exclamation h-4 w-4 text-amber-500"></i>;
       case "failed":
         return <i className="fi fi-rr-cross-circle h-4 w-4 text-red-500"></i>;
       case "pending":
@@ -236,8 +244,9 @@ const SourcesSidebar = ({
 
   const renderSourceTrustBadge = (source: Source) => {
     const metadata = parseSourceMetadata(source);
+    const status = getSourceProcessingStatus(source);
 
-    if (source.processing_status === "failed") {
+    if (status === "failed") {
       return (
         <span className="text-[10px] font-medium rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
           Failed
@@ -245,10 +254,21 @@ const SourcesSidebar = ({
       );
     }
 
-    if (source.processing_status === "processing" || source.processing_status === "pending" || source.processing_status === "uploading") {
+    if (status === "extracting" || status === "processing" || status === "indexing" || status === "pending" || status === "uploading") {
       return (
         <span className="text-[10px] font-medium rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300">
           Processing
+        </span>
+      );
+    }
+
+    if (status === "degraded") {
+      return (
+        <span
+          className="text-[10px] font-medium rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
+          title={metadata.processingError?.message || "Text is available, but semantic indexing is limited."}
+        >
+          Limited
         </span>
       );
     }
@@ -282,6 +302,42 @@ const SourcesSidebar = ({
         Ready
       </span>
     );
+  };
+
+  const handleRetrySource = async (source: Source) => {
+    if (!notebookId) return;
+    if (!source.content?.trim()) {
+      toast({
+        title: "Replace this source",
+        description: "No usable text was extracted, so the original file or link must be added again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setRetryingSourceId(source.id);
+    try {
+      const result = await processDocumentAsync({
+        sourceId: source.id,
+        filePath: source.file_path || source.url || source.id,
+        sourceType: source.type,
+        notebookId,
+        content: source.content,
+      });
+      toast(result.status === "degraded"
+        ? {
+            title: "Source still has limited indexing",
+            description: "The extracted text remains available for grounded chat. You can retry indexing later.",
+          }
+        : {
+            title: "Source reprocessed",
+            description: source.title + " is ready for grounded chat.",
+          });
+    } catch {
+      // The processing hook displays the structured error and preserves failure state.
+    } finally {
+      setRetryingSourceId(null);
+    }
   };
 
   const handleRemoveSource = (source: Source) => {
@@ -388,14 +444,16 @@ const SourcesSidebar = ({
           </div>
         </div>
 
-        <SourceContentViewer
-          citation={displayCitation}
-          sourceContent={sourceContent}
-          sourceSummary={sourceSummary}
-          sourceUrl={sourceUrl}
-          className="flex-1 overflow-hidden"
-          isOpenedFromSourceList={selectedCitation.citation_id === -1}
-        />
+        <React.Suspense fallback={<div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Loading source…</div>}>
+          <SourceContentViewer
+            citation={displayCitation}
+            sourceContent={sourceContent}
+            sourceSummary={sourceSummary}
+            sourceUrl={sourceUrl}
+            className="flex-1 overflow-hidden"
+            isOpenedFromSourceList={selectedCitation.citation_id === -1}
+          />
+        </React.Suspense>
       </div>
     );
   }
@@ -495,12 +553,21 @@ const SourcesSidebar = ({
                             </div>
                           </div>
                           <div className="flex-shrink-0 py-[4px]">
-                            {renderProcessingStatus(source.processing_status)}
+                            {renderProcessingStatus(getSourceProcessingStatus(source))}
                           </div>
                         </div>
                       </Card>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
+                      {(getSourceProcessingStatus(source) === "failed" || getSourceProcessingStatus(source) === "degraded") && (
+                        <ContextMenuItem
+                          onClick={() => handleRetrySource(source)}
+                          disabled={retryingSourceId === source.id}
+                        >
+                          <i className={"fi fi-rr-refresh h-4 w-4 mr-2 " + (retryingSourceId === source.id ? "animate-spin" : "")}></i>
+                          {source.content?.trim() ? "Retry indexing" : "Retry / replace source"}
+                        </ContextMenuItem>
+                      )}
                       <ContextMenuItem onClick={() => handleRenameSource(source)}>
                         <i className="fi fi-rr-edit h-4 w-4 mr-2"></i>
                         Rename source
@@ -577,11 +644,15 @@ const SourcesSidebar = ({
             </div>
       </ScrollArea>
 
-      <AddSourcesDialog
-        open={showAddSourcesDialog}
-        onOpenChange={setShowAddSourcesDialog}
-        notebookId={notebookId}
-      />
+      {showAddSourcesDialog && (
+        <React.Suspense fallback={null}>
+          <AddSourcesDialog
+            open={showAddSourcesDialog}
+            onOpenChange={setShowAddSourcesDialog}
+            notebookId={notebookId}
+          />
+        </React.Suspense>
+      )}
 
       <RenameSourceDialog
         open={showRenameDialog}

@@ -11,8 +11,7 @@ export async function dispatchToChatGPT({ messages, provider, model, temperature
     });
     const tokensUsed =
       result.usage?.totalTokens ??
-      ((result.usage?.inputTokens || 0) + (result.usage?.outputTokens || 0)) ??
-      0;
+      ((result.usage?.inputTokens || 0) + (result.usage?.outputTokens || 0));
     logger.info(`[ChatGPT] generateText ok in ${Date.now() - start}ms | model=${model} | tokens=${tokensUsed}`);
     return {
       answer: result.text || 'No response generated.',

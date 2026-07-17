@@ -65,7 +65,7 @@ export const useTextPaste = () => {
         title: title,
         type: "text",
         content: text,
-        processing_status: "completed", // No processing needed for plain text
+        processing_status: "completed" as const, // No processing needed for plain text
         metadata: {
           validation: validation, // Store validation results
           sourceType: "pasted-text",

@@ -7,6 +7,7 @@
         "postinstall": "node scripts/install-backend.js",
         "dev": "concurrently \"vite\" \"nodemon backend/src/server.js\"",
         "build": "vite build",
+        "check:bundle": "node scripts/check-bundle-budget.mjs",
         "start": "node backend/src/server.js",
         "build:dev": "vite build --mode development",
         "lint": "eslint .",
