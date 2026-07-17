@@ -194,8 +194,11 @@ app.use('/api/signal-queue', apiLimiter, signalQueueRoutes);
 app.use('/api/docx', apiLimiter, docxRouter);
 app.use('/api/audiobook', apiLimiter, audiobookRoutes);
 
-// Health check
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+// Health check — expose both the local-process path and the Vercel API path.
+app.get(['/health', '/api/health'], (req, res) => res.json({
+  status: 'ok',
+  timestamp: new Date().toISOString(),
+}));
 
 // Provider availability
 app.get('/api/health/provider', async (req, res) => {
