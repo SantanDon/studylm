@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useNotebooks } from '@/hooks/useNotebooks';
 import { useSources } from '@/hooks/useSources';
@@ -15,6 +15,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/componen
 import AntigravityTelemetry from '@/components/agent/AntigravityTelemetry';
 
 const StudioSidebar = lazy(() => import('@/components/notebook/StudioSidebar'));
+const DocumentsPanel = lazy(() => import('@/components/notebook/DocumentsPanel'));
 
 const StudioLoading = () => (
   <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
@@ -29,6 +30,8 @@ const Notebook = () => {
   const { sources } = useSources(notebookId);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const [documentWorkspaceOpen, setDocumentWorkspaceOpen] = useState(false);
+  const [initialDocumentId, setInitialDocumentId] = useState<string | null>(null);
   const isDesktop = useIsDesktop();
   const { isIngesting, ingestionStatus } = useAgentIngestion(notebookId);
 
@@ -49,7 +52,16 @@ const Notebook = () => {
     setActiveSourceId(sourceId);
   };
 
-  console.log("DEBUG: Notebook.tsx executing", { notebookId, notebooks, sources, isDesktop });
+
+  useEffect(() => {
+    const openDocuments = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string }>).detail;
+      setInitialDocumentId(detail?.documentId || null);
+      setDocumentWorkspaceOpen(true);
+    };
+    window.addEventListener('studypod:open-document', openDocuments);
+    return () => window.removeEventListener('studypod:open-document', openDocuments);
+  }, []);
 
   if (isLoading) {
     return (
@@ -101,7 +113,21 @@ const Notebook = () => {
          </div>
       )}
       
-      {isDesktop ? (
+      {documentWorkspaceOpen && notebookId ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <Suspense fallback={<StudioLoading />}>
+            <DocumentsPanel
+              notebookId={notebookId}
+              activeSourceId={activeSourceId}
+              initialDocumentId={initialDocumentId}
+              onClose={() => {
+                setDocumentWorkspaceOpen(false);
+                setInitialDocumentId(null);
+              }}
+            />
+          </Suspense>
+        </div>
+      ) : isDesktop ? (
         // Desktop layout (3-column resizable)
         <div className="flex-1 flex overflow-hidden">
           <ResizablePanelGroup direction="horizontal">

@@ -93,7 +93,7 @@ const AddSourcesDialog = ({
                       "Extracting text and preparing sources for chat"
                     ) : (
                       <>
-                        PDF, Markdown, EPUB, TXT, or Audio. Or{" "}
+                        PDF, Word, Markdown, EPUB, TXT, or Audio. Or{" "}
                         <button
                           className="text-white font-medium hover:underline decoration-white/30"
                           onClick={() =>
@@ -112,7 +112,7 @@ const AddSourcesDialog = ({
                   type="file"
                   multiple
                   className="hidden"
-                  accept=".pdf,.txt,.md,.mp3,.wav,.m4a,.epub"
+                  accept=".pdf,.docx,.txt,.md,.markdown,.mp3,.wav,.m4a,.epub"
                   onChange={handleFileSelect}
                   disabled={isProcessingFiles}
                 />
@@ -190,12 +190,14 @@ const AddSourcesDialog = ({
       </Dialog>
 
       {/* Sub-dialogs */}
-      <CopiedTextDialog
-        open={showCopiedTextDialog}
-        onOpenChange={setShowCopiedTextDialog}
-        notebookId={notebookId}
-        onSuccess={() => onOpenChange(false)}
-      />
+      {showCopiedTextDialog && (
+        <CopiedTextDialog
+          open={showCopiedTextDialog}
+          onOpenChange={setShowCopiedTextDialog}
+          notebookId={notebookId}
+          onSuccess={() => window.setTimeout(() => onOpenChange(false), 0)}
+        />
+      )}
 
       <MultipleWebsiteUrlsDialog
         open={showMultipleWebsiteDialog}

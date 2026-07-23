@@ -6,7 +6,12 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   buildSourceProcessingError,
   parseSourceProcessingMetadata,
+  shouldSkipClientSemanticIndexing,
 } from "@/lib/sources/sourceProcessing";
+
+const MAX_CLIENT_INDEX_CHARACTERS = Number(
+  import.meta.env.VITE_MAX_CLIENT_INDEX_CHARACTERS || 250_000,
+);
 
 const EXTRACTION_ERROR_MARKERS = [
   "extraction failed",
@@ -111,6 +116,37 @@ export const useDocumentProcessing = () => {
         throw new Error(processingError.message);
       }
 
+      if (shouldSkipClientSemanticIndexing(content.length, MAX_CLIENT_INDEX_CHARACTERS)) {
+        const processingError = buildSourceProcessingError(
+          "SOURCE_INDEXING_SKIPPED_LARGE",
+          `This ${content.length.toLocaleString()}-character source is available through keyword-grounded chat. Semantic indexing was skipped to keep the notebook responsive.`,
+          "indexing",
+          false,
+        );
+        await updateSourceData({
+          processing_status: "degraded",
+          content,
+          metadata: {
+            ...metadata,
+            processingStage: "degraded",
+            processingError,
+            indexingSkipped: true,
+            indexingStrategy: "keyword_only",
+            contentLength: content.length,
+            processedAt: new Date().toISOString(),
+          },
+        });
+        return {
+          success: false,
+          sourceId,
+          filePath,
+          sourceType,
+          status: "degraded" as const,
+          error: processingError.message,
+          reason: "large_source" as const,
+        };
+      }
+
       await updateSourceData({
         processing_status: "processing",
         metadata: {
@@ -186,9 +222,14 @@ export const useDocumentProcessing = () => {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       if (!data.success && data.status === "degraded") {
+        const isLargeSource = "reason" in data && data.reason === "large_source";
         toast({
-          title: "Source added with limited indexing",
-          description: "The text is available for grounded chat, but semantic indexing can be retried.",
+          title: isLargeSource
+            ? "Large source ready for grounded chat"
+            : "Source added with limited indexing",
+          description: isLargeSource
+            ? "StudyPod preserved the full text and enabled keyword-grounded retrieval without blocking the notebook."
+            : "The text is available for grounded chat, but semantic indexing can be retried.",
         });
       }
     },

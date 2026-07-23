@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildKeywordOnlySourceMetadata,
   getSourceTrust,
   isSourceUsableForGroundedChat,
+  shouldSkipSemanticIndexing,
 } from '../utils/sourceProcessing.js';
 
 describe('backend source processing contract', () => {
@@ -27,6 +29,23 @@ describe('backend source processing contract', () => {
       status: 'degraded',
       usableForGroundedChat: true,
       processingStage: 'degraded',
+    });
+  });
+
+  it('turns oversized sources into stable keyword-only grounded sources', () => {
+    expect(shouldSkipSemanticIndexing(757_010, 250_000)).toBe(true);
+    const metadata = buildKeywordOnlySourceMetadata({ fileName: 'plain-english.txt' }, 757_010);
+    expect(metadata).toMatchObject({
+      fileName: 'plain-english.txt',
+      processingStage: 'degraded',
+      indexingSkipped: true,
+      indexingStrategy: 'keyword_only',
+      contentLength: 757_010,
+      processingError: {
+        code: 'SOURCE_INDEXING_SKIPPED_LARGE',
+        stage: 'indexing',
+        retryable: false,
+      },
     });
   });
 

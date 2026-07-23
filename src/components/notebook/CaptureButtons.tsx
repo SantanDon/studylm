@@ -4,6 +4,7 @@ import { useNotes } from '@/hooks/useNotes';
 import { useTasks } from '@/hooks/useTasks';
 import { toast } from 'sonner';
 import type { EnhancedChatMessage } from '@/types/message';
+import { formatDisplayTitle } from '@/lib/utils/displayTitle';
 
 interface CaptureButtonsProps {
   content: EnhancedChatMessage['message']['content'];
@@ -20,13 +21,13 @@ const CaptureButtons = ({ content, notebookId }: CaptureButtonsProps) => {
   const handleSaveToNote = async () => {
     if (!notebookId) return;
     const firstLine = plainText.split('\n')[0] || 'Captured insight';
-    const title = firstLine.length > 50 ? firstLine.substring(0, 47) + '...' : firstLine;
+    const title = formatDisplayTitle(firstLine, 'Captured insight');
     try {
       await createNoteAsync({ title, content: plainText, source_type: 'ai_response' });
-      toast.success('Insight captured as Note');
+      toast.success('Saved as a note');
     } catch (error) {
       console.error('Failed to capture insight as note:', error);
-      toast.error('Could not save this response as a Note');
+      toast.error('Could not save this response as a note');
     }
   };
 
@@ -34,43 +35,40 @@ const CaptureButtons = ({ content, notebookId }: CaptureButtonsProps) => {
     if (!notebookId) return;
     try {
       await createTaskAsync({ content: plainText, priority: 'medium' });
-      toast.success('Insight captured as Task');
+      toast.success('Saved as a task');
     } catch (error) {
       console.error('Failed to capture insight as task:', error);
-      toast.error('Could not save this response as a Task');
+      toast.error('Could not save this response as a task');
     }
   };
 
   if (!notebookId) return null;
 
   return (
-    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/50 backdrop-blur-sm rounded-lg p-1 border border-gray-100/50">
+    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
       <Button
         variant="ghost"
         size="sm"
         onClick={handleSaveToNote}
         disabled={isSavingNote}
-        className="h-8 px-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50/50 transition-colors"
-        title="Capture as Note"
-        aria-label="Capture as Note"
+        className="h-7 rounded-md px-2 text-[11px] text-muted-foreground hover:text-foreground"
+        title="Save response as note"
+        aria-label="Save response as note"
       >
-        <FileText className="w-3.5 h-3.5 mr-1.5" />
-        <span className="text-[10px] font-medium">{isSavingNote ? 'Saving...' : 'Note'}</span>
+        <FileText className="h-3.5 w-3.5" />
+        {isSavingNote ? 'Saving' : 'Note'}
       </Button>
-      
-      <div className="w-px h-3 bg-gray-200/50 mx-0.5" />
-
       <Button
         variant="ghost"
         size="sm"
         onClick={handleSaveToTask}
         disabled={isSavingTask}
-        className="h-8 px-2 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50/50 transition-colors"
-        title="Capture as Task"
-        aria-label="Capture as Task"
+        className="h-7 rounded-md px-2 text-[11px] text-muted-foreground hover:text-foreground"
+        title="Save response as task"
+        aria-label="Save response as task"
       >
-        <CheckSquare className="w-3.5 h-3.5 mr-1.5" />
-        <span className="text-[10px] font-medium">{isSavingTask ? 'Saving...' : 'Task'}</span>
+        <CheckSquare className="h-3.5 w-3.5" />
+        {isSavingTask ? 'Saving' : 'Task'}
       </Button>
     </div>
   );

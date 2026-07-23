@@ -5,7 +5,20 @@ import { getDatabase, dbHelpers } from '../db/database.js';
 import { users } from '../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireScope } from '../middleware/auth.js';
+import { v4 as uuidv4 } from 'uuid';
+import { fetchSupadataTranscript, isSupadataConfigured, supadataConfig } from '../services/supadataService.js';
+import { fetchYtDlpTranscript, isYtDlpFallbackEnabled } from '../services/ytdlpTranscriptService.js';
+import {
+  assessTranscriptQuality,
+  buildYouTubeStructuredContent,
+  classifyYouTubeAvailability,
+  extractParticipantCandidates,
+  extractYouTubeVideoId,
+  normalizeTranscriptSegments,
+  parseYouTubeChapters,
+  selectCaptionTrack,
+} from '../services/youtubeUnderstandingService.js';
 
 const router = express.Router();
 const YT_FETCH_TIMEOUT = 15000;
@@ -22,6 +35,29 @@ async function fetchWithTimeout(url, options, timeoutMs = YT_FETCH_TIMEOUT) {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(id);
+  }
+}
+
+async function fetchOEmbedMetadata(videoId) {
+  try {
+    const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const response = await fetchWithTimeout(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`,
+      { headers: { Accept: 'application/json' } },
+      8000,
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data?.title) return null;
+    return {
+      title: data.title,
+      author: data.author_name || 'Unknown Channel',
+      thumbnail: data.thumbnail_url || null,
+      canonicalUrl,
+    };
+  } catch (error) {
+    logger.debug(`[YouTube] oEmbed metadata unavailable for ${videoId}: ${error.message}`);
+    return null;
   }
 }
 
@@ -66,6 +102,7 @@ function parseXmlCaptions(xmlText) {
         text,
         offset: startMatch ? parseFloat(startMatch[1]) * 1000 : result.length * 3000,
         duration: durMatch ? parseFloat(durMatch[1]) * 1000 : 3000,
+        timingSource: startMatch ? 'provider' : 'inferred',
       });
     }
   }
@@ -88,6 +125,7 @@ function parseXmlCaptions(xmlText) {
         text,
         offset: tMatch ? parseFloat(tMatch[1]) : result.length * 3000,
         duration: dMatch ? parseFloat(dMatch[1]) : 3000,
+        timingSource: tMatch ? 'provider' : 'inferred',
       });
     }
   }
@@ -103,124 +141,13 @@ function parseXmlCaptions(xmlText) {
       result.push({
         text,
         offset: result.length * 3000,
-        duration: 3000
+        duration: 3000,
+        timingSource: 'inferred',
       });
     }
   }
 
   return result;
-}
-
-// ─── Chapter Detection ───────────────────────────────────────────────────────
-
-function parseChaptersFromDescription(description) {
-  if (!description) return [];
-  const chapterRegex = /^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$/gm;
-  const chapters = [];
-  let match;
-  while ((match = chapterRegex.exec(description)) !== null) {
-    const [, timestamp, title] = match;
-    const parts = timestamp.split(':').map(Number);
-    let seconds = 0;
-    if (parts.length === 3) seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
-    else if (parts.length === 2) seconds = parts[0] * 60 + parts[1];
-    chapters.push({ timestamp, title: title.trim(), startSeconds: seconds });
-  }
-  const isValid = chapters.length >= 2 && chapters.every((c, i) => i === 0 || c.startSeconds > chapters[i - 1].startSeconds);
-  return isValid ? chapters : [];
-}
-
-// ─── Transcript → AI-Optimized Content ──────────────────────────────────────
-
-function formatTimestamp(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-function extractPotentialSpeakers(title, author) {
-  const speakers = new Set();
-  
-  if (author) {
-    speakers.add(author.trim());
-  }
-
-  const titleClean = title || '';
-
-  // Extract from title patterns like "with Guest Name", "feat. Guest Name", "featuring Guest Name", "w/ Guest Name"
-  const interviewMatch = titleClean.match(/(?:interview\s+with|featuring|feat\.?|w\/)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)/i);
-  if (interviewMatch && interviewMatch[1]) {
-    speakers.add(interviewMatch[1].trim());
-  }
-
-  // Match "[Name] & [Name]" or "[Name] and [Name]"
-  const partnerMatch = titleClean.match(/([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)\s*(?:&|and)\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)/i);
-  if (partnerMatch) {
-    if (partnerMatch[1]) speakers.add(partnerMatch[1].trim());
-    if (partnerMatch[2]) speakers.add(partnerMatch[2].trim());
-  }
-
-  return Array.from(speakers).filter(Boolean).join(', ');
-}
-
-function buildStructuredContent({ transcript, metadata, chapters }) {
-  const { title, description, author, keywords } = metadata;
-  const keywordStr = keywords?.length > 0 ? keywords.slice(0, 10).join(', ') : 'None';
-  const descStr = description?.trim() 
-    ? (description.length > 5000 ? description.slice(0, 5000) + '…' : description)
-    : 'No description available.';
-
-  const speakerStr = extractPotentialSpeakers(title, author) || author || 'Unknown Speaker';
-
-  let header = `# ${title}
-**Channel/Author:** ${author}
-**Speakers:** ${speakerStr}
-**Keywords:** ${keywordStr}
-
-## Description
-${descStr}
-`;
-
-  if (transcript.length === 0) return header + '\n\n> No transcript available. Content inferred from metadata only.';
-
-  const useChapters = chapters.length >= 2;
-  if (useChapters) header += `\n**Chapters:** ${chapters.map(c => `${c.timestamp} ${c.title}`).join(' | ')}\n`;
-
-  let sections = [];
-  if (useChapters) {
-    for (let ci = 0; ci < chapters.length; ci++) {
-      const chapterStart = chapters[ci].startSeconds * 1000;
-      const chapterEnd = ci + 1 < chapters.length ? chapters[ci + 1].startSeconds * 1000 : Infinity;
-      const items = transcript.filter(t => t.offset >= chapterStart && t.offset < chapterEnd);
-      if (items.length > 0) {
-        sections.push({
-          heading: `[${chapters[ci].timestamp}] ${chapters[ci].title} (Speaker: ${speakerStr})`,
-          text: `[Video: ${title} | Speaker: ${speakerStr}]\n` + items.map(t => t.text).join(' ').trim()
-        });
-      }
-    }
-  } else {
-    const SEGMENT_MS = 120_000;
-    const totalDuration = transcript[transcript.length - 1].offset + transcript[transcript.length - 1].duration;
-    const numSegments = Math.ceil(totalDuration / SEGMENT_MS);
-    for (let seg = 0; seg < numSegments; seg++) {
-      const segStart = seg * SEGMENT_MS;
-      const segEnd = segStart + SEGMENT_MS;
-      const items = transcript.filter(t => t.offset >= segStart && t.offset < segEnd);
-      if (items.length > 0) {
-        const ts = formatTimestamp(segStart / 1000);
-        sections.push({
-          heading: `[${ts}] (Speaker: ${speakerStr})`,
-          text: `[Video: ${title} | Speaker: ${speakerStr}]\n` + items.map(t => t.text).join(' ').trim()
-        });
-      }
-    }
-  }
-
-  const body = sections.map(s => `## ${s.heading}\n${s.text}`).join('\n\n');
-  return `${header}\n---\n\n${body}`;
 }
 
 // ─── Caption URL Builder ────────────────────────────────────────────────────
@@ -254,6 +181,7 @@ function parseJson3Captions(jsonText) {
         text,
         offset: event.tStartMs || 0,
         duration: event.dDurationMs || 3000,
+        timingSource: 'provider',
       });
     }
   }
@@ -270,7 +198,8 @@ async function fetchTranscriptLibrary(videoId) {
       return items.map(item => ({
         text: item.text,
         offset: item.offset || 0,
-        duration: item.duration || 3000
+        duration: item.duration || 3000,
+        timingSource: Number.isFinite(Number(item.offset)) ? 'provider' : 'inferred',
       }));
     }
   } catch (e) {
@@ -279,8 +208,9 @@ async function fetchTranscriptLibrary(videoId) {
   return null;
 }
 
-async function extractWithRetry(videoId, maxAttempts = 3) {
+async function extractWithRetry(videoId, maxAttempts = 3, preferredLanguage = 'en') {
   let lastError = null;
+  const diagnostics = [];
   const mobileUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1';
   const desktopUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   const url = `https://www.youtube.com/watch?v=${videoId}`;
@@ -325,21 +255,28 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
       const playerData = await playerResponse.json();
       const playabilityStatus = playerData?.playabilityStatus || {};
       const videoDetails = playerData?.videoDetails || {};
-      
-      // Guard against hollow bot-detection responses: if title is missing, the
-      // response is a shell — fall through to HTML scraping strategy.
+      const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      diagnostics.push({
+        client: 'WEB',
+        status: playabilityStatus.status || null,
+        reason: playabilityStatus.reason || null,
+        hasMetadata: Boolean(videoDetails.title),
+        captionTrackCount: captionTracks.length,
+        availableLanguages: [...new Set(captionTracks.map(track => track.languageCode).filter(Boolean))],
+      });
+
       if (!videoDetails?.title) {
-        logger.warn(`[YouTube] WEB client returned hollow response (no title) — likely datacenter bot detection. Falling through.`);
-        throw new Error('Hollow player response — no videoDetails from WEB client');
+        throw new Error(`WEB player unavailable: ${playabilityStatus.reason || playabilityStatus.status || 'missing video details'}`);
       }
 
-      if (playabilityStatus.status !== 'UNPLAYABLE') {
-        const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      if (playabilityStatus.status === 'OK') {
         let transcript = [];
+        let selectedTrack = null;
 
         if (captionTracks.length > 0) {
           try {
-            const track = captionTracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en')) || captionTracks[0];
+            const track = selectCaptionTrack(captionTracks, preferredLanguage);
+            selectedTrack = track;
             const captionUrl = buildCaptionUrl(track.baseUrl);
             
             logger.info(`[YouTube] Fetching WEB captions (json3) from: ${captionUrl.slice(0, 120)}`);
@@ -372,15 +309,18 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
             author: videoDetails?.author || 'Unknown Channel',
             keywords: videoDetails?.keywords || [],
             extractedBy: 'innertube_web_direct',
-            attempt: 1
+            attempt: 1,
+            transcriptLanguage: selectedTrack?.languageCode || null,
+            selectedTrackKind: selectedTrack?.kind || 'manual',
+            availableTranscriptLanguages: [...new Set(captionTracks.map(track => track.languageCode).filter(Boolean))],
           };
 
-          return { transcript, metadata, identity: { name: 'WEB_DIRECT', ua: desktopUA, clientName: 'WEB' } };
+          return { transcript, metadata, identity: { name: 'WEB_DIRECT', ua: desktopUA, clientName: 'WEB' }, diagnostics };
         } else {
           logger.warn(`[YouTube] WEB direct returned no transcript lines. Falling through.`);
         }
       } else {
-        logger.warn(`[YouTube] WEB playability status is UNPLAYABLE: ${playabilityStatus.reason}`);
+        logger.warn(`[YouTube] WEB playability status is ${playabilityStatus.status || 'unknown'}: ${playabilityStatus.reason || 'no reason'}`);
       }
     } else {
       logger.warn(`[YouTube] WEB player response returned HTTP ${playerResponse.status}`);
@@ -425,18 +365,27 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
       const playerData = await playerResponse.json();
       const playabilityStatus = playerData?.playabilityStatus || {};
       const videoDetails = playerData?.videoDetails || {};
-      if (!videoDetails?.title || playabilityStatus.status === 'UNPLAYABLE') {
-        throw new Error(`ANDROID player response unavailable: ${playabilityStatus.status || 'missing video details'}`);
+      const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      diagnostics.push({
+        client: 'ANDROID',
+        attempt: androidAttempt,
+        status: playabilityStatus.status || null,
+        reason: playabilityStatus.reason || null,
+        hasMetadata: Boolean(videoDetails.title),
+        captionTrackCount: captionTracks.length,
+        availableLanguages: [...new Set(captionTracks.map(track => track.languageCode).filter(Boolean))],
+      });
+      if (!videoDetails?.title || playabilityStatus.status !== 'OK') {
+        const unavailableError = new Error(`ANDROID player unavailable: ${playabilityStatus.reason || playabilityStatus.status || 'missing video details'}`);
+        unavailableError.definitive = !videoDetails?.title && /unavailable|private|removed/i.test(playabilityStatus.reason || '');
+        throw unavailableError;
       }
 
-      const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
       if (captionTracks.length === 0) {
         throw new Error('ANDROID player returned no caption tracks');
       }
 
-      const track = captionTracks.find(candidate =>
-        candidate.languageCode === 'en' || candidate.languageCode?.startsWith('en')
-      ) || captionTracks[0];
+      const track = selectCaptionTrack(captionTracks, preferredLanguage);
       let transcript = [];
 
       // json3 is less sensitive to IP-bound caption tokens than the default XML
@@ -473,16 +422,22 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
         author: videoDetails.author || 'Unknown Channel',
         keywords: videoDetails.keywords || [],
         extractedBy: 'innertube_android_direct',
-        attempt: androidAttempt
+        attempt: androidAttempt,
+        transcriptLanguage: track?.languageCode || null,
+        selectedTrackKind: track?.kind || 'manual',
+        availableTranscriptLanguages: [...new Set(captionTracks.map(candidate => candidate.languageCode).filter(Boolean))],
       };
 
       return {
         transcript,
         metadata,
-        identity: { name: 'ANDROID_DIRECT', ua: androidUA, clientName: 'ANDROID' }
+        identity: { name: 'ANDROID_DIRECT', ua: androidUA, clientName: 'ANDROID' },
+        diagnostics
       };
     } catch (androidError) {
       logger.warn(`[YouTube] Direct InnerTube ANDROID attempt ${androidAttempt} failed: ${androidError.message}`);
+      lastError = androidError;
+      if (androidError.definitive) break;
       if (androidAttempt < 3) {
         await new Promise(resolve => setTimeout(resolve, 750 * androidAttempt));
       }
@@ -583,19 +538,29 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
 
       const playerData = await playerResponse.json();
       const playabilityStatus = playerData?.playabilityStatus || {};
-      
-      if (playabilityStatus.status === 'UNPLAYABLE') {
-        throw new Error(`Video is unplayable via MWEB client: ${playabilityStatus.reason}`);
-      }
-
       const videoDetails = playerData?.videoDetails || {};
       const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      diagnostics.push({
+        client: 'MWEB',
+        attempt,
+        status: playabilityStatus.status || null,
+        reason: playabilityStatus.reason || null,
+        hasMetadata: Boolean(videoDetails.title),
+        captionTrackCount: captionTracks.length,
+        availableLanguages: [...new Set(captionTracks.map(track => track.languageCode).filter(Boolean))],
+      });
+
+      if (!videoDetails?.title || playabilityStatus.status !== 'OK') {
+        throw new Error(`MWEB player unavailable: ${playabilityStatus.reason || playabilityStatus.status || 'missing video details'}`);
+      }
 
       let transcript = [];
+      let selectedTrack = null;
 
       if (captionTracks.length > 0) {
         try {
-          const track = captionTracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en')) || captionTracks[0];
+          const track = selectCaptionTrack(captionTracks, preferredLanguage);
+          selectedTrack = track;
           const captionUrl = buildCaptionUrl(track.baseUrl);
           
           logger.info(`[YouTube] Fetching captions (json3) from: ${captionUrl.slice(0, 120)}`);
@@ -639,7 +604,10 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
         author: videoDetails?.author || 'Unknown Channel',
         keywords: videoDetails?.keywords || [],
         extractedBy: 'innertube_mweb',
-        attempt
+        attempt,
+        transcriptLanguage: selectedTrack?.languageCode || null,
+        selectedTrackKind: selectedTrack?.kind || 'manual',
+        availableTranscriptLanguages: [...new Set(captionTracks.map(track => track.languageCode).filter(Boolean))],
       };
 
       const identity = {
@@ -648,7 +616,7 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
         clientName: 'MWEB'
       };
 
-      return { transcript, metadata, identity };
+      return { transcript, metadata, identity, diagnostics };
     } catch (err) {
       logger.error(`[YouTube] extractWithRetry attempt ${attempt} failed: ${err.message}`);
       if (apiKey) {
@@ -661,111 +629,348 @@ async function extractWithRetry(videoId, maxAttempts = 3) {
     }
   }
 
-  return { transcript: null, metadata: null, identity: null, error: lastError };
+  return { transcript: null, metadata: null, identity: null, error: lastError, diagnostics };
+}
+
+async function assertYouTubeQuota(userId) {
+  if (!userId) return;
+  const db = await getDatabase();
+  const user = await dbHelpers.getUserById(userId);
+  if (!user) return;
+  const now = new Date();
+  const lastReset = user.lastExtractionReset ? new Date(user.lastExtractionReset) : new Date(0);
+  const isNewDay = now.toDateString() !== lastReset.toDateString();
+  const currentUsage = isNewDay ? 0 : (user.youtubeExtractionsToday || 0);
+  const limit = user.accountType === 'agent' ? 50 : 10;
+  if (currentUsage >= limit) {
+    throw new AppError(429, 'USAGE_LIMIT_REACHED', `Daily extraction limit of ${limit} reached.`);
+  }
+  if (isNewDay) {
+    await db.update(users)
+      .set({ youtubeExtractionsToday: 0, lastExtractionReset: now })
+      .where(eq(users.id, userId));
+  }
+}
+
+async function recordYouTubeExtraction(userId) {
+  if (!userId) return;
+  const db = await getDatabase();
+  await db.update(users)
+    .set({ youtubeExtractionsToday: sql`${users.youtubeExtractionsToday} + 1` })
+    .where(eq(users.id, userId));
+}
+
+function mergeVideoMetadata(videoId, extractedMetadata, oembedMetadata) {
+  const extracted = extractedMetadata || {};
+  const extractedTitle = String(extracted.title || '');
+  const hasRealExtractedTitle = extractedTitle && !extractedTitle.startsWith('YouTube Video:');
+  return {
+    ...(oembedMetadata || {}),
+    ...extracted,
+    title: hasRealExtractedTitle
+      ? extractedTitle
+      : (oembedMetadata?.title || `YouTube Video: ${videoId}`),
+    author: extracted.author && extracted.author !== 'Unknown Channel'
+      ? extracted.author
+      : (oembedMetadata?.author || 'Unknown Channel'),
+    thumbnail: extracted.thumbnail || oembedMetadata?.thumbnail || null,
+    canonicalUrl: extracted.canonicalUrl || oembedMetadata?.canonicalUrl || `https://www.youtube.com/watch?v=${videoId}`,
+  };
+}
+
+async function performYouTubeExtraction({ url, preferredLanguage = 'en' }) {
+  const videoId = extractYouTubeVideoId(url);
+  if (!videoId) throw new AppError(400, 'INVALID_URL', 'Invalid YouTube URL');
+
+  const normalizedVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const preferSupadata = process.env.SUPADATA_PREFER === '1';
+  let transcript = null;
+  let metadata = null;
+  let identity = null;
+  let error = null;
+  let supadataResult = null;
+  let diagnostics = [];
+
+  if (preferSupadata && isSupadataConfigured()) {
+    try {
+      supadataResult = await fetchSupadataTranscript(normalizedVideoUrl, { language: preferredLanguage });
+      if (supadataResult?.transcript?.length) {
+        transcript = supadataResult.transcript;
+        metadata = { ...(supadataResult.metadata || {}), extractedBy: `supadata_${supadataResult.mode}` };
+        identity = { name: 'SUPADATA', clientName: 'SUPADATA' };
+        diagnostics.push({ client: 'SUPADATA', status: 'OK', reason: null, hasMetadata: Boolean(metadata.title), captionTrackCount: transcript.length });
+      }
+    } catch (supadataError) {
+      diagnostics.push({ client: 'SUPADATA', status: 'ERROR', reason: supadataError.message, hasMetadata: false, captionTrackCount: 0 });
+      logger.warn(`[Supadata] Preferred extraction failed; continuing with StudyPod extractors: ${supadataError.message}`);
+    }
+  }
+
+  if (!transcript?.length) {
+    const nativeResult = await extractWithRetry(videoId, 3, preferredLanguage);
+    transcript = nativeResult.transcript;
+    metadata = nativeResult.metadata;
+    identity = nativeResult.identity;
+    error = nativeResult.error;
+    diagnostics = [...diagnostics, ...(nativeResult.diagnostics || [])];
+  }
+
+  if (!transcript?.length) {
+    logger.info('[YouTube] Native extractors unavailable; trying transcript library fallback.');
+    const libItems = await fetchTranscriptLibrary(videoId);
+    if (libItems?.length) {
+      transcript = libItems;
+      metadata = metadata || {};
+      metadata.extractedBy = 'library';
+      identity = { name: 'TRANSCRIPT_LIBRARY', clientName: 'LIBRARY' };
+      error = null;
+      diagnostics.push({ client: 'LIBRARY', status: 'OK', reason: null, hasMetadata: Boolean(metadata.title), captionTrackCount: libItems.length });
+    }
+  }
+
+  let ytdlpResult = null;
+  if (!transcript?.length && isYtDlpFallbackEnabled()) {
+    logger.info('[YouTube] Native extractors unavailable; trying optional yt-dlp transcript fallback.');
+    ytdlpResult = await fetchYtDlpTranscript(normalizedVideoUrl, { language: preferredLanguage });
+    if (ytdlpResult?.transcript?.length) {
+      transcript = ytdlpResult.transcript;
+      metadata = {
+        ...(metadata || {}),
+        extractedBy: 'yt_dlp',
+        transcriptLanguage: ytdlpResult.language || preferredLanguage,
+        selectedTrackKind: ytdlpResult.mode || 'caption',
+        availableTranscriptLanguages: [
+          ...(metadata?.availableTranscriptLanguages || []),
+          ...(ytdlpResult.availableLanguages || []),
+        ],
+      };
+      identity = { name: 'YT_DLP', clientName: 'YT_DLP' };
+      error = null;
+      diagnostics.push({
+        client: 'YT_DLP',
+        status: 'OK',
+        reason: null,
+        hasMetadata: Boolean(metadata.title),
+        captionTrackCount: transcript.length,
+        availableLanguages: ytdlpResult.availableLanguages || [],
+      });
+    } else {
+      diagnostics.push({
+        client: 'YT_DLP',
+        status: 'UNAVAILABLE',
+        reason: 'yt-dlp was unavailable or returned no usable subtitle file.',
+        hasMetadata: Boolean(metadata?.title),
+        captionTrackCount: 0,
+        availableLanguages: [],
+      });
+    }
+  }
+
+  if (!transcript?.length && !supadataResult && isSupadataConfigured()) {
+    try {
+      logger.info('[YouTube] Native extractors unavailable; trying Supadata timestamped fallback.');
+      supadataResult = await fetchSupadataTranscript(normalizedVideoUrl, { language: preferredLanguage });
+      if (supadataResult?.transcript?.length) {
+        transcript = supadataResult.transcript;
+        metadata = {
+          ...(metadata || {}),
+          ...(supadataResult.metadata || {}),
+          extractedBy: `supadata_${supadataResult.mode}`,
+        };
+        identity = { name: 'SUPADATA', clientName: 'SUPADATA' };
+        error = null;
+        diagnostics.push({ client: 'SUPADATA', status: 'OK', reason: null, hasMetadata: Boolean(metadata.title), captionTrackCount: transcript.length });
+      }
+    } catch (supadataError) {
+      diagnostics.push({ client: 'SUPADATA', status: 'ERROR', reason: supadataError.message, hasMetadata: false, captionTrackCount: 0 });
+      logger.warn(`[Supadata] Fallback failed: ${supadataError.message}`);
+    }
+  }
+
+  const oembedMetadata = await fetchOEmbedMetadata(videoId);
+  metadata = mergeVideoMetadata(videoId, metadata, oembedMetadata);
+  const availableTranscriptLanguages = [...new Set([
+    ...(metadata.availableTranscriptLanguages || []),
+    ...(supadataResult?.availableLanguages || []),
+    ...diagnostics.flatMap(item => item.availableLanguages || []),
+  ].filter(Boolean))];
+  const transcriptLanguage = supadataResult?.language
+    || metadata.transcriptLanguage
+    || preferredLanguage
+    || null;
+  transcript = normalizeTranscriptSegments(
+    (transcript || []).map(item => ({ ...item, lang: item.lang || transcriptLanguage })),
+  );
+  const transcriptQuality = assessTranscriptQuality(transcript);
+  const hasRealMetadata = Boolean(metadata.title && !metadata.title.startsWith('YouTube Video:'));
+  const availability = classifyYouTubeAvailability(diagnostics, {
+    hasMetadata: hasRealMetadata,
+    hasTranscript: transcript.length > 0,
+  });
+
+  if (transcript.length === 0 && !hasRealMetadata && ['private', 'restricted', 'region_blocked', 'unavailable'].includes(availability.status)) {
+    throw new AppError(404, availability.code, availability.reason);
+  }
+  if (transcript.length === 0 && !hasRealMetadata) {
+    throw new AppError(422, availability.code, availability.reason);
+  }
+
+  const transcriptProvider = supadataResult?.transcript?.length
+    ? 'supadata'
+    : (ytdlpResult?.transcript?.length ? 'yt-dlp' : (metadata.extractedBy || 'studypod-native'));
+  const participants = extractParticipantCandidates(metadata.title);
+  const chapters = parseYouTubeChapters(metadata.description || '');
+  const extractionWarning = transcript.length === 0
+    ? 'Video metadata is available, but no transcript could be extracted. Do not answer transcript-specific questions from this source.'
+    : (transcriptQuality.warnings.length ? transcriptQuality.warnings.join(' ') : undefined);
+  const finalMetadata = {
+    ...metadata,
+    videoId,
+    participants,
+    chapters,
+    videoAvailability: availability.status,
+    availabilityReason: availability.reason,
+    transcriptStatus: transcriptQuality.status,
+    transcriptLineCount: transcript.length,
+    transcriptProvider,
+    transcriptMode: supadataResult?.mode || 'native',
+    transcriptLanguage,
+    selectedTrackKind: metadata.selectedTrackKind || null,
+    availableTranscriptLanguages,
+    transcriptQuality,
+    timingQuality: transcriptQuality.timingQuality,
+    timestampedTranscript: transcriptQuality.seekable,
+    transcriptSegments: transcript.slice(0, 5000).map(item => ({
+      text: item.text,
+      offset: item.offset,
+      duration: item.duration,
+      lang: item.lang || null,
+      timingSource: item.timingSource,
+    })),
+    supadataBillableRequests: supadataResult?.billableRequests || 0,
+    channelId: metadata.channelId || null,
+    thumbnail: metadata.thumbnail || null,
+    publishedAt: metadata.publishedAt || null,
+    canonicalUrl: metadata.canonicalUrl || normalizedVideoUrl,
+    providerCapabilities: {
+      seekableCitations: transcriptQuality.seekable,
+      timestampedSegments: transcriptQuality.timingQuality !== 'none',
+      metadata: hasRealMetadata,
+      qualityAssessment: true,
+      languageSelection: true,
+    },
+    extractionWarning,
+    extractionDiagnostics: diagnostics,
+    sovereign_signal: {
+      identity: identity?.name || 'metadata',
+      farm_health: transcript.length > 0 ? 'nominal' : 'metadata_only',
+      timestamp: new Date().toISOString(),
+    },
+  };
+  const structuredContent = buildYouTubeStructuredContent({
+    transcript,
+    metadata: finalMetadata,
+    quality: transcriptQuality,
+    chapters,
+  });
+
+  return {
+    statusCode: transcript.length > 0 ? 200 : 206,
+    extractionSuccess: transcript.length > 0,
+    payload: {
+      transcript,
+      metadata: finalMetadata,
+      structuredContent,
+      extractionWarning,
+    },
+    error,
+  };
 }
 
 router.get('/youtube-transcript', authenticateToken, async (req, res) => {
   try {
-    const { url } = req.query;
-    const userType = req.user?.accountType || 'human';
-
+    const { url, language = 'en' } = req.query;
     if (!url) throw new AppError(400, 'MISSING_URL', 'Missing url parameter');
-
-    const idMatch = url.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/);
-    if (!idMatch) throw new AppError(400, 'INVALID_URL', 'Invalid YouTube URL');
-    const videoId = idMatch[1];
-
-    logger.info(`[YouTube] Extraction: ${videoId}`);
-
-    // ── Fair Use Check ──────────────────────────
-    const db = await getDatabase();
     const userId = req.user?.userId || req.user?.id;
-
-    if (userId) {
-      const user = await dbHelpers.getUserById(userId);
-      if (user) {
-        const now = new Date();
-        const lastReset = user.lastExtractionReset ? new Date(user.lastExtractionReset) : new Date(0);
-        const isNewDay = now.toDateString() !== lastReset.toDateString();
-        let currentUsage = isNewDay ? 0 : (user.youtubeExtractionsToday || 0);
-        const limit = user.accountType === 'agent' ? 50 : 10;
-        if (currentUsage >= limit) {
-          throw new AppError(429, 'USAGE_LIMIT_REACHED', `Daily extraction limit of ${limit} reached.`);
-        }
-        if (isNewDay) {
-          await db.update(users).set({ youtubeExtractionsToday: 0, lastExtractionReset: now }).where(eq(users.id, userId));
-        }
-      }
-    }
-
-    // ── Strategy 1: InnerTube with retry ─────────
-    let { transcript, metadata, identity, error } = await extractWithRetry(videoId);
-
-    // ── Strategy 2: Library fallback ─────────────
-    if (!transcript || transcript.length === 0) {
-      logger.info(`[YouTube] InnerTube failed, trying library fallback...`);
-      const libItems = await fetchTranscriptLibrary(videoId);
-      if (libItems && libItems.length > 0) {
-        transcript = libItems;
-        metadata = metadata || {
-          title: `YouTube Video: ${videoId}`,
-          description: '',
-          author: 'Unknown Channel',
-          keywords: [],
-          extractedBy: 'library'
-        };
-        metadata.extractedBy = 'library';
-      }
-    }
-
-    // ── Final metadata assembly ─────────────────
-    if (!metadata) {
-      metadata = {
-        title: `YouTube Video: ${videoId}`,
-        description: '',
-        author: 'Unknown Channel',
-        keywords: [],
-        extractedBy: 'none'
-      };
-    }
-
-    const chapters = parseChaptersFromDescription(metadata.description);
-    const structuredContent = buildStructuredContent({ transcript: transcript || [], metadata, chapters });
-
-    // ── Persist Usage ─────────────────────────
-    const extractionSuccess = transcript && transcript.length > 0;
-
-    if (userId && extractionSuccess && !error) {
-      await db.update(users)
-        .set({ youtubeExtractionsToday: sql`${users.youtubeExtractionsToday} + 1` })
-        .where(eq(users.id, userId));
-    }
-
-    res.status(extractionSuccess ? 200 : 206).json({
-      transcript: transcript || [],
-      metadata: {
-        ...metadata,
-        videoId,
-        transcriptStatus: extractionSuccess ? 'full' : 'metadata_only',
-        transcriptLineCount: transcript?.length || 0,
-        extractionWarning: extractionSuccess ? undefined : 'Could not extract captions. Content is based on metadata only.',
-        sovereign_signal: {
-          identity: identity?.name || 'library',
-          farm_health: extractionSuccess ? 'nominal' : 'fallback',
-          timestamp: new Date().toISOString()
-        }
-      },
-      structuredContent,
-      extractionWarning: extractionSuccess ? undefined : 'Could not extract captions. Content based on metadata only.'
-    });
-
+    await assertYouTubeQuota(userId);
+    const result = await performYouTubeExtraction({ url, preferredLanguage: String(language || 'en') });
+    if (result.extractionSuccess) await recordYouTubeExtraction(userId);
+    res.status(result.statusCode).json(result.payload);
   } catch (error) {
     logger.error('[YouTube] Error:', error);
-    if (error instanceof AppError || error.statusCode) {
-      throw error;
-    }
+    if (error instanceof AppError || error.statusCode) throw error;
     throw new AppError(500, 'YOUTUBE_EXTRACTION_FAILED', error.message);
   }
+});
+
+router.post('/ingest', authenticateToken, requireScope('sources:write', { bodyField: 'notebookId' }), async (req, res) => {
+  try {
+    const { notebookId, url, language = 'en', title } = req.body || {};
+    if (!notebookId) throw new AppError(400, 'MISSING_NOTEBOOK_ID', 'notebookId is required');
+    if (!url) throw new AppError(400, 'MISSING_URL', 'url is required');
+    const userId = req.user?.userId || req.user?.id;
+    const notebook = await dbHelpers.getNotebookById(notebookId, userId);
+    if (!notebook) throw new AppError(404, 'NOTEBOOK_NOT_FOUND', 'Notebook not found');
+    await assertYouTubeQuota(userId);
+    const result = await performYouTubeExtraction({ url, preferredLanguage: String(language || 'en') });
+    const sourceId = uuidv4();
+    const sourceTitle = String(title || result.payload.metadata.title).trim();
+    await dbHelpers.createSource(
+      sourceId,
+      notebookId,
+      userId,
+      sourceTitle,
+      'youtube',
+      result.payload.structuredContent,
+      result.payload.metadata.canonicalUrl,
+      JSON.stringify(result.payload.metadata),
+      null,
+      result.payload.structuredContent.length,
+    );
+    await dbHelpers.updateSource(sourceId, userId, {
+      processing_status: result.extractionSuccess ? 'completed' : 'degraded',
+    });
+    if (result.extractionSuccess) await recordYouTubeExtraction(userId);
+    const sources = await dbHelpers.getSourcesByNotebookId(notebookId, userId);
+    const source = sources.find(item => item.id === sourceId);
+    res.status(201).json({
+      source,
+      extraction: {
+        videoId: result.payload.metadata.videoId,
+        transcriptStatus: result.payload.metadata.transcriptStatus,
+        transcriptQuality: result.payload.metadata.transcriptQuality,
+        transcriptProvider: result.payload.metadata.transcriptProvider,
+        videoAvailability: result.payload.metadata.videoAvailability,
+      },
+    });
+  } catch (error) {
+    logger.error('[YouTube] Ingest error:', error);
+    if (error instanceof AppError || error.statusCode) throw error;
+    throw new AppError(500, 'YOUTUBE_INGEST_FAILED', error.message);
+  }
+});
+
+router.get('/providers', authenticateToken, (req, res) => {
+  res.json({
+    providers: {
+      native: { enabled: true, priority: process.env.SUPADATA_PREFER === '1' ? 2 : 1 },
+      ytdlp: {
+        enabled: isYtDlpFallbackEnabled(),
+        priority: process.env.SUPADATA_PREFER === '1' ? 3 : 2,
+        openSource: true,
+        localRuntimeDependency: true,
+        timestampedSegments: true,
+      },
+      supadata: {
+        configured: isSupadataConfigured(),
+        priority: process.env.SUPADATA_PREFER === '1' ? 1 : 3,
+        mode: supadataConfig.defaultMode,
+        metadataEnabled: supadataConfig.metadataEnabled,
+        timestampedSegments: true,
+        serverSideOnly: true,
+      },
+    },
+  });
 });
 
 export default router;

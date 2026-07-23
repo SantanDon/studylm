@@ -13,6 +13,7 @@ import CaptureButtons from './CaptureButtons';
 import { Citation, EnhancedChatMessage } from '@/types/message';
 import { IMMERSIVE_PROMPTS, BOOKMARK_PROMPTS } from '@/config/prompts';
 import { useToast } from '@/hooks/use-toast';
+import { formatDisplayTitle } from '@/lib/utils/displayTitle';
 import {
   getSourceProcessingStatus,
   isSourceUsableForGroundedChat,
@@ -109,6 +110,7 @@ const ChatArea = ({
     return status === 'pending' || status === 'uploading' || status === 'extracting' || status === 'processing' || status === 'indexing';
   }) || false;
   const hasFailedSource = sources?.some((source) => getSourceProcessingStatus(source) === 'failed') || false;
+  const hasConversation = messages.length > 0 || !!pendingUserMessage || showAiLoading || !!failedMessage;
 
   const isChatDisabled = sourceCount === 0 || !hasReadySource || (chatScope === 'active' && !activeSourceUsable);
 
@@ -359,7 +361,7 @@ const ChatArea = ({
                     <option value="all">All ready sources</option>
                     <option value="active" disabled={!activeSourceUsable}>
                       {activeSourceUsable && activeSource
-                        ? `Current: ${activeSource.title}`
+                        ? `Current: ${formatDisplayTitle(activeSource.title, 'Current source')}`
                         : 'Open a ready source first'}
                     </option>
                   </select>
@@ -404,36 +406,46 @@ const ChatArea = ({
           </div>
 
           <ScrollArea className="flex-1 h-full bg-white dark:bg-background" ref={scrollAreaRef}>
-             {/* Empty State / Sovereign Intro */}
-             {!shouldShowScrollTarget() && (
+             {/* Notebook context stays compact once the conversation begins. */}
+             <div className="border-b border-border bg-background/95 px-5 py-4 sm:px-8">
+               <div className="mx-auto max-w-4xl">
+                 <div className="flex items-center gap-3">
+                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-2xl">
+                     {isGenerating ? <i className="fi fi-rr-spinner animate-spin text-muted-foreground" /> : <span>{notebook?.icon || '☕'}</span>}
+                   </div>
+                   <div className="min-w-0 flex-1">
+                     <h1 className="truncate text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+                       {isGenerating ? 'Preparing your notebook…' : formatDisplayTitle(notebook?.title, 'Untitled notebook')}
+                     </h1>
+                     <p className="mt-0.5 text-xs text-muted-foreground">
+                       {sourceCount} source{sourceCount !== 1 ? 's' : ''}{hasConversation ? ' · conversation in progress' : ''}
+                     </p>
+                   </div>
+                 </div>
+
+                 {!hasConversation && (
+                   <div className="mt-4 rounded-xl border border-border bg-card px-4 py-3 text-sm leading-6 text-muted-foreground shadow-sm">
+                     {isGenerating ? (
+                       <p>StudyPod is analysing your source and preparing its title and overview.</p>
+                     ) : (
+                       <MarkdownRenderer
+                         content={notebook?.description || 'Your sources are ready. Ask a question or choose a starting point below.'}
+                         className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert"
+                       />
+                     )}
+                   </div>
+                 )}
+               </div>
+             </div>
+
+             {!hasConversation && (
                <SovereignChatIntro onPromptClick={handleExampleQuestionClick} />
              )}
 
-            {/* Document Summary */}
-            <div className="p-8 border-b border-gray-200 dark:border-border">
-              <div className="max-w-4xl mx-auto">
-                <div className="flex items-center space-x-4 mb-6">
-                  <div className="w-10 h-10 flex items-center justify-center bg-transparent">
-                    {isGenerating ? <i className="fi fi-rr-spinner text-black font-normal w-10 h-10 animate-spin"></i> : <span className="text-[40px] leading-none">{notebook?.icon || '☕'}</span>}
-                  </div>
-                  <div>
-                    <h1 className="text-2xl font-medium text-gray-900 dark:text-foreground">
-                      {isGenerating ? 'Generating content...' : notebook?.title || 'Untitled Notebook'}
-                    </h1>
-                    <p className="text-sm text-gray-600">{sourceCount} source{sourceCount !== 1 ? 's' : ''}</p>
-                  </div>
-                </div>
-                
-                <div className="bg-gray-50 dark:bg-muted/30 rounded-lg p-6 mb-6">
-                  {isGenerating ? <div className="flex items-center space-x-2 text-gray-600 dark:text-muted-foreground">
-                      
-                      <p>AI is analyzing your source and generating a title and description...</p>
-                    </div> : <MarkdownRenderer content={notebook?.description || 'No description available for this notebook.'} className="prose prose-gray max-w-none text-gray-700 leading-relaxed" />}
-                </div>
-
-                {/* Chat Messages */}
+             <div className="mx-auto max-w-4xl px-5 py-6 sm:px-8">
+               {/* Chat Messages */}
                 {(messages.length > 0 || pendingUserMessage || showAiLoading || failedMessage) && <div className="mb-6 space-y-4">
-                    {messages.map((msg) => <div key={msg.id} className={`flex ${isUserMessage(msg) ? 'justify-end' : 'justify-start'}`}>
+                    {messages.map((msg) => <div key={msg.id} className={`group flex ${isUserMessage(msg) ? 'justify-end' : 'justify-start'}`}>
                         <div className={`${isUserMessage(msg) ? 'max-w-xs lg:max-w-md px-4 py-2 bg-blue-500 text-white rounded-lg' : 'w-full'}`}>
                           <div className={isUserMessage(msg) ? '' : 'prose prose-gray dark:prose-invert max-w-none text-gray-800 dark:text-gray-200'}>
                             <MarkdownRenderer content={msg.message.content} className={isUserMessage(msg) ? '' : ''} onCitationClick={handleCitationClick} isUserMessage={isUserMessage(msg)} />
@@ -486,8 +498,7 @@ const ChatArea = ({
                     {/* Scroll target for when no AI loading is shown */}
                     {!showAiLoading && shouldShowScrollTarget() && <div ref={latestMessageRef} />}
                   </div>}
-              </div>
-            </div>
+             </div>
           </ScrollArea>
 
           {/* Chat Input - Fixed at bottom */}
@@ -498,7 +509,7 @@ const ChatArea = ({
             disabled={isChatDisabled}
             isLoading={isSending || !!pendingUserMessage}
             sourceCount={sourceCount}
-            exampleQuestions={exampleQuestions}
+            exampleQuestions={!hasConversation ? exampleQuestions : []}
             onExampleQuestionClick={handleExampleQuestionClick}
             placeholder={getPlaceholderText()}
           />

@@ -31,6 +31,22 @@ export interface SourceProcessingMetadata extends Record<string, unknown> {
   transcriptLineCount?: number;
   extractionWarning?: string;
   extractedBy?: string;
+  transcriptProvider?: string;
+  transcriptMode?: string;
+  transcriptLanguage?: string | null;
+  availableTranscriptLanguages?: string[];
+  timestampedTranscript?: boolean;
+  transcriptSegments?: Array<{ text: string; offset: number; duration: number; lang?: string | null }>;
+  supadataBillableRequests?: number;
+  channelId?: string | null;
+  thumbnail?: string | null;
+  publishedAt?: string | null;
+  canonicalUrl?: string | null;
+  providerCapabilities?: {
+    seekableCitations?: boolean;
+    timestampedSegments?: boolean;
+    metadata?: boolean;
+  };
 }
 
 export interface ProcessableSourceLike {
@@ -70,6 +86,16 @@ export function isSourceUsableForGroundedChat(source: ProcessableSourceLike): bo
   const readyStatus = status === 'completed' || status === 'ready' || status === 'degraded';
 
   return readyStatus && hasUsableSourceContent(source) && !isMetadataOnlyYoutube;
+}
+
+export function shouldSkipClientSemanticIndexing(
+  contentLength: number,
+  maxCharacters = 250_000,
+): boolean {
+  return Number.isFinite(contentLength)
+    && Number.isFinite(maxCharacters)
+    && maxCharacters >= 0
+    && contentLength > maxCharacters;
 }
 
 export function buildSourceProcessingError(

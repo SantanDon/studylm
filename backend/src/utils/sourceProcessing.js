@@ -19,6 +19,34 @@ export function hasUsableSourceContent(source) {
   return typeof source?.content === 'string' && source.content.trim().length > 0;
 }
 
+export function shouldSkipSemanticIndexing(
+  contentLength,
+  maxCharacters = Number(process.env.SOURCE_SEMANTIC_INDEX_MAX_CHARS || 250_000),
+) {
+  return Number.isFinite(contentLength)
+    && Number.isFinite(maxCharacters)
+    && maxCharacters >= 0
+    && contentLength > maxCharacters;
+}
+
+export function buildKeywordOnlySourceMetadata(existingMetadata = {}, contentLength = 0) {
+  return {
+    ...existingMetadata,
+    processingStage: 'degraded',
+    processingError: {
+      code: 'SOURCE_INDEXING_SKIPPED_LARGE',
+      message: `This ${Number(contentLength).toLocaleString()}-character source is available through keyword-grounded chat. Semantic indexing was skipped to keep the notebook responsive.`,
+      stage: 'indexing',
+      retryable: false,
+      occurredAt: new Date().toISOString(),
+    },
+    indexingSkipped: true,
+    indexingStrategy: 'keyword_only',
+    contentLength,
+    processedAt: new Date().toISOString(),
+  };
+}
+
 export function isSourceUsableForGroundedChat(source) {
   const status = getSourceProcessingStatus(source);
   const metadata = parseSourceMetadata(source);
@@ -35,6 +63,20 @@ export function getSourceTrust(source) {
     videoId: metadata.videoId || null,
     transcriptStatus: metadata.transcriptStatus || null,
     transcriptLineCount: metadata.transcriptLineCount || 0,
+    transcriptProvider: metadata.transcriptProvider || metadata.extractedBy || null,
+    transcriptMode: metadata.transcriptMode || null,
+    transcriptLanguage: metadata.transcriptLanguage || null,
+    availableTranscriptLanguages: metadata.availableTranscriptLanguages || [],
+    selectedTrackKind: metadata.selectedTrackKind || null,
+    transcriptQuality: metadata.transcriptQuality || null,
+    timingQuality: metadata.timingQuality || metadata.transcriptQuality?.timingQuality || null,
+    videoAvailability: metadata.videoAvailability || null,
+    availabilityReason: metadata.availabilityReason || null,
+    participants: Array.isArray(metadata.participants) ? metadata.participants : [],
+    chapters: Array.isArray(metadata.chapters) ? metadata.chapters : [],
+    timestampedTranscript: Boolean(metadata.timestampedTranscript),
+    transcriptSegmentCount: Array.isArray(metadata.transcriptSegments) ? metadata.transcriptSegments.length : 0,
+    providerCapabilities: metadata.providerCapabilities || null,
     extractionWarning: metadata.extractionWarning || null,
     extractedBy: metadata.extractedBy || null,
     processingStage: metadata.processingStage || null,

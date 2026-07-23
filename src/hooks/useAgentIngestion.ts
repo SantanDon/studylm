@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import apiService from '../services/apiService';
 import { useAddSourcesHandlers } from '../components/notebook/hooks/useAddSourcesHandlers';
+import { shouldReportNetworkError } from '@/lib/utils/networkError';
 
 /**
  * A hook that checks for unencrypted raw files uploaded by CLI agents
@@ -21,9 +22,10 @@ export const useAgentIngestion = (notebookId: string | undefined) => {
   useEffect(() => {
     if (!notebookId || !session?.access_token) return;
 
+    const controller = new AbortController();
     const checkAndProcessPendingUploads = async () => {
       try {
-        const { success, pendingUploads } = await apiService.getPendingAgentUploads(notebookId, session.access_token);
+        const { success, pendingUploads } = await apiService.getPendingAgentUploads(notebookId, session.access_token, controller.signal);
         
         if (success && pendingUploads && pendingUploads.length > 0) {
           console.log(`🤖 Agent Ingestion: Found ${pendingUploads.length} pending files.`);
@@ -60,9 +62,9 @@ export const useAgentIngestion = (notebookId: string | undefined) => {
           }
         }
       } catch (err) {
-        console.error("Error during agent ingestion polling:", err);
+        if (shouldReportNetworkError(err, controller.signal)) console.error("Error during agent ingestion polling:", err);
       } finally {
-        setIsIngesting(false);
+        if (!controller.signal.aborted) setIsIngesting(false);
       }
     };
 
@@ -70,7 +72,10 @@ export const useAgentIngestion = (notebookId: string | undefined) => {
     checkAndProcessPendingUploads();
     const interval = setInterval(checkAndProcessPendingUploads, 30000);
 
-    return () => clearInterval(interval);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, [notebookId, session, handleFileUpload, queryClient]);
 
   return { isIngesting, ingestionStatus };

@@ -23,6 +23,7 @@ import agentMissionRoutes from './routes/agentMissions.js';
 import proxyRoutes from './routes/proxy.js';
 import antigravityRouter from './routes/antigravity.js';
 import docxRouter from './routes/docx.js';
+import documentRoutes from './routes/documents.js';
 import searchRouter from './routes/search.js';
 import signalRouter from './routes/signal.js';
 import audiobookRoutes from './routes/audiobook.js';
@@ -180,6 +181,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/user', apiLimiter, userRoutes);
+app.use('/api/notebooks', apiLimiter, documentRoutes);
 app.use('/api/notebooks', apiLimiter, notebookRoutes);
 app.use('/api/pdf', apiLimiter, pdfRoutes);
 app.use('/api/youtube', apiLimiter, youtubeRouter);
@@ -287,31 +289,50 @@ if (!process.env.VERCEL) {
   });
 }
 
-// Start server
+// Start server with bounded retries and exactly one temporary listener per
+// attempt. Re-registering a permanent `error` listener on every retry causes
+// an exponential retry storm when the port is already occupied.
+const listenOnce = () => new Promise((resolve, reject) => {
+  const cleanup = () => {
+    server.off('listening', handleListening);
+    server.off('error', handleError);
+  };
+  const handleListening = () => {
+    cleanup();
+    resolve();
+  };
+  const handleError = (error) => {
+    cleanup();
+    reject(error);
+  };
+
+  server.once('listening', handleListening);
+  server.once('error', handleError);
+  server.listen(PORT, '127.0.0.1');
+});
+
 const startServer = async (retries = 5) => {
   try {
     await initializeDatabase();
-    
-    server.on('error', (e) => {
-      if (e.code === 'EADDRINUSE') {
-        logger.warn(`Port ${PORT} busy, retrying (${retries} left)...`);
-        setTimeout(() => {
-          if (retries > 0) {
-            server.close();
-            startServer(retries - 1);
-          } else {
-            logger.error('Failed to bind to port after multiple retries.');
-            process.exit(1);
-          }
-        }, 1000);
-      } else {
-        logger.error('Server error:', e);
-      }
-    });
 
-    server.listen(PORT, '127.0.0.1', () => {
-      logger.info(`StudyPod Phoenix running on http://127.0.0.1:${PORT}`);
-    });
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        await listenOnce();
+        logger.info(`StudyPod Phoenix running on http://127.0.0.1:${PORT}`);
+        return;
+      } catch (error) {
+        if (error?.code !== 'EADDRINUSE') throw error;
+
+        const retriesLeft = retries - attempt;
+        if (retriesLeft === 0) {
+          logger.error('Failed to bind to port after multiple retries.');
+          process.exit(1);
+        }
+
+        logger.warn(`Port ${PORT} busy, retrying (${retriesLeft} left)...`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
   } catch (error) {
     logger.error('Failed to start server:', error);
     process.exit(1);

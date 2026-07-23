@@ -3,9 +3,11 @@ import {
   buildNotebookContext,
   buildSystemPrompt,
   chatWithNotebook,
+  ensureExplicitMultiSourceGrounding,
   ensurePrimaryGrounding,
   inferCitationsFromMarkers,
   parseCitationExcerpts,
+  selectRelevantContent,
   shouldUseConversationHistory,
 } from '../services/aiChatService.js';
 
@@ -32,8 +34,55 @@ describe('AI chat grounding', () => {
     expect(result.citations[0].source_id).toBe('source-1');
   });
 
+  it('preserves opening metadata for publication and document-status questions', () => {
+    const source = [
+      'Title: WebRTC: Real-Time Communication in Browsers',
+      'W3C Recommendation 13 March 2025',
+      'Editors: Cullen Jennings and Florent Castelli',
+      '',
+      'Abstract This document defines a set of ECMAScript APIs in WebIDL.',
+      ' '.repeat(1400),
+      'Status of This Document This section explains consensus, licensing, and implementation requirements.',
+    ].join(' ');
+    const selected = selectRelevantContent(
+      source,
+      'What is the document status and publication date, and what APIs does it define?',
+      1400,
+      'WebRTC: Real-Time Communication in Browsers',
+    );
+    expect(selected).toContain('W3C Recommendation 13 March 2025');
+    expect(selected).toContain('ECMAScript APIs');
+  });
+
+  it('adds a seekable timestamp to a validated YouTube citation', () => {
+    const youtubeRefs = [{ index: 1, id: 'video-1', title: 'AI and Creativity', type: 'youtube' }];
+    const youtubeSources = [{
+      id: 'video-1',
+      type: 'youtube',
+      url: 'https://www.youtube.com/watch?v=xw-9mwZxl-0',
+      content: 'Creativity means selecting from different possibilities.',
+      metadata: JSON.stringify({
+        videoId: 'xw-9mwZxl-0',
+        transcriptSegments: [
+          { text: 'An opening greeting.', offset: 0, duration: 3000, timingSource: 'provider' },
+          { text: 'Creativity means selecting from different possibilities.', offset: 75_000, duration: 5000, timingSource: 'provider' },
+        ],
+      }),
+    }];
+    const result = parseCitationExcerpts(
+      'Creativity is framed as selection.[1]\n\nCITATIONS:\n[1] "Creativity means selecting from different possibilities."',
+      youtubeRefs,
+      youtubeSources,
+    );
+    expect(result.citations[0]).toMatchObject({
+      timestamp_seconds: 75,
+      timestamp_label: '1:15',
+      seek_url: 'https://www.youtube.com/watch?v=xw-9mwZxl-0&t=75s',
+    });
+  });
+
   it('strips bracketed multiline citation metadata emitted by fallback models', () => {
-    const rawAnswer = 'Use explicit boundaries to improve reliability.\n\n[CITATIONS:]\n[1] \"Reliable agents need explicit boundaries and observable\nfeedback loops.\"';
+    const rawAnswer = 'Use explicit boundaries to improve reliability.\n\n[CITATIONS:]\n[1] "Reliable agents need explicit boundaries and observable\nfeedback loops."';
 
     const result = parseCitationExcerpts(rawAnswer, sourceRefs, sources);
 
@@ -80,6 +129,76 @@ describe('AI chat grounding', () => {
     expect(result.citations).toHaveLength(1);
     expect(result.citations[0].source_id).toBe('source-1');
     expect(sources[0].content).toContain(result.citations[0].excerpt);
+  });
+
+  it('recovers a missing citation for an explicit two-source comparison', () => {
+    const refs = [
+      { index: 1, id: 'white-paper', title: 'STI White Paper', type: 'pdf' },
+      { index: 2, id: 'video', title: 'AI and Creativity', type: 'youtube' },
+    ];
+    const comparisonSources = [
+      {
+        id: 'white-paper',
+        type: 'pdf',
+        content: 'The Fourth Industrial Revolution requires updated STI policy responses and positions artificial intelligence as an innovation driver.',
+      },
+      {
+        id: 'video',
+        type: 'youtube',
+        url: 'https://www.youtube.com/watch?v=xw-9mwZxl-0',
+        content: 'Intelligence is the ability to pursue goals and overcome problems. Consciousness is the ability to feel joy, love, pain, and anger.',
+        metadata: JSON.stringify({
+          videoId: 'xw-9mwZxl-0',
+          transcriptSegments: [
+            { text: 'Intelligence is the ability to pursue goals and overcome problems.', offset: 60_000, duration: 5000, timingSource: 'provider' },
+            { text: 'Consciousness is the ability to feel joy, love, pain, and anger.', offset: 65_000, duration: 5000, timingSource: 'provider' },
+          ],
+        }),
+      },
+    ];
+    const answer = [
+      'The White Paper treats AI as an innovation driver within the Fourth Industrial Revolution. [1]',
+      'The video instead distinguishes intelligence as pursuing goals from consciousness as the ability to feel joy, love, pain, and anger.',
+    ].join('\n\n');
+    const result = ensureExplicitMultiSourceGrounding(
+      answer,
+      [{ citation_id: 1, source_id: 'white-paper', source_title: 'STI White Paper', source_type: 'pdf', excerpt: comparisonSources[0].content }],
+      refs,
+      comparisonSources,
+      'Use both the STI White Paper and the YouTube source. Contrast their treatment of AI and cite both sources.',
+    );
+    expect(result.answer).toContain('[2]');
+    expect(result.citations).toHaveLength(2);
+    expect(result.citations[1]).toMatchObject({
+      source_id: 'video',
+      timestamp_seconds: 60,
+      timestamp_label: '1:00',
+      seek_url: 'https://www.youtube.com/watch?v=xw-9mwZxl-0&t=60s',
+    });
+  });
+
+  it('does not attach every source without an explicit all-source citation request', () => {
+    const result = ensureExplicitMultiSourceGrounding(
+      'Explicit boundaries improve reliability. [1]',
+      [{ citation_id: 1, source_id: 'source-1', source_title: 'Harness Engineering', source_type: 'website', excerpt: sources[0].content }],
+      [...sourceRefs, { index: 2, id: 'other', title: 'Other', type: 'text' }],
+      [...sources, { id: 'other', type: 'text', content: 'Unrelated quarterly revenue projections.' }],
+      'How can reliability improve?',
+    );
+    expect(result.answer).not.toContain('[2]');
+    expect(result.citations).toHaveLength(1);
+  });
+
+  it('refuses to recover an unrelated missing source even when both citations are requested', () => {
+    const result = ensureExplicitMultiSourceGrounding(
+      'Explicit boundaries improve reliability. [1]',
+      [{ citation_id: 1, source_id: 'source-1', source_title: 'Harness Engineering', source_type: 'website', excerpt: sources[0].content }],
+      [...sourceRefs, { index: 2, id: 'finance', title: 'Finance Report', type: 'pdf' }],
+      [...sources, { id: 'finance', type: 'pdf', content: 'Quarterly revenue increased while operating expenses declined.' }],
+      'Compare the two documents and cite both sources.',
+    );
+    expect(result.answer).not.toContain('[2]');
+    expect(result.citations).toHaveLength(1);
   });
 
   it('removes a citation marker when the excerpt is fabricated', () => {

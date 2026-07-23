@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 
 type Theme = 'light' | 'dark' | 'system';
 
+const getInitialTheme = (): Theme => {
+  if (typeof window === 'undefined') return 'light';
+  const stored = window.localStorage.getItem('theme');
+  return stored === 'dark' || stored === 'light' || stored === 'system' ? stored : 'light';
+};
+
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem('theme');
-    return (stored as Theme) || 'system';
-  });
+  const [theme, setThemeState] = useState<Theme>(getInitialTheme);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -23,10 +26,9 @@ export function useTheme() {
   }, [theme]);
 
   const setTheme = (newTheme: Theme) => {
-    localStorage.setItem('theme', newTheme);
+    window.localStorage.setItem('theme', newTheme);
     setThemeState(newTheme);
   };
 
   return { theme, setTheme };
 }
-

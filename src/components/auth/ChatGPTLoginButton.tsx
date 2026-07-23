@@ -109,7 +109,7 @@ export const ChatGPTLoginButton: React.FC<ChatGPTLoginButtonProps> = ({ onSucces
       type="button"
       onClick={() => login()}
       disabled={isPending || bridging}
-      className="w-full h-11 flex items-center justify-center gap-2 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-sm font-medium disabled:opacity-60"
+      className="w-full h-11 flex items-center justify-center gap-2 rounded-lg border border-border bg-card text-card-foreground shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors text-sm font-medium disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
     >
       {isPending || bridging ? (
         <>

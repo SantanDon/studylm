@@ -52,8 +52,9 @@ export function useAddSourcesHandlers(
         return;
       }
 
-      const detectFileType = (file: File): "pdf" | "text" | "website" | "youtube" | "audio" | "image" | "ebook" => {
+      const detectFileType = (file: File): "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook" => {
         if (file.type.includes("pdf") || file.name.toLowerCase().endsWith(".pdf")) return "pdf";
+        if (file.name.toLowerCase().endsWith(".docx") || file.type.includes("wordprocessingml")) return "doc";
         if (file.type.includes("audio")) return "audio";
         if (file.type.includes("image")) return "image";
         if (file.type === "application/epub+zip" || file.name.toLowerCase().endsWith(".epub")) return "ebook";
@@ -118,7 +119,7 @@ export function useAddSourcesHandlers(
         const firstSource = await addSourceAsync({
           notebookId,
           title: firstFile.name,
-          type: firstFileType as "pdf" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
+          type: firstFileType as "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
           file_size: firstFile.size,
           processing_status: "pending",
           metadata: { fileName: firstFile.name, fileType: firstFile.type },
@@ -135,7 +136,7 @@ export function useAddSourcesHandlers(
               return await addSourceAsync({
                 notebookId,
                 title: file.name,
-                type: fileType as "pdf" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
+                type: fileType as "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
                 file_size: file.size,
                 processing_status: "pending",
                 metadata: { fileName: file.name, fileType: file.type },
@@ -232,8 +233,8 @@ export function useAddSourcesHandlers(
     }
   };
 
-  const handleYouTubeSubmit = async (url: string) => {
-    if (!notebookId) return;
+  const handleYouTubeSubmit = async (url: string, language = 'en'): Promise<boolean> => {
+    if (!notebookId) return false;
 
     if (isGuest && !canAddSource) {
       showAuthPrompt('add more sources');
@@ -242,10 +243,12 @@ export function useAddSourcesHandlers(
     setIsLocallyProcessing(true);
 
     try {
-      const success = await addYoutubeVideoAsSource(url, notebookId);
+      const success = await addYoutubeVideoAsSource(url, notebookId, language);
       if (success) onOpenChange(false);
+      return success;
     } catch (error) {
       console.error("Error adding YouTube video:", error);
+      return false;
     } finally {
       setIsLocallyProcessing(false);
     }

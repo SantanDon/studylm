@@ -86,7 +86,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  const shouldShowExamples = !disabled && !isLoading && exampleQuestions.length > 0;
+  const shouldShowExamples = !disabled && !isLoading && !message.trim() && exampleQuestions.length > 0;
 
   return (
     <div className="p-6 border-t border-border flex-shrink-0 bg-background">

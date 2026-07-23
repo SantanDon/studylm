@@ -8,6 +8,7 @@ import { dirname, join } from 'path';
 import { eq, sql, and, or, desc, asc, inArray } from 'drizzle-orm';
 import { logger } from '../utils/logger.js';
 import { createSingleFlight } from '../utils/singleFlight.js';
+import { withDatabaseRetry } from '../utils/databaseRetry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -234,6 +235,36 @@ async function runDatabaseInitialization() {
       "events_json" text NOT NULL,
       "created_at" integer DEFAULT (strftime('%s', 'now'))
     )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "documents" (
+      "id" text PRIMARY KEY NOT NULL,
+      "notebook_id" text NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "title" text NOT NULL,
+      "content" text NOT NULL,
+      "document_type" text DEFAULT 'general',
+      "template" text DEFAULT 'general',
+      "status" text DEFAULT 'draft',
+      "source_ids" text DEFAULT '[]',
+      "metadata" text DEFAULT '{}',
+      "current_version" integer DEFAULT 1,
+      "created_by" text,
+      "created_at" integer DEFAULT (strftime('%s', 'now')),
+      "updated_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "document_versions" (
+      "id" text PRIMARY KEY NOT NULL,
+      "document_id" text NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "version" integer NOT NULL,
+      "title" text NOT NULL,
+      "content" text NOT NULL,
+      "change_summary" text,
+      "source_ids" text DEFAULT '[]',
+      "created_by" text,
+      "created_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE INDEX IF NOT EXISTS documents_notebook_idx ON documents(notebook_id, updated_at DESC)`);
+    await db.run(sql`CREATE INDEX IF NOT EXISTS document_versions_document_idx ON document_versions(document_id, version DESC)`);
     await db.run(sql`CREATE TABLE IF NOT EXISTS "signal_queue" (
       "id" text PRIMARY KEY NOT NULL,
       "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -668,15 +699,17 @@ export const dbHelpers = {
 
   // Sources
   async getSourcesByNotebookId(notebookId, userId) {
-    const db = await getDatabase();
-    // Verify access first (either owner or member)
-    const access = await this.getNotebookById(notebookId, userId);
-    if (!access) return [];
+    return withDatabaseRetry(async () => {
+      const db = await getDatabase();
+      // Verify access first (either owner or member)
+      const access = await this.getNotebookById(notebookId, userId);
+      if (!access) return [];
 
-    // Return ALL sources for this notebook, as it's a team space
-    return await db.select().from(schema.sources)
-      .where(eq(schema.sources.notebookId, notebookId))
-      .orderBy(desc(schema.sources.updatedAt));
+      // Return ALL sources for this notebook, as it's a team space
+      return await db.select().from(schema.sources)
+        .where(eq(schema.sources.notebookId, notebookId))
+        .orderBy(desc(schema.sources.updatedAt));
+    }, { label: `sources for notebook ${notebookId}` });
   },
 
   async createSource(id, notebookId, userId, title, type, content = null, url = null, metadata = null, filePath = null, fileSize = 0) {
@@ -737,14 +770,16 @@ export const dbHelpers = {
 
   // Chat
   async getChatMessagesByNotebookId(notebookId, userId) {
-    const db = await getDatabase();
-    // Verify access
-    const access = await this.getNotebookById(notebookId, userId);
-    if (!access) return [];
+    return withDatabaseRetry(async () => {
+      const db = await getDatabase();
+      // Verify access
+      const access = await this.getNotebookById(notebookId, userId);
+      if (!access) return [];
 
-    return await db.select().from(schema.chatMessages)
-      .where(eq(schema.chatMessages.notebookId, notebookId))
-      .orderBy(asc(schema.chatMessages.createdAt));
+      return await db.select().from(schema.chatMessages)
+        .where(eq(schema.chatMessages.notebookId, notebookId))
+        .orderBy(asc(schema.chatMessages.createdAt));
+    }, { label: `messages for notebook ${notebookId}` });
   },
 
   async deleteChatMessagesByNotebookId(notebookId, userId) {
@@ -776,14 +811,16 @@ export const dbHelpers = {
 
   // Notes
   async getNotesByNotebookId(notebookId, userId) {
-    const db = await getDatabase();
-    // Verify access
-    const access = await this.getNotebookById(notebookId, userId);
-    if (!access) return [];
+    return withDatabaseRetry(async () => {
+      const db = await getDatabase();
+      // Verify access
+      const access = await this.getNotebookById(notebookId, userId);
+      if (!access) return [];
 
-    return await db.select().from(schema.notes)
-      .where(eq(schema.notes.notebookId, notebookId))
-      .orderBy(desc(schema.notes.updatedAt));
+      return await db.select().from(schema.notes)
+        .where(eq(schema.notes.notebookId, notebookId))
+        .orderBy(desc(schema.notes.updatedAt));
+    }, { label: `notes for notebook ${notebookId}` });
   },
 
   async createNote(id, notebookId, userId, content, authorId = null) {

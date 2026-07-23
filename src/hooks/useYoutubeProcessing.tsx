@@ -31,7 +31,8 @@ export const useYoutubeProcessing = () => {
 
   const addYoutubeVideoAsSource = async (
     url: string,
-    notebookId: string
+    notebookId: string,
+    language = 'en',
   ): Promise<boolean> => {
     try {
       setIsProcessing(true);
@@ -74,7 +75,7 @@ export const useYoutubeProcessing = () => {
         description: "Fetching transcript and metadata...",
       });
 
-      const result = await extractYoutubeTranscript(url, session?.access_token);
+      const result = await extractYoutubeTranscript(url, session?.access_token, language);
 
       console.log(`📺 YouTube: isFirstSource=${isFirstSource}, existingSources=${existingSources.length}`);
 
@@ -98,6 +99,25 @@ export const useYoutubeProcessing = () => {
           transcriptStatus: result.metadata.transcriptStatus,
           transcriptLineCount: result.metadata.transcriptLineCount,
           extractionWarning: result.metadata.extractionWarning,
+          transcriptProvider: result.metadata.transcriptProvider,
+          transcriptMode: result.metadata.transcriptMode,
+          transcriptLanguage: result.metadata.transcriptLanguage,
+          availableTranscriptLanguages: result.metadata.availableTranscriptLanguages || [],
+          selectedTrackKind: result.metadata.selectedTrackKind,
+          transcriptQuality: result.metadata.transcriptQuality,
+          timingQuality: result.metadata.timingQuality,
+          videoAvailability: result.metadata.videoAvailability,
+          availabilityReason: result.metadata.availabilityReason,
+          participants: result.metadata.participants || [],
+          chapters: result.metadata.chapters || [],
+          timestampedTranscript: result.metadata.timestampedTranscript,
+          transcriptSegments: result.metadata.transcriptSegments || [],
+          supadataBillableRequests: result.metadata.supadataBillableRequests || 0,
+          channelId: result.metadata.channelId,
+          thumbnail: result.metadata.thumbnail,
+          publishedAt: result.metadata.publishedAt,
+          canonicalUrl: result.metadata.canonicalUrl,
+          providerCapabilities: result.metadata.providerCapabilities,
           sovereign_signal: result.metadata.sovereign_signal,
         }
       };

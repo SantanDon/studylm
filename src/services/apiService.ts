@@ -8,11 +8,42 @@
 
 export { API_BASE_URL } from '@/config/api';
 import { API_BASE_URL } from '@/config/api';
+import type {
+  CreateDocumentInput,
+  DocumentArtifact,
+  DocumentExportFormat,
+  DocumentRevisionInput,
+  DocumentRevisionProposal,
+  DocumentVersion,
+  UpdateDocumentInput,
+} from '@/types/document';
 
 /**
  * Handle HTTP response globally for Auth events.
  * If 401 or 403, clear corrupted localStorage state and force logout.
  */
+async function handleDocumentResponse<T>(response: Response): Promise<T> {
+  if (response.status === 401) {
+    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    throw new Error('Authentication expired or invalid. Please sign in again.');
+  }
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({})) as {
+      error?: string;
+      code?: string;
+      currentVersion?: number;
+    };
+    const error = new Error(errorData.error || 'Document request failed') as Error & {
+      code?: string;
+      currentVersion?: number;
+    };
+    error.code = errorData.code;
+    error.currentVersion = errorData.currentVersion;
+    throw error;
+  }
+  return response.json() as Promise<T>;
+}
+
 async function handleResponse(response: Response) {
   if (response.status === 401 || response.status === 403) {
     // Notify the AuthContext to clear stale local sessions
@@ -339,10 +370,11 @@ export const ApiService = {
     return response.json();
   },
 
-  async getChatMessages(notebookId: string, token: string) {
+  async getChatMessages(notebookId: string, token: string, signal?: AbortSignal) {
     const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/messages`, {
       headers: { 'Authorization': `Bearer ${token}` },
-      credentials: 'include'
+      credentials: 'include',
+      signal,
     });
     if (!response.ok) throw new Error('Failed to fetch chat messages');
     return response.json();
@@ -385,10 +417,11 @@ export const ApiService = {
   },
 
   /** Retrieves pending agent uploads for the front-end to process */
-  async getPendingAgentUploads(notebookId: string, token: string) {
+  async getPendingAgentUploads(notebookId: string, token: string, signal?: AbortSignal) {
     const response = await fetch(`${API_BASE_URL}/agent/pending-uploads?notebookId=${notebookId}`, {
       headers: { 'Authorization': `Bearer ${token}` },
-      credentials: 'include'
+      credentials: 'include',
+      signal,
     });
     if (!response.ok) throw new Error('Failed to fetch pending agent uploads');
     return response.json();
@@ -641,6 +674,144 @@ export const ApiService = {
       credentials: 'include'
     });
     return handleResponse(response);
+  },
+
+  async fetchDocuments(notebookId: string, token: string): Promise<DocumentArtifact[]> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    });
+    const data = await handleDocumentResponse<{ documents: DocumentArtifact[] }>(response);
+    return data.documents;
+  },
+
+  async fetchDocument(notebookId: string, documentId: string, token: string): Promise<DocumentArtifact> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/${documentId}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    });
+    const data = await handleDocumentResponse<{ document: DocumentArtifact }>(response);
+    return data.document;
+  },
+
+  async createDocument(notebookId: string, input: CreateDocumentInput, token: string): Promise<DocumentArtifact> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      credentials: 'include',
+    });
+    const data = await handleDocumentResponse<{ document: DocumentArtifact }>(response);
+    return data.document;
+  },
+
+  async createDocumentFromSource(notebookId: string, sourceId: string, token: string, title?: string): Promise<DocumentArtifact> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/from-source`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceId, title }),
+      credentials: 'include',
+    });
+    const data = await handleDocumentResponse<{ document: DocumentArtifact }>(response);
+    return data.document;
+  },
+
+  async updateDocument(notebookId: string, documentId: string, input: UpdateDocumentInput, token: string): Promise<DocumentArtifact> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/${documentId}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      credentials: 'include',
+    });
+    const data = await handleDocumentResponse<{ document: DocumentArtifact }>(response);
+    return data.document;
+  },
+
+  async deleteDocument(notebookId: string, documentId: string, token: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/${documentId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    });
+    await handleDocumentResponse<{ success: boolean }>(response);
+  },
+
+  async fetchDocumentVersions(notebookId: string, documentId: string, token: string): Promise<DocumentVersion[]> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/${documentId}/versions`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    });
+    const data = await handleDocumentResponse<{ versions: DocumentVersion[] }>(response);
+    return data.versions;
+  },
+
+  async restoreDocumentVersion(notebookId: string, documentId: string, version: number, token: string): Promise<DocumentArtifact> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/${documentId}/versions/${version}/restore`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    });
+    const data = await handleDocumentResponse<{ document: DocumentArtifact }>(response);
+    return data.document;
+  },
+
+  async proposeDocumentRevision(
+    notebookId: string,
+    documentId: string,
+    input: DocumentRevisionInput,
+    token: string,
+  ): Promise<{ proposal: DocumentRevisionProposal; documentVersion: number; sourceScope: string[] }> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/${documentId}/revisions/propose`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      credentials: 'include',
+    });
+    return handleDocumentResponse(response);
+  },
+
+  async applyDocumentRevision(
+    notebookId: string,
+    documentId: string,
+    revisedContent: string,
+    expectedVersion: number,
+    changeSummary: string,
+    token: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<DocumentArtifact> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/${documentId}/revisions/apply`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revisedContent, expectedVersion, changeSummary, metadata }),
+      credentials: 'include',
+    });
+    const data = await handleDocumentResponse<{ document: DocumentArtifact }>(response);
+    return data.document;
+  },
+
+  async exportDocument(
+    notebookId: string,
+    documentId: string,
+    format: DocumentExportFormat,
+    token: string,
+  ): Promise<{ blob: Blob; filename: string; version: number | null }> {
+    const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/documents/${documentId}/export?format=${format}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(data.error || 'Document export failed');
+    }
+    const disposition = response.headers.get('content-disposition') || '';
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+    const simple = /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+    const filename = encoded ? decodeURIComponent(encoded) : (simple || `StudyPod-Document.${format}`);
+    return {
+      blob: await response.blob(),
+      filename,
+      version: Number(response.headers.get('x-studypod-document-version')) || null,
+    };
   },
 };
 

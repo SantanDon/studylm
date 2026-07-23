@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +13,7 @@ import { useChatMessages } from '@/hooks/useChatMessages';
 import { LocalNotebook } from '@/services/localStorageService';
 import { ChatMessage } from '@/lib/export/markdownExporter';
 import { Download } from 'lucide-react';
+import { formatDisplayTitle } from '@/lib/utils/displayTitle';
 
 interface NotebookHeaderProps {
   title: string;
@@ -21,8 +22,9 @@ interface NotebookHeaderProps {
 
 const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
   const navigate = useNavigate();
+  const displayTitle = formatDisplayTitle(title, 'Untitled notebook');
   const [isEditing, setIsEditing] = useState(false);
-  const [editedTitle, setEditedTitle] = useState(title);
+  const [editedTitle, setEditedTitle] = useState(displayTitle);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const { updateNotebook, isUpdating } = useNotebookUpdate();
   const { notebooks } = useNotebooks();
@@ -31,6 +33,10 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
   const { messages: rawMessages } = useChatMessages(notebookId);
 
   const notebook = notebooks?.find((n: { id: string }) => n.id === notebookId);
+
+  useEffect(() => {
+    if (!isEditing) setEditedTitle(displayTitle);
+  }, [displayTitle, isEditing]);
 
   // Map EnhancedChatMessage[] → ChatMessage[] for the markdown exporter.
   // Each stored record has { message: { type: "human"|"ai", content: string | { segments, citations } } }
@@ -57,15 +63,16 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
   const handleTitleClick = () => {
     if (notebookId) {
       setIsEditing(true);
-      setEditedTitle(title);
+      setEditedTitle(displayTitle);
     }
   };
 
   const handleTitleSubmit = () => {
-    if (notebookId && editedTitle.trim() && editedTitle !== title) {
+    const normalizedTitle = formatDisplayTitle(editedTitle, 'Untitled notebook');
+    if (notebookId && normalizedTitle !== displayTitle) {
       updateNotebook({
         id: notebookId,
-        updates: { title: editedTitle.trim() }
+        updates: { title: normalizedTitle }
       });
     }
     setIsEditing(false);
@@ -75,7 +82,7 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
     if (e.key === 'Enter') {
       handleTitleSubmit();
     } else if (e.key === 'Escape') {
-      setEditedTitle(title);
+      setEditedTitle(displayTitle);
       setIsEditing(false);
     }
   };
@@ -115,7 +122,7 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
                 className="min-w-0 truncate text-base sm:text-lg font-medium text-foreground cursor-pointer hover:bg-accent rounded px-2 py-1 transition-colors"
                 onClick={handleTitleClick}
               >
-                {title}
+                {displayTitle}
               </span>
             )}
           </div>

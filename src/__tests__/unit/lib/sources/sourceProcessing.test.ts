@@ -3,6 +3,7 @@ import {
   buildSourceProcessingError,
   isSourceUsableForGroundedChat,
   parseSourceProcessingMetadata,
+  shouldSkipClientSemanticIndexing,
 } from '@/lib/sources/sourceProcessing';
 
 describe('source processing contract', () => {
@@ -43,6 +44,12 @@ describe('source processing contract', () => {
       processing_status: 'completed',
       metadata: JSON.stringify({ transcriptStatus: 'metadata_only' }),
     })).toBe(false);
+  });
+
+  it('skips expensive client indexing for oversized sources without rejecting their text', () => {
+    expect(shouldSkipClientSemanticIndexing(757_010, 250_000)).toBe(true);
+    expect(shouldSkipClientSemanticIndexing(250_000, 250_000)).toBe(false);
+    expect(shouldSkipClientSemanticIndexing(249_999, 250_000)).toBe(false);
   });
 
   it('parses serialized metadata and creates structured retry errors', () => {

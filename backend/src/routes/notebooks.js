@@ -14,7 +14,14 @@ import { MasticationService } from "../services/masticationService.js";
 import { agentPulse } from "../services/agentPulse.js";
 import { WebhookDispatcher } from "../services/webhookDispatcher.js";
 import { logger } from "../utils/logger.js";
-import { getSourceTrust } from "../utils/sourceProcessing.js";
+import { isTransientDatabaseError } from "../utils/databaseRetry.js";
+import {
+  buildKeywordOnlySourceMetadata,
+  getSourceTrust,
+  parseSourceMetadata,
+  shouldSkipSemanticIndexing,
+} from "../utils/sourceProcessing.js";
+import { listDocuments } from "../services/documentRepository.js";
 
 const router = express.Router();
 
@@ -520,14 +527,31 @@ router.post("/:id/sources/tweets", requireScope('sources:write'), async (req, re
  */
 router.put("/:id/sources/:sourceId", requireScope('sources:write'), async (req, res) => {
   try {
-    const updates = req.body;
+    const updates = { ...req.body };
+    const requestedProcessingStatus = updates.processing_status || updates.processingStatus;
+    const isIndexingTransition = ['processing', 'indexing'].includes(requestedProcessingStatus);
+    if (isIndexingTransition) {
+      const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
+      const existingSource = sources.find((source) => source.id === req.params.sourceId);
+      const content = typeof updates.content === 'string' ? updates.content : (existingSource?.content || '');
+      if (shouldSkipSemanticIndexing(content.length)) {
+        const metadata = {
+          ...parseSourceMetadata(existingSource),
+          ...parseSourceMetadata(updates.metadata),
+        };
+        updates.processing_status = 'degraded';
+        updates.processingStatus = 'degraded';
+        updates.content = content;
+        updates.metadata = buildKeywordOnlySourceMetadata(metadata, content.length);
+      }
+    }
     const result = await dbHelpers.updateSource(req.params.sourceId, req.user.userId, updates);
 
     // VERCEL WORKAROUND: If changes is 0, the source was wiped by Vercel serverless. We MUST auto-provision it.
     if (result.changes === 0) {
       logger.info(`🛠️ PUT /sources/:sourceId: Source missing, auto-provisioning...`);
       try {
-        let notebook = await getNotebookOrRecover(req.params.id, req.user.userId);
+        await getNotebookOrRecover(req.params.id, req.user.userId);
 
         await dbHelpers.createSource(
             req.params.sourceId, req.params.id, req.user.userId,
@@ -548,7 +572,13 @@ router.put("/:id/sources/:sourceId", requireScope('sources:write'), async (req, 
       }
     }
 
-    res.json({ success: true, message: "Source updated" });
+    const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
+    const updatedSource = sources.find((source) => source.id === req.params.sourceId);
+    if (!updatedSource) {
+      return res.status(404).json({ error: "Source not found after update" });
+    }
+
+    res.json(updatedSource);
   } catch (error) {
     logger.error("Update source error:", error);
     res.status(500).json({ error: "Failed to update source" });
@@ -696,7 +726,10 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
     if (!notebook) return res.status(404).json({ error: "Notebook not found" });
 
     const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
-    const notes = await dbHelpers.getNotesByNotebookId(req.params.id, req.user.userId);
+    const [notes, documents] = await Promise.all([
+      dbHelpers.getNotesByNotebookId(req.params.id, req.user.userId),
+      listDocuments(req.params.id, req.user.userId),
+    ]);
 
     // Provide a structured snapshot so agents don't have to assemble it manually
     res.json({
@@ -741,6 +774,38 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
         authorId: n.authorId,
         createdAt: n.createdAt
       })),
+      documents: documents.map(document => ({
+        id: document.id,
+        title: document.title,
+        documentType: document.documentType,
+        status: document.status,
+        currentVersion: document.currentVersion,
+        sourceIds: document.sourceIds,
+        contentLength: document.content.length,
+        contentPreview: document.content.slice(0, 500),
+        updatedAt: document.updatedAt,
+      })),
+      agentCapabilities: {
+        documents: {
+          list: `GET /api/notebooks/${req.params.id}/documents`,
+          create: `POST /api/notebooks/${req.params.id}/documents`,
+          revise: `POST /api/notebooks/${req.params.id}/documents/:documentId/revisions/propose`,
+          export: `GET /api/notebooks/${req.params.id}/documents/:documentId/export?format=docx|pdf|md|txt`,
+        },
+        youtube: {
+          ingest: 'POST /api/youtube/ingest with { notebookId, url, language? }',
+          providers: 'GET /api/youtube/providers',
+          transcript: 'GET /api/youtube/youtube-transcript?url=<youtube-url>&language=<language-code>',
+          sourceTimeline: `GET /api/notebooks/${req.params.id}/sources/:sourceId/content`,
+          qualityContract: {
+            transcriptStatus: 'full | partial | metadata_only',
+            videoAvailability: 'available | available_no_transcript | private | restricted | region_blocked | unavailable | unknown',
+            timingQuality: 'provider | mixed | inferred | none',
+            seekableCitations: 'Use only when source.providerCapabilities.seekableCitations is true.',
+          },
+          recommendedWorkflow: 'Use ingest for a one-call notebook source. Inspect source transcriptQuality before chat, and use sourceIds to scope evidence-sensitive questions.',
+        }
+      },
       agentReady: true
     });
   } catch (error) {
@@ -1013,6 +1078,12 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
 
   } catch (error) {
     logger.error("Chat endpoint error:", error);
+    if (isTransientDatabaseError(error)) {
+      return res.status(503).json({
+        error: "The notebook database is temporarily unavailable. Please retry shortly.",
+        code: "DATABASE_TEMPORARILY_UNAVAILABLE",
+      });
+    }
     res.status(500).json({ error: "Failed to process chat" });
   }
 });
@@ -1115,12 +1186,26 @@ router.get("/:id/sources/:sourceId/content", requireScope('sources:read'), requi
       await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'read_source', `Read full source: ${source.title}`);
     }
 
+    const metadata = parseSourceMetadata(source);
+    const trust = getSourceTrust(source);
     res.json({
       id: source.id,
       title: source.title,
       type: source.type,
       content: source.content,
-      contentLength: source.content ? source.content.length : 0
+      contentLength: source.content ? source.content.length : 0,
+      trust,
+      transcriptSegments: source.type === 'youtube' && Array.isArray(metadata.transcriptSegments)
+        ? metadata.transcriptSegments
+        : [],
+      transcriptProvider: metadata.transcriptProvider || metadata.extractedBy || null,
+      transcriptQuality: trust.transcriptQuality || null,
+      timingQuality: trust.timingQuality || null,
+      videoAvailability: trust.videoAvailability || null,
+      participants: trust.participants || [],
+      chapters: trust.chapters || [],
+      providerCapabilities: trust.providerCapabilities || null,
+      timestampedTranscript: Boolean(metadata.timestampedTranscript),
     });
   } catch (error) {
     logger.error("Failed to get full source content:", error);

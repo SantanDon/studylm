@@ -3,6 +3,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useNotebookDelete } from '@/hooks/useNotebookDelete';
 import { useToast } from '@/hooks/use-toast';
 import { Share2, Trash2 } from 'lucide-react';
+import { formatDisplayTitle } from '@/lib/utils/displayTitle';
 
 interface NotebookCardProps {
   notebook: {
@@ -28,6 +29,7 @@ const NotebookCard = ({
     isDeleting
   } = useNotebookDelete();
   const { toast } = useToast();
+  const displayTitle = formatDisplayTitle(notebook.title, 'Untitled notebook');
 
   const handleShareClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -68,7 +70,7 @@ const NotebookCard = ({
           )}
           <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
             <AlertDialogTrigger asChild>
-              <button onClick={handleDeleteClick} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500 transition-colors delete-button" disabled={isDeleting} data-delete-action="true" aria-label={`Delete ${notebook.title}`}>
+              <button onClick={handleDeleteClick} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500 transition-colors delete-button" disabled={isDeleting} data-delete-action="true" aria-label={`Delete ${displayTitle}`}>
                 <Trash2 className="h-4 w-4" />
               </button>
             </AlertDialogTrigger>
@@ -95,7 +97,7 @@ const NotebookCard = ({
       </div>
       
       <h3 className="text-foreground mb-2 pr-6 line-clamp-2 text-lg font-medium flex-grow leading-snug">
-        {notebook.title}
+        {displayTitle}
       </h3>
       
       <div className="flex items-center justify-between text-xs text-muted-foreground mt-auto">

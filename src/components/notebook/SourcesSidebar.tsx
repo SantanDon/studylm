@@ -26,12 +26,14 @@ import { useWebsiteProcessing } from "@/hooks/useWebsiteProcessing";
 import { Citation } from "@/types/message";
 import { LocalSource } from "@/services/localStorageService";
 import { useDocumentProcessing } from "@/hooks/useDocumentProcessing";
+import { useDocuments } from "@/hooks/useDocuments";
 import { useToast } from "@/hooks/use-toast";
 import {
   getSourceProcessingStatus,
   parseSourceProcessingMetadata,
   type SourceProcessingError,
 } from "@/lib/sources/sourceProcessing";
+import { formatDisplayTitle } from "@/lib/utils/displayTitle";
 
 const AddSourcesDialog = React.lazy(() => import('./AddSourcesDialog'));
 const SourceContentViewer = React.lazy(() => import('@/components/chat/SourceContentViewer'));
@@ -47,6 +49,14 @@ interface SourceMetadata {
   duration?: number;
   processingStage?: string;
   processingError?: SourceProcessingError;
+  indexingSkipped?: boolean;
+  indexingStrategy?: string;
+  transcriptProvider?: string;
+  transcriptMode?: string;
+  transcriptLanguage?: string | null;
+  timestampedTranscript?: boolean;
+  transcriptSegments?: Array<{ text: string; offset: number; duration: number; lang?: string | null }>;
+  providerCapabilities?: { seekableCitations?: boolean; timestampedSegments?: boolean; metadata?: boolean };
 }
 
 function parseSourceMetadata(source: Source): SourceMetadata {
@@ -86,7 +96,7 @@ const SourcesSidebar = ({
     if (!sources) return [];
     return sources.filter((source) => {
       const matchesSearch =
-        source.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(source.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         (source.content && source.content.toLowerCase().includes(searchQuery.toLowerCase()));
 
       if (!matchesSearch) return false;
@@ -102,6 +112,7 @@ const SourcesSidebar = ({
 
   const { deleteSource, isDeleting } = useSourceDelete();
   const { processDocumentAsync } = useDocumentProcessing();
+  const { createDocumentFromSource, isCreating: isCreatingDocument } = useDocuments(notebookId);
   const { toast } = useToast();
 
   const [importingUrls, setImportingUrls] = useState<Record<string, boolean>>({});
@@ -263,12 +274,14 @@ const SourcesSidebar = ({
     }
 
     if (status === "degraded") {
+      const keywordOnly = metadata.indexingStrategy === "keyword_only"
+        || metadata.processingError?.code === "SOURCE_INDEXING_SKIPPED_LARGE";
       return (
         <span
           className="text-[10px] font-medium rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
           title={metadata.processingError?.message || "Text is available, but semantic indexing is limited."}
         >
-          Limited
+          {keywordOnly ? "Keyword only" : "Limited"}
         </span>
       );
     }
@@ -291,7 +304,7 @@ const SourcesSidebar = ({
             className="text-[10px] font-medium rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-green-700 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-300"
             title={`Transcript extracted with ${metadata.transcriptLineCount} caption lines${metadata.extractedBy ? ` via ${metadata.extractedBy}` : ""}.`}
           >
-            Transcript
+            {metadata.timestampedTranscript ? 'Timestamped' : 'Transcript'}
           </span>
         );
       }
@@ -302,6 +315,33 @@ const SourcesSidebar = ({
         Ready
       </span>
     );
+  };
+
+  const handleCreateEditableDocument = async (source: Source) => {
+    if (!source.content?.trim()) {
+      toast({
+        title: "Source is not ready",
+        description: "StudyPod needs usable extracted text before creating an editable document.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      const document = await createDocumentFromSource({ sourceId: source.id });
+      toast({
+        title: "Editable copy created",
+        description: "The original source remains protected and unchanged.",
+      });
+      window.dispatchEvent(new CustomEvent("studypod:open-document", {
+        detail: { documentId: document.id },
+      }));
+    } catch (error) {
+      toast({
+        title: "Could not create document",
+        description: error instanceof Error ? error.message : "Document creation failed",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleRetrySource = async (source: Source) => {
@@ -423,6 +463,10 @@ const SourcesSidebar = ({
     const sourceUrl = selectedSourceForViewing
       ? getSelectedSourceUrl()
       : getSourceUrl(selectedCitation);
+    const sourceRecord = selectedSourceForViewing
+      || sources?.find((source) => source.id === selectedCitation.source_id)
+      || null;
+    const sourceMetadata = sourceRecord ? parseSourceMetadata(sourceRecord) : {};
 
     return (
       <div className="w-full bg-gray-50 dark:bg-background border-r border-gray-200 dark:border-border flex flex-col h-full overflow-hidden">
@@ -450,6 +494,7 @@ const SourcesSidebar = ({
             sourceContent={sourceContent}
             sourceSummary={sourceSummary}
             sourceUrl={sourceUrl}
+            sourceMetadata={sourceMetadata}
             className="flex-1 overflow-hidden"
             isOpenedFromSourceList={selectedCitation.citation_id === -1}
           />
@@ -545,7 +590,7 @@ const SourcesSidebar = ({
                             </div>
                             <div className="flex-1 min-w-0">
                               <span className="text-sm text-gray-900 dark:text-foreground truncate block font-medium">
-                                {source.title}
+                                {formatDisplayTitle(source.title, 'Untitled source')}
                               </span>
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {renderSourceTrustBadge(source)}
@@ -559,7 +604,17 @@ const SourcesSidebar = ({
                       </Card>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
-                      {(getSourceProcessingStatus(source) === "failed" || getSourceProcessingStatus(source) === "degraded") && (
+                      <ContextMenuItem
+                        onClick={() => handleCreateEditableDocument(source)}
+                        disabled={!source.content?.trim() || isCreatingDocument}
+                      >
+                        <i className="fi fi-rr-document-signed h-4 w-4 mr-2"></i>
+                        Create editable document
+                      </ContextMenuItem>
+                      {(getSourceProcessingStatus(source) === "failed" || (
+                        getSourceProcessingStatus(source) === "degraded"
+                        && parseSourceMetadata(source).processingError?.retryable !== false
+                      )) && (
                         <ContextMenuItem
                           onClick={() => handleRetrySource(source)}
                           disabled={retryingSourceId === source.id}
@@ -602,7 +657,7 @@ const SourcesSidebar = ({
                   <div className="space-y-2">
                     {suggestedSources.map((item) => (
                       <Card
-                        key={item.id}
+                        key={item.url}
                         className="p-3 border border-dashed border-gray-200 dark:border-border bg-gray-50/50 dark:bg-muted/10"
                       >
                         <div className="flex flex-col space-y-2">

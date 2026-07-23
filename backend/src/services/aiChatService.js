@@ -10,6 +10,7 @@ import { performWebSearch } from './webSearchService.js';
 import { logger } from '../utils/logger.js';
 import { dbHelpers } from '../db/database.js';
 import { isSourceUsableForGroundedChat, parseSourceMetadata } from '../utils/sourceProcessing.js';
+import { findYouTubeTimestampForExcerpt } from './youtubeUnderstandingService.js';
 
 const BASE64_IMAGE_RE = /data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+/g;
 
@@ -143,7 +144,7 @@ function buildFocusedContentQuery(query, sourceTitle = '') {
   return focusedTerms.length > 0 ? focusedTerms.join(' ') : query;
 }
 
-function selectRelevantContent(content, query, maxChars, sourceTitle = '') {
+export function selectRelevantContent(content, query, maxChars, sourceTitle = '') {
   const cleanContent = stripBase64Images(content || '').trim();
   if (!cleanContent || maxChars <= 0) return '';
   if (cleanContent.length <= maxChars) return cleanContent;
@@ -162,6 +163,7 @@ function selectRelevantContent(content, query, maxChars, sourceTitle = '') {
 
   const focusedQuery = buildFocusedContentQuery(query, sourceTitle);
   const focusedTerms = [...new Set(tokenize(focusedQuery))];
+  const metadataQuery = /\b(publication|published|publication date|date|status|version|author|editor|publisher|title)\b/i.test(String(query || ''));
   const ranked = chunks
     .map((chunk, index) => {
       const normalizedChunk = normalizeLookupText(chunk.text);
@@ -191,6 +193,9 @@ function selectRelevantContent(content, query, maxChars, sourceTitle = '') {
       if (/\bfounding values?\b/i.test(query) && /founded on the following values/i.test(normalizedChunk)) {
         structuralBonus += 140;
       }
+      if (metadataQuery && index === 0) {
+        structuralBonus += 180;
+      }
       return {
         ...chunk,
         index,
@@ -213,6 +218,7 @@ function selectRelevantContent(content, query, maxChars, sourceTitle = '') {
     seenIndexes.add(chunk.index);
     candidateOrder.push(chunk);
   };
+  if (metadataQuery && chunks[0]) addCandidate({ ...chunks[0], index: 0 });
   for (const chunk of ranked.slice(0, 3)) {
     addCandidate(chunk);
     addCandidate(chunks[chunk.index - 1] ? { ...chunks[chunk.index - 1], index: chunk.index - 1 } : null);
@@ -258,16 +264,28 @@ function stripBase64Images(text = '') {
  * Parse the "CITATIONS:" block the model appends into structured citation
  * objects with verbatim excerpts, then strip the block from the answer.
  */
-const CITE_BLOCK_RE = /\n\s*(?:#{1,6}\s*)?\[?CITATIONS:?\]?\s*\n([\s\S]*)$/i;
+const CITE_HEADER_RE = /(?:^|\r?\n)\s*(?:#{1,6}\s*)?(?:\[\s*CITATIONS?\s*:?\s*\]|CITATIONS?)\s*:?\s*(?:\r?\n|(?=\[\d+\])|\s+(?=\[\d+\]))/i;
+
+function enrichCitationWithSourceMetadata(citation, source) {
+  if (!citation || source?.type !== 'youtube' || !citation.excerpt) return citation;
+  const timestamp = findYouTubeTimestampForExcerpt(source, citation.excerpt);
+  if (!timestamp) return citation;
+  return {
+    ...citation,
+    timestamp_seconds: timestamp.timestampSeconds,
+    timestamp_label: timestamp.timestampLabel,
+    seek_url: timestamp.seekUrl,
+  };
+}
 
 export function parseCitationExcerpts(rawAnswer, sourceRefs, sources = []) {
   let answer = String(rawAnswer || '');
   const citations = [];
-  const match = answer.match(CITE_BLOCK_RE);
-  if (!match) return { answer, citations };
+  const match = answer.match(CITE_HEADER_RE);
+  if (!match || match.index === undefined) return { answer, citations };
 
+  const block = answer.slice(match.index + match[0].length);
   answer = answer.slice(0, match.index).trimEnd();
-  const block = match[1];
   const sourceByIdx = Object.fromEntries(sourceRefs.map((ref) => [Number(ref.index), ref]));
   const entryPattern = /\[(\d+)\]\s*["“]([\s\S]*?)["”](?=\s*\[\d+\]\s*["“]|\s*$)/g;
 
@@ -285,19 +303,20 @@ export function parseCitationExcerpts(rawAnswer, sourceRefs, sources = []) {
     const normalizedExcerpt = excerpt.replace(/\s+/g, ' ').trim().toLowerCase();
     if (!normalizedSource.includes(normalizedExcerpt)) continue;
 
-    citations.push({
+    citations.push(enrichCitationWithSourceMetadata({
       citation_id: index,
       source_id: ref.id,
       source_title: ref.title || ref.id,
       source_type: ref.type || 'unknown',
       excerpt: excerpt.replace(/\s+/g, ' ').trim().slice(0, 240),
-    });
+    }, source));
   }
 
   const validatedIndexes = new Set(citations.map((citation) => Number(citation.citation_id)));
   answer = answer.replace(/\[(\d+)\]/g, (marker, index) => (
     validatedIndexes.has(Number(index)) ? marker : ''
   ));
+  answer = answer.replace(/\s+([.,;:!?])/g, '$1').trimEnd();
   return { answer, citations };
 }
 
@@ -320,13 +339,13 @@ export function inferCitationsFromMarkers(answer, sourceRefs, sources = [], quer
     ).trim();
     if (!excerpt) return [];
 
-    return [{
+    return [enrichCitationWithSourceMetadata({
       citation_id: index,
       source_id: ref.id,
       source_title: ref.title || ref.id,
       source_type: ref.type || 'unknown',
       excerpt,
-    }];
+    }, source)];
   });
 }
 
@@ -346,6 +365,78 @@ export function ensurePrimaryGrounding(answer, citations, sourceRefs, sources = 
 
   if (inferred.length === 0) return { answer, citations };
   return { answer: groundedAnswer, citations: inferred };
+}
+
+function requiresEverySourceCitation(query = '') {
+  return /\bcite\s+(?:both|all|each|every)\b/i.test(String(query || ''))
+    || /\bcitations?\s+(?:for|from)\s+(?:both|all|each|every)\b/i.test(String(query || ''));
+}
+
+function appendMarkerToParagraph(answer, paragraphIndex, marker) {
+  const paragraphs = String(answer || '').split(/(\n\s*\n)/);
+  let visibleIndex = -1;
+  for (let index = 0; index < paragraphs.length; index += 2) {
+    visibleIndex += 1;
+    if (visibleIndex !== paragraphIndex) continue;
+    const paragraph = paragraphs[index].trimEnd();
+    paragraphs[index] = paragraph.includes(marker) ? paragraph : `${paragraph} ${marker}`;
+    break;
+  }
+  return paragraphs.join('');
+}
+
+export function ensureExplicitMultiSourceGrounding(answer, citations, sourceRefs, sources = [], query = '') {
+  if (!requiresEverySourceCitation(query) || sourceRefs.length < 2) return { answer, citations };
+
+  let groundedAnswer = String(answer || '');
+  const groundedCitations = [...citations];
+  const citedIndexes = new Set(groundedCitations.map((citation) => Number(citation.citation_id)));
+
+  for (const ref of sourceRefs) {
+    const refIndex = Number(ref.index);
+    if (citedIndexes.has(refIndex)) continue;
+    const source = sources.find((candidate) => candidate.id === ref.id);
+    if (!source?.content) continue;
+
+    const sourceProbe = selectRelevantContent(source.content, query, 1200, source.title).trim();
+    if (!sourceProbe) continue;
+    const paragraphs = groundedAnswer.split(/\n\s*\n/).map((paragraph) => paragraph.trim());
+    const rankedParagraphs = paragraphs
+      .map((paragraph, index) => ({
+        paragraph,
+        index,
+        score: scoreTextAgainstQuery(paragraph, sourceProbe),
+      }))
+      .filter((entry) => entry.paragraph && !/^#{1,6}\s/.test(entry.paragraph))
+      .sort((left, right) => (right.score - left.score) || (left.index - right.index));
+    const best = rankedParagraphs[0];
+    if (!best || best.score < 3) continue;
+
+    const excerpt = selectRelevantContent(
+      source.content,
+      `${query} ${best.paragraph}`,
+      240,
+      source.title,
+    ).trim();
+    if (!excerpt) continue;
+    const answerTerms = new Set(tokenize(best.paragraph));
+    const sharedTerms = [...new Set(tokenize(excerpt))].filter((term) => answerTerms.has(term));
+    if (sharedTerms.length < 3) continue;
+
+    const marker = `[${refIndex}]`;
+    groundedAnswer = appendMarkerToParagraph(groundedAnswer, best.index, marker);
+    groundedCitations.push(enrichCitationWithSourceMetadata({
+      citation_id: refIndex,
+      source_id: ref.id,
+      source_title: ref.title || ref.id,
+      source_type: ref.type || 'unknown',
+      excerpt,
+    }, source));
+    citedIndexes.add(refIndex);
+  }
+
+  groundedCitations.sort((left, right) => Number(left.citation_id) - Number(right.citation_id));
+  return { answer: groundedAnswer, citations: groundedCitations };
 }
 
 /**
@@ -491,6 +582,7 @@ CITATION PROTOCOL:
 - Place citation markers at the END of a sentence or paragraph — not after every single claim within a paragraph.
 - If an entire paragraph draws from one source, one citation at the end of the paragraph is sufficient: [1]
 - If a paragraph draws from multiple sources, group them together at the end: [1][3]
+- When the user asks to cite both, all, or each source, include at least one body marker and one literal excerpt for every source actually used in the comparison.
 - Never cite things that are common knowledge or your own analytical framing.
 
 CITATION EXCERPTS (required):
@@ -511,7 +603,6 @@ Caller: ${callerType}`;
 export async function chatWithNotebook({ notebook, sources, notes, message, history = [], callerType = 'human', responseStyle = 'dense', chatgpt = null, allowWebFallback = true }) {
   let contextSources = sources.filter(isSourceUsableForGroundedChat);
   let searchResult = null;
-  let isFallbackUsed = false;
 
   const dispatch = async (args) => {
     if (chatgpt) {
@@ -531,7 +622,6 @@ export async function chatWithNotebook({ notebook, sources, notes, message, hist
     try {
       searchResult = await performWebSearch(message);
       if (searchResult && searchResult.results && searchResult.results.length > 0) {
-        isFallbackUsed = true;
         const virtualSources = searchResult.results.map((res, i) => ({
           id: `web-search-${i}`,
           title: `[Web Search] ${res.title}`,
@@ -654,6 +744,9 @@ Internal Audit: ${critique}`;
     const ensuredGrounding = ensurePrimaryGrounding(answer, citations, sourceRefs, contextSources, message);
     answer = ensuredGrounding.answer;
     citations = ensuredGrounding.citations;
+    const completeGrounding = ensureExplicitMultiSourceGrounding(answer, citations, sourceRefs, contextSources, message);
+    answer = completeGrounding.answer;
+    citations = completeGrounding.citations;
 
     const citedNumbers = new Set(citations.map(citation => Number(citation.citation_id)));
     const groundedSources = sourceRefs
