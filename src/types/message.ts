@@ -16,6 +16,9 @@ export interface Citation {
   chunk_lines_to?: number;
   chunk_index?: number;
   excerpt?: string;
+  timestamp_seconds?: number;
+  timestamp_label?: string;
+  seek_url?: string | null;
   prefetched_content?: string;
   neural_observation?: string;
   pathway?: unknown;

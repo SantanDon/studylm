@@ -14,11 +14,12 @@ import { useUsageLimits } from '@/hooks/useUsageLimits';
 interface YouTubeUrlInputProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (url: string) => void;
+  onSubmit: (url: string, language: string) => Promise<boolean | void>;
 }
 
 const YouTubeUrlInput = ({ open, onOpenChange, onSubmit }: YouTubeUrlInputProps) => {
   const [url, setUrl] = useState('');
+  const [language, setLanguage] = useState('en');
   const [isLoading, setIsLoading] = useState(false);
   const { status, canExtract, refreshStatus } = useUsageLimits();
   const isValidYoutubeUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(url.trim());
@@ -33,8 +34,9 @@ const YouTubeUrlInput = ({ open, onOpenChange, onSubmit }: YouTubeUrlInputProps)
 
     setIsLoading(true);
     try {
-      await onSubmit(url.trim());
+      const success = await onSubmit(url.trim(), language.trim() || 'en');
       await refreshStatus();
+      if (success === false) return;
       setUrl('');
       onOpenChange(false);
     } catch (error) {
@@ -74,6 +76,23 @@ const YouTubeUrlInput = ({ open, onOpenChange, onSubmit }: YouTubeUrlInputProps)
               className="bg-white/5 border-white/10 focus:border-red-500/50 h-12 text-base transition-all duration-300"
               required
             />
+            <div className="space-y-2">
+              <Label htmlFor="youtube-language" className="text-white/60 text-xs uppercase tracking-widest">
+                Preferred transcript language
+              </Label>
+              <Input
+                id="youtube-language"
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+                placeholder="en, ja, fr, zu..."
+                className="bg-white/5 border-white/10 focus:border-red-500/50 h-10"
+                aria-describedby="youtube-language-help"
+              />
+              <p id="youtube-language-help" className="text-[10px] text-white/40">
+                StudyPod uses this language when multiple caption tracks are available.
+              </p>
+            </div>
+
             <div className="flex justify-between items-center px-1">
               <p className="text-[10px] text-white/40 italic">
                 We will import captions when available and clearly mark metadata-only videos.

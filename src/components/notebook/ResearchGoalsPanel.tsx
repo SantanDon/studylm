@@ -33,13 +33,13 @@ const ResearchGoalsPanel = ({ notebookId, activeSourceId }: ResearchGoalsPanelPr
 
   const { goals, isLoading, createGoal, updateGoal, deleteGoal } = useResearchGoals(notebookId, { includeArchived: filter === 'all' });
   const { toast } = useToast();
-  const { token } = useAuth();
+  const { session } = useAuth();
   const [isSynthesizing, setIsSynthesizing] = useState(false);
 
   const handleClosedLoopSynthesis = async () => {
     setIsSynthesizing(true);
     try {
-      const res = await ApiService.sendChatMessage(notebookId, { message: 'closed-loop synthesis' }, token || '');
+      const res = await ApiService.sendChatMessage(notebookId, { message: 'closed-loop synthesis' }, session?.access_token || '');
       toast({ title: 'Goal Broker Synthesis Completed', description: res.answer || 'Goal Broker synthesis executed successfully.' });
     } catch (err: unknown) {
       toast({ title: 'Synthesis Failed', description: err instanceof Error ? err.message : 'An error occurred during synthesis.', variant: 'destructive' });
@@ -85,7 +85,7 @@ const ResearchGoalsPanel = ({ notebookId, activeSourceId }: ResearchGoalsPanelPr
 
   const handleComplete = async (goal: ResearchGoal) => {
     try {
-      await updateGoal({ goalId: goal.id, updates: { status: 'completed', progressPct: 100 } });
+      await updateGoal({ goalId: goal.id, updates: { status: 'completed', progress_pct: 100 } });
       toast({ title: 'Goal completed', description: goal.title });
     } catch (err: unknown) {
       toast({ title: 'Failed to complete', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });

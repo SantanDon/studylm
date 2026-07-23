@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 // import { Volume2, Play, Settings2 } from 'lucide-react'; // Removed Lucide imports
-import { useTTS, TTSSettings, VoiceOption } from '@/hooks/useTTS';
+import { useTTS } from '@/hooks/useTTS';
 
 interface TTSSettingsDialogProps {
   isOpen: boolean;

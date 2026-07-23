@@ -19,6 +19,14 @@ const RATE_LIMIT_COOLDOWN_MS = 30_000;
 const providerConcurrency = {};
 const providerCooldowns = {};
 
+export class ProviderUnavailableError extends Error {
+  constructor() {
+    super('AI providers are temporarily unavailable');
+    this.name = 'ProviderUnavailableError';
+    this.code = 'PROVIDER_UNAVAILABLE';
+  }
+}
+
 function isProviderAvailable(name) {
   if (providerCooldowns[name] && Date.now() < providerCooldowns[name]) return false;
   const concurrency = providerConcurrency[name] || 0;
@@ -135,11 +143,7 @@ export async function dispatchToTitan({ messages, priority = 'context', temperat
 
   if (!available) {
     logger.warn('All Titan providers at capacity or in cooldown.');
-    return {
-      answer: "I'm currently unable to reach my knowledge providers. All providers are busy or temporarily unavailable. Please wait a moment and try again.",
-      tokensUsed: 0,
-      modelUsed: 'offline-fallback'
-    };
+    throw new ProviderUnavailableError();
   }
 
   acquireProvider(available);
@@ -159,12 +163,21 @@ export async function dispatchToTitan({ messages, priority = 'context', temperat
       headers['Authorization'] = `Bearer ${primary.key}`;
     }
 
+    // NVIDIA's Llama-4 (Maverick/Scout) OpenAI-compatible endpoint rejects
+    // `role: 'system'` in the messages array and expects the system prompt in
+    // an `instructions` field instead. Extract and strip it for that provider;
+    // every other provider accepts system-in-messages, so leave them intact.
+    const isNvidia = primary.provider === 'nvidia';
+    const systemContent = isNvidia ? messages.find((m) => m.role === 'system')?.content : null;
+    const wireMessages = isNvidia ? messages.filter((m) => m.role !== 'system') : messages;
+
     const response = await fetch(primary.url, {
       method: 'POST',
       headers,
       body: JSON.stringify({
         model: primary.model,
-        messages,
+        messages: wireMessages,
+        ...(isNvidia && systemContent ? { instructions: systemContent } : {}),
         temperature,
         max_tokens: primary.provider === 'groq' ? 1500 : (usedPriority === 'context' ? 32000 : 4000),
         stream: false
@@ -231,12 +244,8 @@ export async function dispatchToTitan({ messages, priority = 'context', temperat
         return await makeAnthropicRequest(TITANS.ANTHROPIC, messages, temperature);
       }
 
-      logger.warn('All Titan providers exhausted. Returning offline fallback.');
-      return {
-        answer: "I'm currently unable to reach my knowledge providers. All providers are busy or temporarily unavailable. Please wait a moment and try again.",
-        tokensUsed: 0,
-        modelUsed: 'offline-fallback'
-      };
+      logger.warn('All Titan providers exhausted.');
+      throw new ProviderUnavailableError();
     }
 
     const data = await response.json();
@@ -272,12 +281,8 @@ export async function dispatchToTitan({ messages, priority = 'context', temperat
       return await makeAnthropicRequest(TITANS.ANTHROPIC, messages, temperature);
     }
 
-    logger.warn('All Titan providers exhausted (catch path). Returning offline fallback.');
-    return {
-      answer: "I'm currently unable to reach my knowledge providers. All providers are busy or temporarily unavailable. Please wait a moment and try again.",
-      tokensUsed: 0,
-      modelUsed: 'offline-fallback'
-    };
+    logger.warn('All Titan providers exhausted (catch path).');
+    throw new ProviderUnavailableError();
   }
 }
 

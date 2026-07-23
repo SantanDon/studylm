@@ -2,6 +2,7 @@ import React from 'react';
 import { EnhancedChatMessage, Citation } from '@/types/message';
 import MarkdownRenderer from './MarkdownRenderer';
 import SaveToNoteButton from '../notebook/SaveToNoteButton';
+import SaveToDocumentButton from '../notebook/SaveToDocumentButton';
 import { motion } from 'framer-motion';
 
 /**
@@ -68,6 +69,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             className="mt-3 flex justify-start opacity-0 group-hover:opacity-100 transition-opacity duration-300"
           >
             <SaveToNoteButton
+              content={message.message.content}
+              notebookId={notebookId}
+            />
+            <SaveToDocumentButton
               content={message.message.content}
               notebookId={notebookId}
             />

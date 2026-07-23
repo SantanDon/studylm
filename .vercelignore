@@ -9,6 +9,10 @@ dist
 .kiro
 .continue
 .claude
+.ai-bridge
+.playwright-cli
+.playwright-mcp
+scratch
 *.db
 *.db-shm
 *.db-wal

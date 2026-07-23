@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ReactNode, useCallback } from 'react';
+import { useState, useEffect, ReactNode, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEncryptionStore } from '@/stores/encryptionStore';
 import { GuestUsage, getInitialUsage, generateGuestId, GUEST_LIMITS } from '@/lib/utils/contextUtils';

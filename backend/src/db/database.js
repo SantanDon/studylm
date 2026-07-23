@@ -1,11 +1,14 @@
 import { createClient as createWebClient } from '@libsql/client/web';
 import { construct as drizzle } from 'drizzle-orm/libsql/driver-core';
+import { migrate } from 'drizzle-orm/libsql/migrator';
 import * as schema from './schema.js';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { eq, sql, and, or, desc, asc, inArray } from 'drizzle-orm';
 import { logger } from '../utils/logger.js';
+import { createSingleFlight } from '../utils/singleFlight.js';
+import { withDatabaseRetry } from '../utils/databaseRetry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -36,9 +39,7 @@ if (isVercel) {
 let client;
 let dbInstance;
 
-let schemaInitialized = false;
-
-export async function getDatabase() {
+async function connectDatabase() {
   if (!dbInstance) {
     try {
       logger.info(`Connecting to database at: ${url}`);
@@ -64,26 +65,54 @@ export async function getDatabase() {
     }
   }
 
-  // Lazily initialize schema once per cold start so Vercel serverless
-  // functions don't crash even when startServer() is skipped
-  if (!schemaInitialized) {
-    schemaInitialized = true;
-    try {
-      await initializeDatabase();
-    } catch (err) {
-      // Schema already exists or non-fatal — log and continue
-      logger.warn('Lazy schema init warning (non-fatal):', err?.message);
-    }
-  }
-
   return dbInstance;
 }
 
-export async function initializeDatabase() {
+const databaseInitTimeoutMs = Number(process.env.DATABASE_INIT_TIMEOUT_MS || 30_000);
+const initializeOnce = createSingleFlight(runDatabaseInitialization, {
+  timeoutMs: databaseInitTimeoutMs,
+  timeoutMessage: `Database initialization exceeded ${databaseInitTimeoutMs}ms`,
+});
+
+export async function getDatabase() {
+  await initializeDatabase();
+  return dbInstance;
+}
+
+export function initializeDatabase() {
+  return initializeOnce();
+}
+
+async function runDatabaseInitialization() {
   logger.info('Initializing database schema...');
-  const db = await getDatabase();
+  const db = await connectDatabase();
+
+  // A brand-new local file database has no schema at all. Apply the checked-in
+  // baseline migration before the idempotent compatibility migrations below.
+  // Remote Turso databases are intentionally excluded because many predate the
+  // migration journal and already contain production data.
+  if (url?.startsWith('file:')) {
+    const usersTable = await db.run(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'`);
+    const isBrandNewDatabase = !usersTable.rows || usersTable.rows.length === 0;
+    if (isBrandNewDatabase) {
+      await migrate(db, { migrationsFolder: join(__dirname, 'migrations') });
+    } else {
+      logger.info('Existing local schema detected; skipping baseline migration and applying compatibility checks.');
+    }
+  }
 
   try {
+    const userAlters = [
+      ['two_factor_secret', 'text'],
+      ['two_factor_enabled', 'integer DEFAULT 0'],
+      ['youtube_extractions_today', 'integer DEFAULT 0'],
+      ['last_extraction_reset', 'integer'],
+    ];
+    for (const [col, decl] of userAlters) {
+      try { await db.run(sql.raw(`ALTER TABLE users ADD COLUMN ${col} ${decl}`)); }
+      catch (e) { logger.debug(`Schema migration (users.${col}): ${e.message}`); }
+    }
+
     await db.run(sql`CREATE TABLE IF NOT EXISTS "api_keys" (
       "id" text PRIMARY KEY NOT NULL,
       "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -157,6 +186,117 @@ export async function initializeDatabase() {
       "file_path" text NOT NULL,
       "status" text DEFAULT 'pending',
       "created_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "tags" (
+      "id" text PRIMARY KEY NOT NULL,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "notebook_id" text REFERENCES notebooks(id) ON DELETE CASCADE,
+      "name" text NOT NULL,
+      "color" text DEFAULT '#6366f1',
+      "created_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "tasks" (
+      "id" text PRIMARY KEY NOT NULL,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "notebook_id" text NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+      "source_id" text REFERENCES sources(id) ON DELETE SET NULL,
+      "content" text NOT NULL,
+      "assignee" text DEFAULT 'human',
+      "result" text,
+      "status" text DEFAULT 'pending',
+      "priority" text DEFAULT 'medium',
+      "due_date" integer,
+      "completed_at" integer,
+      "created_at" integer DEFAULT (strftime('%s', 'now')),
+      "updated_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "activity_log" (
+      "id" text PRIMARY KEY NOT NULL,
+      "notebook_id" text NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "actor" text NOT NULL,
+      "action_type" text NOT NULL,
+      "content_preview" text,
+      "created_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "scratchpad" (
+      "id" text PRIMARY KEY NOT NULL,
+      "notebook_id" text NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "content" text NOT NULL,
+      "ttl_expires_at" integer,
+      "created_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "webhooks" (
+      "id" text PRIMARY KEY NOT NULL,
+      "notebook_id" text NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "url" text NOT NULL,
+      "events_json" text NOT NULL,
+      "created_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "documents" (
+      "id" text PRIMARY KEY NOT NULL,
+      "notebook_id" text NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "title" text NOT NULL,
+      "content" text NOT NULL,
+      "document_type" text DEFAULT 'general',
+      "template" text DEFAULT 'general',
+      "status" text DEFAULT 'draft',
+      "source_ids" text DEFAULT '[]',
+      "metadata" text DEFAULT '{}',
+      "current_version" integer DEFAULT 1,
+      "created_by" text,
+      "created_at" integer DEFAULT (strftime('%s', 'now')),
+      "updated_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "document_versions" (
+      "id" text PRIMARY KEY NOT NULL,
+      "document_id" text NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "version" integer NOT NULL,
+      "title" text NOT NULL,
+      "content" text NOT NULL,
+      "change_summary" text,
+      "source_ids" text DEFAULT '[]',
+      "created_by" text,
+      "created_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE INDEX IF NOT EXISTS documents_notebook_idx ON documents(notebook_id, updated_at DESC)`);
+    await db.run(sql`CREATE INDEX IF NOT EXISTS document_versions_document_idx ON document_versions(document_id, version DESC)`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "signal_queue" (
+      "id" text PRIMARY KEY NOT NULL,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "notebook_id" text REFERENCES notebooks(id) ON DELETE CASCADE,
+      "source_id" text,
+      "tweet_source_id" text,
+      "platform" text NOT NULL,
+      "content" text NOT NULL,
+      "status" text DEFAULT 'draft',
+      "scheduled_for" integer,
+      "posted_at" integer,
+      "note_id" text,
+      "created_at" integer DEFAULT (strftime('%s', 'now')),
+      "updated_at" integer DEFAULT (strftime('%s', 'now'))
+    )`);
+    await db.run(sql`CREATE TABLE IF NOT EXISTS "research_goals" (
+      "id" text PRIMARY KEY NOT NULL,
+      "user_id" text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      "notebook_id" text NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+      "title" text NOT NULL,
+      "description" text,
+      "parent_goal_id" text,
+      "status" text DEFAULT 'active',
+      "priority" text DEFAULT 'medium',
+      "source_id" text,
+      "source_chunk_id" text,
+      "last_activity_at" integer,
+      "progress_pct" integer DEFAULT 0,
+      "linked_task_ids" text DEFAULT '[]',
+      "linked_artifact_ids" text DEFAULT '[]',
+      "created_at" integer DEFAULT (strftime('%s', 'now')),
+      "updated_at" integer DEFAULT (strftime('%s', 'now'))
     )`);
     // Signal Queue + Research Goals schema is owned by Drizzle in ./schema.js.
     // Idempotent ALTER TABLE guards backfill new columns for existing prod DBs.
@@ -559,15 +699,17 @@ export const dbHelpers = {
 
   // Sources
   async getSourcesByNotebookId(notebookId, userId) {
-    const db = await getDatabase();
-    // Verify access first (either owner or member)
-    const access = await this.getNotebookById(notebookId, userId);
-    if (!access) return [];
+    return withDatabaseRetry(async () => {
+      const db = await getDatabase();
+      // Verify access first (either owner or member)
+      const access = await this.getNotebookById(notebookId, userId);
+      if (!access) return [];
 
-    // Return ALL sources for this notebook, as it's a team space
-    return await db.select().from(schema.sources)
-      .where(eq(schema.sources.notebookId, notebookId))
-      .orderBy(desc(schema.sources.updatedAt));
+      // Return ALL sources for this notebook, as it's a team space
+      return await db.select().from(schema.sources)
+        .where(eq(schema.sources.notebookId, notebookId))
+        .orderBy(desc(schema.sources.updatedAt));
+    }, { label: `sources for notebook ${notebookId}` });
   },
 
   async createSource(id, notebookId, userId, title, type, content = null, url = null, metadata = null, filePath = null, fileSize = 0) {
@@ -628,14 +770,16 @@ export const dbHelpers = {
 
   // Chat
   async getChatMessagesByNotebookId(notebookId, userId) {
-    const db = await getDatabase();
-    // Verify access
-    const access = await this.getNotebookById(notebookId, userId);
-    if (!access) return [];
+    return withDatabaseRetry(async () => {
+      const db = await getDatabase();
+      // Verify access
+      const access = await this.getNotebookById(notebookId, userId);
+      if (!access) return [];
 
-    return await db.select().from(schema.chatMessages)
-      .where(eq(schema.chatMessages.notebookId, notebookId))
-      .orderBy(asc(schema.chatMessages.createdAt));
+      return await db.select().from(schema.chatMessages)
+        .where(eq(schema.chatMessages.notebookId, notebookId))
+        .orderBy(asc(schema.chatMessages.createdAt));
+    }, { label: `messages for notebook ${notebookId}` });
   },
 
   async deleteChatMessagesByNotebookId(notebookId, userId) {
@@ -667,14 +811,16 @@ export const dbHelpers = {
 
   // Notes
   async getNotesByNotebookId(notebookId, userId) {
-    const db = await getDatabase();
-    // Verify access
-    const access = await this.getNotebookById(notebookId, userId);
-    if (!access) return [];
+    return withDatabaseRetry(async () => {
+      const db = await getDatabase();
+      // Verify access
+      const access = await this.getNotebookById(notebookId, userId);
+      if (!access) return [];
 
-    return await db.select().from(schema.notes)
-      .where(eq(schema.notes.notebookId, notebookId))
-      .orderBy(desc(schema.notes.updatedAt));
+      return await db.select().from(schema.notes)
+        .where(eq(schema.notes.notebookId, notebookId))
+        .orderBy(desc(schema.notes.updatedAt));
+    }, { label: `notes for notebook ${notebookId}` });
   },
 
   async createNote(id, notebookId, userId, content, authorId = null) {

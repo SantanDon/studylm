@@ -10,8 +10,6 @@ import {
   faWandMagicSparkles,
   faFont,
   faRotate,
-  faToggleOn,
-  faToggleOff,
 } from '@fortawesome/free-solid-svg-icons';
 import { useVisualEffectsStore } from '@/stores/visualEffectsStore';
 import {

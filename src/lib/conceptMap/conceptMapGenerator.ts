@@ -138,7 +138,7 @@ function parseConceptMapResponse(response: string): GeneratedConceptMap | null {
 
 export async function generateConceptMap(
   content: string,
-  title: string,
+  _title: string,
   model?: string,
   onProgress?: (message: string) => void
 ): Promise<{ nodes: ConceptNode[]; edges: ConceptEdge[] }> {

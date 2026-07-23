@@ -1,4 +1,3 @@
-import React from 'react';
 import { TUTORS } from '@/config/tutors';
 import {
   Tooltip,

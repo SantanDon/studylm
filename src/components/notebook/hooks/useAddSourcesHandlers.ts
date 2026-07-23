@@ -52,8 +52,9 @@ export function useAddSourcesHandlers(
         return;
       }
 
-      const detectFileType = (file: File): "pdf" | "text" | "website" | "youtube" | "audio" | "image" | "ebook" => {
+      const detectFileType = (file: File): "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook" => {
         if (file.type.includes("pdf") || file.name.toLowerCase().endsWith(".pdf")) return "pdf";
+        if (file.name.toLowerCase().endsWith(".docx") || file.type.includes("wordprocessingml")) return "doc";
         if (file.type.includes("audio")) return "audio";
         if (file.type.includes("image")) return "image";
         if (file.type === "application/epub+zip" || file.name.toLowerCase().endsWith(".epub")) return "ebook";
@@ -68,8 +69,8 @@ export function useAddSourcesHandlers(
 
           const uploadResult = await uploadFile(file, notebookId, sourceId);
           
-          if (!uploadResult || !uploadResult.success) {
-            const errorContext = uploadResult?.error || 'File upload failed - no result returned by hook';
+          if (uploadResult.success === false) {
+            const errorContext = uploadResult.error;
             console.error(`[SourcePipeline] Upload failed for ${file.name}:`, errorContext);
             throw new Error(`Upload Error: ${errorContext}`);
           }
@@ -89,18 +90,15 @@ export function useAddSourcesHandlers(
             }
           }
 
-          try {
-            await processDocumentAsync({ sourceId, filePath, sourceType: fileType, notebookId });
+          await processDocumentAsync({
+            sourceId,
+            filePath,
+            sourceType: fileType,
+            notebookId,
+            content,
+          });
 
-            if (notebookId && fileType) {
-              await generateNotebookContentAsync({ notebookId, filePath, sourceType: fileType });
-            } else {
-              console.error("Missing required parameters for notebook generation:", { notebookId, fileType });
-            }
-          } catch (processingError) {
-            console.error("Document processing failed:", processingError);
-            updateSource({ sourceId, updates: { processing_status: "completed" } });
-          }
+          await generateNotebookContentAsync({ notebookId, filePath, sourceType: fileType });
         } catch (error) {
           console.error("File processing failed for:", file.name, error);
           updateSource({ sourceId, updates: { processing_status: "failed" } });
@@ -121,7 +119,7 @@ export function useAddSourcesHandlers(
         const firstSource = await addSourceAsync({
           notebookId,
           title: firstFile.name,
-          type: firstFileType as "pdf" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
+          type: firstFileType as "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
           file_size: firstFile.size,
           processing_status: "pending",
           metadata: { fileName: firstFile.name, fileType: firstFile.type },
@@ -138,7 +136,7 @@ export function useAddSourcesHandlers(
               return await addSourceAsync({
                 notebookId,
                 title: file.name,
-                type: fileType as "pdf" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
+                type: fileType as "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
                 file_size: file.size,
                 processing_status: "pending",
                 metadata: { fileName: file.name, fileType: file.type },
@@ -195,6 +193,7 @@ export function useAddSourcesHandlers(
       sourcesRemaining,
       showAuthPrompt,
       incrementUsage,
+      updateNotebook,
     ],
   );
 
@@ -234,8 +233,8 @@ export function useAddSourcesHandlers(
     }
   };
 
-  const handleYouTubeSubmit = async (url: string) => {
-    if (!notebookId) return;
+  const handleYouTubeSubmit = async (url: string, language = 'en'): Promise<boolean> => {
+    if (!notebookId) return false;
 
     if (isGuest && !canAddSource) {
       showAuthPrompt('add more sources');
@@ -244,10 +243,12 @@ export function useAddSourcesHandlers(
     setIsLocallyProcessing(true);
 
     try {
-      const success = await addYoutubeVideoAsSource(url, notebookId);
+      const success = await addYoutubeVideoAsSource(url, notebookId, language);
       if (success) onOpenChange(false);
+      return success;
     } catch (error) {
       console.error("Error adding YouTube video:", error);
+      return false;
     } finally {
       setIsLocallyProcessing(false);
     }

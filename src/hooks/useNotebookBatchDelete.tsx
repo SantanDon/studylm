@@ -20,7 +20,7 @@ export const useNotebookBatchDelete = () => {
       } else if (effectiveUserId) {
         // Fallback for local/guest (deleting sequentially in local store)
         for (const id of ids) {
-          await localNotebookStore.deleteNotebook(id, effectiveUserId);
+          await localNotebookStore.deleteNotebook(id);
         }
         return { message: "Batch deleted locally", deletedCount: ids.length };
       }

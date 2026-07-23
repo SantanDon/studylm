@@ -93,13 +93,21 @@ function generateSourcesSection(sources: LocalSource[], obsidianFormat: boolean)
   sources.forEach((source, index) => {
     const sourceNum = index + 1;
     const title = source.title || 'Untitled Source';
-    const typeEmoji = {
+    const typeEmojiMap: Record<LocalSource['type'], string> = {
       pdf: '📄',
       text: '📝',
       website: '🌐',
       youtube: '🎬',
       audio: '🎵',
-    }[source.type] || '📎';
+      image: '🖼️',
+      ebook: '📚',
+      tweet: '💬',
+      'multiple-websites': '🌐',
+      video: '🎥',
+      'copied-text': '📝',
+      doc: '📄',
+    };
+    const typeEmoji = typeEmojiMap[source.type];
 
     lines.push(`### ${sourceNum}. ${typeEmoji} ${title}\n`);
     

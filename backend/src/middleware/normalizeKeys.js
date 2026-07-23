@@ -5,12 +5,9 @@
  * Some new routes use camelCase ({ progressPct: 5 }).
  * Responses use camelCase.
  *
- * This middleware:
- *   - normalizes incoming req.body to camelCase (so route handlers can read either)
- *   - leaves the response alone (we own the response shape)
- *
- * Keep this transparent. If a body has BOTH `progress_pct` and `progressPct`, the
- * snake_case value wins (matches the existing API convention).
+ * Incoming request bodies expose both the original key and a camelCase alias.
+ * When both forms are supplied, the snake_case value wins for the camel alias,
+ * matching the established API convention while preserving legacy handlers.
  */
 
 const SNAKE_TO_CAMEL = (s) => s.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -27,28 +24,32 @@ function transformKeys(obj, transform) {
   return obj;
 }
 
-function mergeWithCamelWinner(snake, camel) {
-  if (Array.isArray(snake) || Array.isArray(camel)) {
-    return Array.isArray(snake) ? snake : camel;
+function addCaseAliases(value) {
+  if (Array.isArray(value)) return value.map(addCaseAliases);
+  if (!value || typeof value !== 'object' || value.constructor !== Object) return value;
+
+  const out = {};
+
+  // Preserve the request exactly as sent so legacy snake_case handlers work.
+  for (const [key, nestedValue] of Object.entries(value)) {
+    out[key] = addCaseAliases(nestedValue);
   }
-  if (snake && typeof snake === 'object' && camel && typeof camel === 'object') {
-    const out = { ...camel };
-    for (const k of Object.keys(snake)) {
-      const camelKey = SNAKE_TO_CAMEL(k);
-      out[camelKey] = snake[k]; // snake wins
-    }
-    return out;
+
+  // Expose camelCase aliases for newer handlers. This second pass ensures a
+  // supplied snake_case key wins when both forms are present.
+  for (const [key, nestedValue] of Object.entries(value)) {
+    const camelKey = SNAKE_TO_CAMEL(key);
+    if (camelKey !== key) out[camelKey] = addCaseAliases(nestedValue);
   }
-  return snake !== undefined ? snake : camel;
+
+  return out;
 }
 
 export function normalizeBodyKeys(req, res, next) {
   if (req.body && typeof req.body === 'object' && !(req.body instanceof Buffer)) {
-    const snake = transformKeys(req.body, (k) => k);
-    const camel = transformKeys(req.body, SNAKE_TO_CAMEL);
-    req.body = mergeWithCamelWinner(snake, camel);
+    req.body = addCaseAliases(req.body);
   }
   next();
 }
 
-export { SNAKE_TO_CAMEL, transformKeys };
+export { SNAKE_TO_CAMEL, transformKeys, addCaseAliases };

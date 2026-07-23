@@ -3,10 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Globe, Mail, Shield, RefreshCw } from "lucide-react";
+import { ChatGPTLoginButton } from "@/components/auth/ChatGPTLoginButton";
 
 interface CloudLoginProps {
   onSuccess?: () => void;
@@ -26,7 +27,7 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
   const [loading, setLoading] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   
-  const { signIn, error, mfaRequired, verifyMfa } = useAuth();
+  const { signIn, signInWithCloud, error, mfaRequired, verifyMfa } = useAuth();
   const [mfaCode, setMfaCode] = useState("");
   const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
   const { toast } = useToast();
@@ -112,6 +113,27 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
     }
   };
 
+  const handleResendVerification = async () => {
+    if (!unverifiedEmail) return;
+
+    setLoading(true);
+    try {
+      await ApiService.resendVerification(unverifiedEmail);
+      toast({
+        title: "Verification Email Sent",
+        description: `Check ${unverifiedEmail} for a new verification link.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Could Not Resend Email",
+        description: err instanceof Error ? err.message : "Please try again shortly.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (mfaRequired) {
     return (
       <div className="space-y-6 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
@@ -189,6 +211,26 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
             ? "Create an account to sync your notebooks and agents instantly." 
             : "Use your Cloud Credentials to access shared intelligence."}
         </p>
+      </div>
+
+      <div className="space-y-4">
+        <ChatGPTLoginButton
+          onSuccess={(user) => {
+            signInWithCloud(user);
+            onSuccess?.();
+          }}
+        />
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-zinc-200 dark:border-zinc-800" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">
+              or with email
+            </span>
+          </div>
+        </div>
       </div>
 
       <form onSubmit={handleCloudLogin} className="space-y-4">

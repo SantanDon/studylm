@@ -5,11 +5,12 @@
  */
 
 import mammoth from "mammoth";
-import * as XLSX from "xlsx";
+import readXlsxFile from "read-excel-file/browser";
 import * as cheerio from "cheerio";
 import { uploadPdfToServer } from "./serverFileUpload";
 // Import the pdfExtractor to ensure PDF.js worker is configured
 import "./pdfExtractor";
+import { API_BASE_URL } from "@/config/api";
 
 export interface ExtractionResult {
   content: string;
@@ -57,34 +58,42 @@ export async function extractDOCX(file: File): Promise<ExtractionResult> {
 }
 
 /**
- * Extract text from Excel/CSV using XLSX
+ * Extract text from modern Excel workbooks and CSV files.
  */
 export async function extractXLSX(file: File): Promise<ExtractionResult> {
-  console.log("📊 Extracting Excel with XLSX...");
+  console.log("Extracting spreadsheet...");
 
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const workbook = XLSX.read(arrayBuffer, { type: "array" });
+    const fileName = file.name.toLowerCase();
+    if (fileName.endsWith(".xls")) {
+      throw new Error(
+        "Legacy .xls files are not supported. Convert the file to .xlsx or .csv first.",
+      );
+    }
 
-    let content = "";
+    let content: string;
+    let sheetCount: number;
 
-    // Extract all sheets
-    workbook.SheetNames.forEach((sheetName) => {
-      const sheet = workbook.Sheets[sheetName];
-      const csv = XLSX.utils.sheet_to_csv(sheet);
-      content += `\n\n=== ${sheetName} ===\n${csv}`;
-    });
+    if (fileName.endsWith(".csv") || file.type === "text/csv") {
+      content = new TextDecoder().decode(await file.arrayBuffer()).trim();
+      sheetCount = 1;
+    } else {
+      const sheets = await readXlsxFile(file);
+      const sheetSections = sheets.map(({ sheet, data }) => {
+        const csv = data.map((row) => row.map(toCsvCell).join(",")).join("\n");
+        return `=== ${sheet} ===\n${csv}`;
+      });
 
-    content = content.trim();
+      content = sheetSections.join("\n\n").trim();
+      sheetCount = sheets.length;
+    }
 
-    console.log(
-      `✅ Extracted ${content.length} chars from ${workbook.SheetNames.length} sheets`,
-    );
+    console.log(`Extracted ${content.length} chars from ${sheetCount} sheet(s)`);
 
     return {
       content,
       metadata: {
-        pageCount: workbook.SheetNames.length,
+        pageCount: sheetCount,
         wordCount: content.split(/\s+/).length,
         charCount: content.length,
         extractionMethod: "xlsx",
@@ -95,6 +104,13 @@ export async function extractXLSX(file: File): Promise<ExtractionResult> {
     console.error("Excel extraction error:", error);
     throw new Error(`Failed to extract Excel: ${error}`);
   }
+}
+
+function toCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 /**
@@ -140,8 +156,7 @@ export async function extractEPUB(file: File): Promise<ExtractionResult> {
     const formData = new FormData();
     formData.append("file", file);
 
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:4000";
-    const response = await fetch(`${backendUrl}/api/audiobook/extract`, {
+    const response = await fetch(`${API_BASE_URL}/audiobook/extract`, {
       method: "POST",
       body: formData,
     });

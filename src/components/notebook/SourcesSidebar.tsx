@@ -19,14 +19,24 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import AddSourcesDialog from "./AddSourcesDialog";
 import RenameSourceDialog from "./RenameSourceDialog";
-import SourceContentViewer from "@/components/chat/SourceContentViewer";
 import { useSources } from "@/hooks/useSources";
 import { useSourceDelete } from "@/hooks/useSourceDelete";
 import { useWebsiteProcessing } from "@/hooks/useWebsiteProcessing";
 import { Citation } from "@/types/message";
 import { LocalSource } from "@/services/localStorageService";
+import { useDocumentProcessing } from "@/hooks/useDocumentProcessing";
+import { useDocuments } from "@/hooks/useDocuments";
+import { useToast } from "@/hooks/use-toast";
+import {
+  getSourceProcessingStatus,
+  parseSourceProcessingMetadata,
+  type SourceProcessingError,
+} from "@/lib/sources/sourceProcessing";
+import { formatDisplayTitle } from "@/lib/utils/displayTitle";
+
+const AddSourcesDialog = React.lazy(() => import('./AddSourcesDialog'));
+const SourceContentViewer = React.lazy(() => import('@/components/chat/SourceContentViewer'));
 
 type Source = LocalSource;
 
@@ -37,19 +47,20 @@ interface SourceMetadata {
   extractionWarning?: string;
   extractedBy?: string;
   duration?: number;
+  processingStage?: string;
+  processingError?: SourceProcessingError;
+  indexingSkipped?: boolean;
+  indexingStrategy?: string;
+  transcriptProvider?: string;
+  transcriptMode?: string;
+  transcriptLanguage?: string | null;
+  timestampedTranscript?: boolean;
+  transcriptSegments?: Array<{ text: string; offset: number; duration: number; lang?: string | null }>;
+  providerCapabilities?: { seekableCitations?: boolean; timestampedSegments?: boolean; metadata?: boolean };
 }
 
 function parseSourceMetadata(source: Source): SourceMetadata {
-  const rawMetadata = source.metadata as unknown;
-  if (!rawMetadata) return {};
-  if (typeof rawMetadata === "string") {
-    try {
-      return JSON.parse(rawMetadata) as SourceMetadata;
-    } catch {
-      return {};
-    }
-  }
-  return rawMetadata as SourceMetadata;
+  return parseSourceProcessingMetadata(source.metadata) as SourceMetadata;
 }
 
 interface SourcesSidebarProps {
@@ -63,18 +74,17 @@ interface SourcesSidebarProps {
 }
 
 const SourcesSidebar = ({
-  hasSource,
   notebookId,
   selectedCitation,
   onCitationClose,
   setSelectedCitation,
-  activeSourceId,
   onActiveSourceChange,
 }: SourcesSidebarProps) => {
   const [showAddSourcesDialog, setShowAddSourcesDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
+  const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const [selectedSourceForViewing, setSelectedSourceForViewing] =
     useState<Source | null>(null);
 
@@ -86,7 +96,7 @@ const SourcesSidebar = ({
     if (!sources) return [];
     return sources.filter((source) => {
       const matchesSearch =
-        source.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(source.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         (source.content && source.content.toLowerCase().includes(searchQuery.toLowerCase()));
 
       if (!matchesSearch) return false;
@@ -101,6 +111,9 @@ const SourcesSidebar = ({
   }, [sources, searchQuery, selectedType]);
 
   const { deleteSource, isDeleting } = useSourceDelete();
+  const { processDocumentAsync } = useDocumentProcessing();
+  const { createDocumentFromSource, isCreating: isCreatingDocument } = useDocuments(notebookId);
+  const { toast } = useToast();
 
   const [importingUrls, setImportingUrls] = useState<Record<string, boolean>>({});
   const { addWebsitesAsSources, isProcessing: isAddingSuggested } = useWebsiteProcessing();
@@ -172,7 +185,7 @@ const SourcesSidebar = ({
     return selectedSourceForViewing?.url || "";
   };
 
-  const renderSourceIcon = (type: string, url?: string | null) => {
+  const renderSourceIcon = (type: string) => {
     if (type === "youtube" || type === "video") {
       return (
         <svg className="w-full h-full text-red-500 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -181,23 +194,14 @@ const SourcesSidebar = ({
       );
     }
 
-    if (type === "website" && url) {
-      try {
-        const domain = new URL(url).hostname;
-        return (
-          <img
-            src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
-            alt="website icon"
-            className="w-full h-full object-contain"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.src = "/file-types/WEB.svg";
-            }}
-          />
-        );
-      } catch {
-        // Fallback below
-      }
+    if (type === "website") {
+      return (
+        <img
+          src="/file-types/WEB.svg"
+          alt="website icon"
+          className="w-full h-full object-contain"
+        />
+      );
     }
 
     const iconMap: Record<string, string> = {
@@ -232,10 +236,14 @@ const SourcesSidebar = ({
     switch (status) {
       case "uploading":
         return <i className="fi fi-rr-upload h-4 w-4 animate-pulse text-blue-500"></i>;
+      case "extracting":
       case "processing":
+      case "indexing":
         return <i className="fi fi-rr-spinner h-4 w-4 animate-spin text-blue-500"></i>;
       case "completed":
         return <i className="fi fi-rr-check-circle h-4 w-4 text-green-500"></i>;
+      case "degraded":
+        return <i className="fi fi-rr-exclamation h-4 w-4 text-amber-500"></i>;
       case "failed":
         return <i className="fi fi-rr-cross-circle h-4 w-4 text-red-500"></i>;
       case "pending":
@@ -247,8 +255,9 @@ const SourcesSidebar = ({
 
   const renderSourceTrustBadge = (source: Source) => {
     const metadata = parseSourceMetadata(source);
+    const status = getSourceProcessingStatus(source);
 
-    if (source.processing_status === "failed") {
+    if (status === "failed") {
       return (
         <span className="text-[10px] font-medium rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
           Failed
@@ -256,10 +265,23 @@ const SourcesSidebar = ({
       );
     }
 
-    if (source.processing_status === "processing" || source.processing_status === "pending" || source.processing_status === "uploading") {
+    if (status === "extracting" || status === "processing" || status === "indexing" || status === "pending" || status === "uploading") {
       return (
         <span className="text-[10px] font-medium rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300">
           Processing
+        </span>
+      );
+    }
+
+    if (status === "degraded") {
+      const keywordOnly = metadata.indexingStrategy === "keyword_only"
+        || metadata.processingError?.code === "SOURCE_INDEXING_SKIPPED_LARGE";
+      return (
+        <span
+          className="text-[10px] font-medium rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
+          title={metadata.processingError?.message || "Text is available, but semantic indexing is limited."}
+        >
+          {keywordOnly ? "Keyword only" : "Limited"}
         </span>
       );
     }
@@ -282,7 +304,7 @@ const SourcesSidebar = ({
             className="text-[10px] font-medium rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-green-700 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-300"
             title={`Transcript extracted with ${metadata.transcriptLineCount} caption lines${metadata.extractedBy ? ` via ${metadata.extractedBy}` : ""}.`}
           >
-            Transcript
+            {metadata.timestampedTranscript ? 'Timestamped' : 'Transcript'}
           </span>
         );
       }
@@ -293,6 +315,69 @@ const SourcesSidebar = ({
         Ready
       </span>
     );
+  };
+
+  const handleCreateEditableDocument = async (source: Source) => {
+    if (!source.content?.trim()) {
+      toast({
+        title: "Source is not ready",
+        description: "StudyPod needs usable extracted text before creating an editable document.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      const document = await createDocumentFromSource({ sourceId: source.id });
+      toast({
+        title: "Editable copy created",
+        description: "The original source remains protected and unchanged.",
+      });
+      window.dispatchEvent(new CustomEvent("studypod:open-document", {
+        detail: { documentId: document.id },
+      }));
+    } catch (error) {
+      toast({
+        title: "Could not create document",
+        description: error instanceof Error ? error.message : "Document creation failed",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRetrySource = async (source: Source) => {
+    if (!notebookId) return;
+    if (!source.content?.trim()) {
+      toast({
+        title: "Replace this source",
+        description: "No usable text was extracted, so the original file or link must be added again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setRetryingSourceId(source.id);
+    try {
+      const result = await processDocumentAsync({
+        sourceId: source.id,
+        filePath: source.file_path || source.url || source.id,
+        sourceType: source.type,
+        notebookId,
+        content: source.content,
+      });
+      toast(result.status === "degraded"
+        ? {
+            title: "Source still has limited indexing",
+            description: "The extracted text remains available for grounded chat. You can retry indexing later.",
+          }
+        : {
+            title: "Source reprocessed",
+            description: source.title + " is ready for grounded chat.",
+          });
+    } catch {
+      // The processing hook displays the structured error and preserves failure state.
+    } finally {
+      setRetryingSourceId(null);
+    }
   };
 
   const handleRemoveSource = (source: Source) => {
@@ -378,6 +463,10 @@ const SourcesSidebar = ({
     const sourceUrl = selectedSourceForViewing
       ? getSelectedSourceUrl()
       : getSourceUrl(selectedCitation);
+    const sourceRecord = selectedSourceForViewing
+      || sources?.find((source) => source.id === selectedCitation.source_id)
+      || null;
+    const sourceMetadata = sourceRecord ? parseSourceMetadata(sourceRecord) : {};
 
     return (
       <div className="w-full bg-gray-50 dark:bg-background border-r border-gray-200 dark:border-border flex flex-col h-full overflow-hidden">
@@ -399,14 +488,17 @@ const SourcesSidebar = ({
           </div>
         </div>
 
-        <SourceContentViewer
-          citation={displayCitation}
-          sourceContent={sourceContent}
-          sourceSummary={sourceSummary}
-          sourceUrl={sourceUrl}
-          className="flex-1 overflow-hidden"
-          isOpenedFromSourceList={selectedCitation.citation_id === -1}
-        />
+        <React.Suspense fallback={<div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Loading source…</div>}>
+          <SourceContentViewer
+            citation={displayCitation}
+            sourceContent={sourceContent}
+            sourceSummary={sourceSummary}
+            sourceUrl={sourceUrl}
+            sourceMetadata={sourceMetadata}
+            className="flex-1 overflow-hidden"
+            isOpenedFromSourceList={selectedCitation.citation_id === -1}
+          />
+        </React.Suspense>
       </div>
     );
   }
@@ -494,11 +586,11 @@ const SourcesSidebar = ({
                         <div className="flex items-start justify-between space-x-3">
                           <div className="flex items-center space-x-2 flex-1 min-w-0">
                             <div className="w-6 h-6 bg-white dark:bg-zinc-950 rounded border border-gray-200 dark:border-border flex items-center justify-center flex-shrink-0 overflow-hidden">
-                              {renderSourceIcon(source.type, source.url)}
+                              {renderSourceIcon(source.type)}
                             </div>
                             <div className="flex-1 min-w-0">
                               <span className="text-sm text-gray-900 dark:text-foreground truncate block font-medium">
-                                {source.title}
+                                {formatDisplayTitle(source.title, 'Untitled source')}
                               </span>
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {renderSourceTrustBadge(source)}
@@ -506,12 +598,31 @@ const SourcesSidebar = ({
                             </div>
                           </div>
                           <div className="flex-shrink-0 py-[4px]">
-                            {renderProcessingStatus(source.processing_status)}
+                            {renderProcessingStatus(getSourceProcessingStatus(source))}
                           </div>
                         </div>
                       </Card>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
+                      <ContextMenuItem
+                        onClick={() => handleCreateEditableDocument(source)}
+                        disabled={!source.content?.trim() || isCreatingDocument}
+                      >
+                        <i className="fi fi-rr-document-signed h-4 w-4 mr-2"></i>
+                        Create editable document
+                      </ContextMenuItem>
+                      {(getSourceProcessingStatus(source) === "failed" || (
+                        getSourceProcessingStatus(source) === "degraded"
+                        && parseSourceMetadata(source).processingError?.retryable !== false
+                      )) && (
+                        <ContextMenuItem
+                          onClick={() => handleRetrySource(source)}
+                          disabled={retryingSourceId === source.id}
+                        >
+                          <i className={"fi fi-rr-refresh h-4 w-4 mr-2 " + (retryingSourceId === source.id ? "animate-spin" : "")}></i>
+                          {source.content?.trim() ? "Retry indexing" : "Retry / replace source"}
+                        </ContextMenuItem>
+                      )}
                       <ContextMenuItem onClick={() => handleRenameSource(source)}>
                         <i className="fi fi-rr-edit h-4 w-4 mr-2"></i>
                         Rename source
@@ -546,7 +657,7 @@ const SourcesSidebar = ({
                   <div className="space-y-2">
                     {suggestedSources.map((item) => (
                       <Card
-                        key={item.id}
+                        key={item.url}
                         className="p-3 border border-dashed border-gray-200 dark:border-border bg-gray-50/50 dark:bg-muted/10"
                       >
                         <div className="flex flex-col space-y-2">
@@ -588,11 +699,15 @@ const SourcesSidebar = ({
             </div>
       </ScrollArea>
 
-      <AddSourcesDialog
-        open={showAddSourcesDialog}
-        onOpenChange={setShowAddSourcesDialog}
-        notebookId={notebookId}
-      />
+      {showAddSourcesDialog && (
+        <React.Suspense fallback={null}>
+          <AddSourcesDialog
+            open={showAddSourcesDialog}
+            onOpenChange={setShowAddSourcesDialog}
+            notebookId={notebookId}
+          />
+        </React.Suspense>
+      )}
 
       <RenameSourceDialog
         open={showRenameDialog}

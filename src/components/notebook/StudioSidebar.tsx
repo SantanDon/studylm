@@ -16,6 +16,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { FEATURE_FLAGS } from '@/config/featureFlags';
 import SignalQueuePanel from './SignalQueuePanel';
 import ResearchGoalsPanel from './ResearchGoalsPanel';
+import AudiobookView from './AudiobookView';
+import { Headphones } from 'lucide-react';
+
 
 interface StudioSidebarProps {
   notebookId?: string;
@@ -26,7 +29,6 @@ interface StudioSidebarProps {
 
 const StudioSidebar = ({
   notebookId,
-  isExpanded,
   onCitationClick,
   activeSourceId
 }: StudioSidebarProps) => {
@@ -38,11 +40,12 @@ const StudioSidebar = ({
     editingNote, isQuizSectionOpen, setIsQuizSectionOpen,
     isFlashcardSectionOpen, setIsFlashcardSectionOpen,
     isConceptMapSectionOpen, setIsConceptMapSectionOpen,
-    isComparisonOpen, setIsComparisonOpen, showQuizResults, setShowQuizResults
+    isComparisonOpen, setIsComparisonOpen, showQuizResults
   } = state;
 
   const [isSignalQueueSectionOpen, setIsSignalQueueSectionOpen] = React.useState(false);
   const [isResearchGoalsSectionOpen, setIsResearchGoalsSectionOpen] = React.useState(false);
+  const [activeWorkspace, setActiveWorkspace] = React.useState<'studio' | 'audiobook'>('studio');
 
   const { notes, sources, installedModels, conceptMaps, currentSession } = data;
   const hasOnlyTweets = sources && sources.length > 0 && sources.every(s => s.type === 'tweet');
@@ -53,6 +56,7 @@ const StudioSidebar = ({
     handleStartQuiz, handleQuizComplete, handleQuizRetry, handleQuizClose,
     answerQuestion, nextQuestion, getPreviewText, getCurrentQuestion, getProgress, deleteMap
   } = handlers;
+
 
   if (isEditingMode) {
     return (
@@ -118,19 +122,64 @@ const StudioSidebar = ({
 
   const sortedNotes = notes ? [...notes].sort((a, b) => new Date(b.updated_at || b.updatedAt).getTime() - new Date(a.updated_at || a.updatedAt).getTime()) : [];
 
+  if (activeWorkspace === 'audiobook' && notebookId) {
+    return (
+      <div className="flex h-full w-full flex-col overflow-hidden border-l border-border bg-background">
+        <AudiobookView notebookId={notebookId} onClose={() => setActiveWorkspace('studio')} />
+      </div>
+    );
+  }
+
   return (
     <div className="w-full bg-gray-50 dark:bg-background border-l border-gray-200 dark:border-border flex flex-col h-full overflow-hidden shadow-sm">
-      <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0 flex items-center h-[65px] justify-between">
+      <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0 flex items-center h-[65px] justify-between gap-3">
         <h2 className="text-lg font-medium text-foreground">Studio</h2>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setActiveWorkspace('audiobook')}
+            className="h-8 px-2.5 text-xs"
+            data-testid="open-audiobook-workspace"
+          >
+            <Headphones className="h-3.5 w-3.5" />
+            Audiobook
+          </Button>
         {hasOnlyTweets && (
           <span className="px-2 py-0.5 text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40 rounded-full font-mono animate-pulse">
             Bookmark Mode
           </span>
         )}
+        </div>
       </div>
       
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-6">
+          {/* Audiobook workspace */}
+          {!hasOnlyTweets && (
+            <button
+              type="button"
+              onClick={() => setActiveWorkspace('audiobook')}
+              className="group w-full rounded-2xl border border-border bg-card p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="audiobook-studio-card"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Headphones className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-foreground">Audiobook</h3>
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Local beta</span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                    Turn owned or public-domain books into chaptered audio in the local StudyPod runtime.
+                  </p>
+                </div>
+              </div>
+            </button>
+          )}
+
           {/* Audio Overview */}
           {!hasOnlyTweets && (
             <div className="relative group">
@@ -140,6 +189,30 @@ const StudioSidebar = ({
               </div>
             </div>
           )}
+
+          {/* Document Workspace */}
+          <div className="relative overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 p-4 shadow-sm dark:border-blue-900/50 dark:from-blue-950/30 dark:to-indigo-950/20">
+            <div className="absolute -right-6 -top-8 h-24 w-24 rounded-full bg-blue-400/10 blur-2xl" />
+            <div className="relative">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                  <i className="fi fi-rr-document-signed" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold text-foreground">Documents</h3>
+                  <p className="mt-1 text-[11px] leading-4 text-muted-foreground">Turn sources and conversations into editable, versioned Word and PDF-ready work.</p>
+                </div>
+              </div>
+              <Button
+                data-testid="open-document-workspace"
+                onClick={() => window.dispatchEvent(new CustomEvent('studypod:open-document'))}
+                className="mt-4 w-full bg-blue-600 text-white hover:bg-blue-700"
+                size="sm"
+              >
+                Open Document Workspace
+              </Button>
+            </div>
+          </div>
 
           {/* Notes Section */}
           <div className="space-y-3">

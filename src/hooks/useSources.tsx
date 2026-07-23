@@ -6,9 +6,33 @@ import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
 import { useNotebookGeneration } from "./useNotebookGeneration";
 import { useEffect } from "react";
+import type { SourceProcessingStatus } from "@/lib/sources/sourceProcessing";
 
 export interface Source extends LocalSource {
   author_name?: string;
+}
+
+export function normalizeSourceRecord(source: Record<string, unknown>): Source {
+  return {
+    ...source,
+    created_at: source.createdAt || source.created_at || new Date().toISOString(),
+    updated_at: source.updatedAt || source.updated_at || new Date().toISOString(),
+    file_path: source.filePath || source.file_path,
+    file_size: source.fileSize || source.file_size,
+    processing_status: source.processingStatus || source.processing_status || 'pending',
+    notebook_id: source.notebookId || source.notebook_id,
+    user_id: source.userId || source.user_id,
+  } as unknown as Source;
+}
+
+export function upsertSourceCache(current: Source[], incoming: Source): Source[] {
+  const found = current.some((source) => source.id === incoming.id);
+  const next = found
+    ? current.map((source) => source.id === incoming.id ? incoming : source)
+    : [incoming, ...current];
+  return next.sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
 }
 
 export const useSources = (notebookId?: string) => {
@@ -34,16 +58,7 @@ export const useSources = (notebookId?: string) => {
         console.log("useSources: Fetching from cloud...");
         const rawSources = await ApiService.fetchSources(notebookId, session.access_token);
         // Map Drizzle camelCase to Supabase-style snake_case the frontend expects
-        sources = rawSources.map((s: Record<string, unknown>) => ({
-          ...s,
-          created_at: s.createdAt || s.created_at,
-          updated_at: s.updatedAt || s.updated_at,
-          file_path: s.filePath || s.file_path,
-          file_size: s.fileSize || s.file_size,
-          processing_status: s.processingStatus || s.processing_status,
-          notebook_id: s.notebookId || s.notebook_id,
-          user_id: s.userId || s.user_id,
-        }));
+        sources = rawSources.map((source: Record<string, unknown>) => normalizeSourceRecord(source));
       } else {
         console.log("useSources: Fetching from local storage...");
         sources = await localStorageService.getSources(notebookId) as Source[];
@@ -73,12 +88,12 @@ export const useSources = (notebookId?: string) => {
     mutationFn: async (sourceData: {
       notebookId: string;
       title: string;
-      type: "pdf" | "text" | "website" | "youtube" | "audio" | "image" | "ebook";
+      type: "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook";
       content?: string;
       url?: string;
       file_path?: string;
       file_size?: number;
-      processing_status?: string;
+      processing_status?: SourceProcessingStatus;
       metadata?: unknown;
     }) => {
       if (!effectiveUserId) throw new Error("User not authenticated");
@@ -126,16 +141,19 @@ export const useSources = (notebookId?: string) => {
     onSuccess: async (newSource) => {
       console.log("Source added successfully:", newSource);
 
-      // IMPORTANT: Snapshot current sources BEFORE invalidating to correctly detect first source
-      const existingSources =
-        (queryClient.getQueryData(["sources", notebookId]) as Source[]) || [];
+      const sourceQueryKey = ["sources", notebookId, !!session?.access_token] as const;
+      const existingSources = (queryClient.getQueryData(sourceQueryKey) as Source[]) || [];
+      const normalizedNewSource = normalizeSourceRecord(newSource as unknown as Record<string, unknown>);
       const isFirstSource = existingSources.length === 0;
 
       console.log(`📊 Existing sources count: ${existingSources.length}, isFirstSource: ${isFirstSource}`);
 
-      // Now invalidate queries to refresh sources
+      // Surface newly created sources immediately, then reconcile with the server.
       if (notebookId) {
-        queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
+        queryClient.setQueryData<Source[]>(sourceQueryKey, (current = []) =>
+          upsertSourceCache(current, normalizedNewSource),
+        );
+        void queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
       }
 
       // Check for first source to trigger generation
@@ -209,7 +227,7 @@ export const useSources = (notebookId?: string) => {
       updates: {
         title?: string;
         file_path?: string;
-        processing_status?: string;
+        processing_status?: SourceProcessingStatus;
         content?: string;
         metadata?: unknown;
       };
@@ -235,14 +253,17 @@ export const useSources = (notebookId?: string) => {
       return updatedSource;
     },
     onSuccess: async (updatedSource) => {
-      // IMPORTANT: Snapshot BEFORE invalidating
-      const existingSources =
-        (queryClient.getQueryData(["sources", notebookId]) as Source[]) || [];
+      const sourceQueryKey = ["sources", notebookId, !!session?.access_token] as const;
+      const existingSources = (queryClient.getQueryData(sourceQueryKey) as Source[]) || [];
+      const normalizedUpdatedSource = normalizeSourceRecord(updatedSource as unknown as Record<string, unknown>);
       const isFirstSource = existingSources.length === 1;
 
-      // Invalidate queries to refresh sources
+      // Reflect processing transitions immediately, then reconcile with the server.
       if (notebookId) {
-        queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
+        queryClient.setQueryData<Source[]>(sourceQueryKey, (current = []) =>
+          upsertSourceCache(current, normalizedUpdatedSource),
+        );
+        void queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
       }
 
       // If file_path was added and this is the first source, trigger generation

@@ -1,4 +1,3 @@
-import React from 'react';
 import Logo from '@/components/ui/Logo';
 import MetallicText from '@/components/ui/MetallicText';
 import { ProfileMenu } from '@/components/profile/ProfileMenu';
@@ -8,7 +7,7 @@ interface DashboardHeaderProps {
   userEmail?: string;
 }
 
-const DashboardHeader = ({ userEmail }: DashboardHeaderProps) => {
+const DashboardHeader = (_: DashboardHeaderProps) => {
   const { metallicTextEnabled, metallicTextSpeed, useCustomFonts } = useVisualEffectsStore();
 
   return (

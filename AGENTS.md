@@ -60,7 +60,7 @@ Returns structured snapshot: notebook metadata, sources with content previews, a
 POST /api/notebooks/:id/notes
 Body: { "content": "Your insight here" }
 ```
-Notes from agents are automatically tagged with an **AGENT** badge and persisted to the notebook's memory store (local @xenova/transformers embeddings).
+Notes from agents are automatically tagged with an **AGENT** badge and persisted to the notebook's memory store (local Transformers.js embeddings).
 
 ### Upload Files
 ```

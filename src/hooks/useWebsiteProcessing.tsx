@@ -121,7 +121,7 @@ export const useWebsiteProcessing = () => {
           type: "website",
           content: sanitizedContent,
           url: webContent.url,
-          processing_status: "processing", // Will be updated after document processing
+          processing_status: "processing" as const, // Will be updated after document processing
           metadata: {
             validation: validation, // Store validation results
             sourceType: "web-content",

@@ -3,7 +3,7 @@
  * Runs entirely client-side.
  */
 
-import { pipeline, env } from '@xenova/transformers';
+import { pipeline, env } from '@huggingface/transformers';
 
 // Configuration for browser environment
 env.allowLocalModels = false;
@@ -12,8 +12,8 @@ env.useBrowserCache = true;
 // Singleton to manage the model pipeline
 class SpeechRecognitionPipeline {
   static task = 'automatic-speech-recognition';
-  // 'Xenova/whisper-tiny' is ~40MB quantized, very fast.
-  static model = 'Xenova/whisper-tiny';
+  // The tiny Whisper checkpoint keeps first-run browser downloads manageable.
+  static model = 'onnx-community/whisper-tiny';
   static instance: unknown = null;
 
   static async getInstance(progress_callback?: (data: { status: string; progress?: number }) => void) {

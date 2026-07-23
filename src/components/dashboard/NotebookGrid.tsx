@@ -22,7 +22,6 @@ import {
 import { Input } from '@/components/ui/input';
 
 const NotebookGrid = () => {
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState('Most recent');
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -154,15 +153,15 @@ const NotebookGrid = () => {
   }
 
   return <div className="relative">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
         <div className="flex items-center space-x-3">
           {!isSelectionMode ? (
             <div className="flex items-center space-x-3">
-              <Button className="bg-black hover:bg-gray-800 text-white rounded-full px-6" onClick={handleCreateNotebook} disabled={isCreating}>
+              <Button className="bg-black hover:bg-gray-800 text-white rounded-lg px-5" onClick={handleCreateNotebook} disabled={isCreating}>
                 {isCreating ? 'Creating...' : '+ Create new'}
               </Button>
               {!isGuest && (
-                <Button variant="outline" className="border-gray-300 dark:border-border text-foreground hover:bg-muted rounded-full px-6" onClick={() => setIsJoinOpen(true)} disabled={isJoining}>
+                <Button variant="outline" className="border-gray-300 dark:border-border text-foreground hover:bg-muted rounded-lg px-5" onClick={() => setIsJoinOpen(true)} disabled={isJoining}>
                   Join notebook
                 </Button>
               )}
@@ -182,7 +181,7 @@ const NotebookGrid = () => {
           )}
         </div>
         
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center gap-2 self-end sm:self-auto">
           <Button 
             variant="outline" 
             className={`rounded-lg ${isSelectionMode ? 'bg-blue-50 border-blue-200 text-blue-700' : ''}`}
@@ -216,7 +215,7 @@ const NotebookGrid = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pb-24">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-24">
         {sortedNotebooks.map(notebook => (
           <div key={notebook.id} onClick={e => handleNotebookClick(notebook.id, e)} className="relative group">
             <NotebookCard notebook={{

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, RefObject } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { localStorageService } from "@/services/localStorageService";
 import { getStreamingTTSGenerator } from "@/lib/tts/streamingTTSGenerator";
@@ -21,7 +21,6 @@ export function useAudioPlayer({
   expiresAt,
   onError,
   onDeleted,
-  onRetry,
   onUrlRefresh,
 }: UseAudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);

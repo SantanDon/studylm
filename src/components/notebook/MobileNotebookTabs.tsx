@@ -1,11 +1,19 @@
 
-import React from 'react';
+import { lazy, Suspense } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 // import { FileText, MessageCircle, NotebookPen } from 'lucide-react'; // Removed Lucide imports
 import SourcesSidebar from './SourcesSidebar';
 import ChatArea from './ChatArea';
-import StudioSidebar from './StudioSidebar';
 import { Citation } from '@/types/message';
+
+const StudioSidebar = lazy(() => import('./StudioSidebar'));
+
+const StudioLoading = () => (
+  <div className="flex h-full items-center justify-center bg-background text-sm text-muted-foreground">
+    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    Loading Studio…
+  </div>
+);
 
 interface MobileNotebookTabsProps {
   hasSource: boolean;
@@ -80,16 +88,19 @@ const MobileNotebookTabs = ({
           hasSource={hasSource}
           notebookId={notebookId}
           notebook={notebook}
+          activeSourceId={activeSourceId}
           onCitationClick={onCitationClick}
         />
       </TabsContent>
 
       <TabsContent value="studio" className="flex-1 overflow-hidden mt-0">
-        <StudioSidebar
-          notebookId={notebookId}
-          onCitationClick={onCitationClick}
-          activeSourceId={activeSourceId}
-        />
+        <Suspense fallback={<StudioLoading />}>
+          <StudioSidebar
+            notebookId={notebookId}
+            onCitationClick={onCitationClick}
+            activeSourceId={activeSourceId}
+          />
+        </Suspense>
       </TabsContent>
     </Tabs>
   );

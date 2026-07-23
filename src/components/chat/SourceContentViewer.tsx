@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Citation } from '@/types/message';
 import {
@@ -14,6 +14,16 @@ interface SourceContentViewerProps {
   sourceContent?: string;
   sourceSummary?: string;
   sourceUrl?: string;
+  sourceMetadata?: {
+    transcriptProvider?: string;
+    transcriptMode?: string;
+    transcriptLanguage?: string | null;
+    timestampedTranscript?: boolean;
+    timingQuality?: 'provider' | 'mixed' | 'inferred' | 'none';
+    transcriptQuality?: { tier?: string; score?: number; warnings?: string[] };
+    providerCapabilities?: { seekableCitations?: boolean; timestampedSegments?: boolean };
+    transcriptSegments?: Array<{ text: string; offset: number; duration: number; lang?: string | null; timingSource?: 'provider' | 'inferred' }>;
+  };
   className?: string;
   isOpenedFromSourceList?: boolean;
 }
@@ -23,6 +33,7 @@ const SourceContentViewer = ({
   sourceContent, 
   sourceSummary,
   sourceUrl,
+  sourceMetadata,
   className = '',
   isOpenedFromSourceList = false
 }: SourceContentViewerProps) => {
@@ -156,6 +167,29 @@ const SourceContentViewer = ({
     );
   };
 
+
+  const timestampSegments = sourceMetadata?.transcriptSegments || [];
+  const formatMoment = (offsetMs: number) => {
+    const totalSeconds = Math.max(0, Math.floor(offsetMs / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return hours > 0
+      ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+      : `${minutes}:${String(seconds).padStart(2, '0')}`;
+  };
+  const youtubeMomentUrl = (offsetMs: number) => {
+    if (!sourceUrl) return undefined;
+    try {
+      const url = new URL(sourceUrl);
+      url.searchParams.set('t', `${Math.max(0, Math.floor(offsetMs / 1000))}s`);
+      return url.toString();
+    } catch {
+      const separator = sourceUrl.includes('?') ? '&' : '?';
+      return `${sourceUrl}${separator}t=${Math.max(0, Math.floor(offsetMs / 1000))}s`;
+    }
+  };
+
   // Split content into lines for highlighting
   const lines = sourceContent.split('\n');
   
@@ -202,7 +236,11 @@ const SourceContentViewer = ({
   };
 
   return (
-    <div className={`flex flex-col h-full overflow-hidden ${className}`}>
+    <div
+      className={`flex flex-col h-full overflow-hidden ${className}`}
+      data-testid="source-content-viewer"
+      aria-label={`${citation.source_title} source content`}
+    >
       {/* Header */}
       <div className="p-4 border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center space-x-2 mb-2">
@@ -210,8 +248,49 @@ const SourceContentViewer = ({
             {getSourceIcon(citation.source_type)}
           </div>
           <span className="font-medium text-gray-900 truncate">{citation.source_title}</span>
+          {citation.seek_url && (
+            <a
+              href={citation.seek_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto rounded-md border border-red-200 px-2 py-1 text-[11px] font-medium text-red-600 hover:bg-red-50"
+            >
+              Watch at {citation.timestamp_label || 'cited moment'}
+            </a>
+          )}
         </div>
       </div>
+
+
+      {citation.source_type === 'youtube' && sourceMetadata?.providerCapabilities?.seekableCitations && timestampSegments.length > 0 && (
+        <div className="border-b border-gray-200 bg-red-50/60 px-4 py-3 dark:border-border dark:bg-red-950/10" data-testid="youtube-transcript-timeline">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold text-gray-900 dark:text-foreground">Timestamped transcript</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                {sourceMetadata?.transcriptProvider || 'StudyPod'} - {timestampSegments.length} segments
+              </p>
+            </div>
+          </div>
+          <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+            {timestampSegments.slice(0, 250).map((segment, index) => {
+              const href = youtubeMomentUrl(segment.offset);
+              return (
+                <a
+                  key={`${segment.offset}-${index}`}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex gap-2 rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-red-200 hover:bg-white dark:hover:border-red-900/50 dark:hover:bg-background"
+                >
+                  <span className="w-12 flex-shrink-0 font-mono text-red-600 dark:text-red-400">{formatMoment(segment.offset)}</span>
+                  <span className="line-clamp-2 text-gray-700 dark:text-gray-300">{segment.text}</span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Source Guide Accordion */}
       {sourceSummary && (

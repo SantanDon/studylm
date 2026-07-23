@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +12,8 @@ import ExportDialog from './ExportDialog';
 import { useChatMessages } from '@/hooks/useChatMessages';
 import { LocalNotebook } from '@/services/localStorageService';
 import { ChatMessage } from '@/lib/export/markdownExporter';
-// import { Download } from 'lucide-react'; // Removed Lucide imports
+import { Download } from 'lucide-react';
+import { formatDisplayTitle } from '@/lib/utils/displayTitle';
 
 interface NotebookHeaderProps {
   title: string;
@@ -21,8 +22,9 @@ interface NotebookHeaderProps {
 
 const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
   const navigate = useNavigate();
+  const displayTitle = formatDisplayTitle(title, 'Untitled notebook');
   const [isEditing, setIsEditing] = useState(false);
-  const [editedTitle, setEditedTitle] = useState(title);
+  const [editedTitle, setEditedTitle] = useState(displayTitle);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const { updateNotebook, isUpdating } = useNotebookUpdate();
   const { notebooks } = useNotebooks();
@@ -30,7 +32,11 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
   const { notes } = useNotes(notebookId);
   const { messages: rawMessages } = useChatMessages(notebookId);
 
-  const notebook = notebooks?.find(n => n.id === notebookId);
+  const notebook = notebooks?.find((n: { id: string }) => n.id === notebookId);
+
+  useEffect(() => {
+    if (!isEditing) setEditedTitle(displayTitle);
+  }, [displayTitle, isEditing]);
 
   // Map EnhancedChatMessage[] → ChatMessage[] for the markdown exporter.
   // Each stored record has { message: { type: "human"|"ai", content: string | { segments, citations } } }
@@ -57,15 +63,16 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
   const handleTitleClick = () => {
     if (notebookId) {
       setIsEditing(true);
-      setEditedTitle(title);
+      setEditedTitle(displayTitle);
     }
   };
 
   const handleTitleSubmit = () => {
-    if (notebookId && editedTitle.trim() && editedTitle !== title) {
+    const normalizedTitle = formatDisplayTitle(editedTitle, 'Untitled notebook');
+    if (notebookId && normalizedTitle !== displayTitle) {
       updateNotebook({
         id: notebookId,
-        updates: { title: editedTitle.trim() }
+        updates: { title: normalizedTitle }
       });
     }
     setIsEditing(false);
@@ -75,7 +82,7 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
     if (e.key === 'Enter') {
       handleTitleSubmit();
     } else if (e.key === 'Escape') {
-      setEditedTitle(title);
+      setEditedTitle(displayTitle);
       setIsEditing(false);
     }
   };
@@ -89,10 +96,10 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
   };
 
   return (
-    <header className="bg-background border-b border-border px-6 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
+    <header className="bg-background border-b border-border px-3 sm:px-6 py-3 sm:py-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center space-x-4">
+          <div className="flex min-w-0 items-center space-x-2">
             <button
               onClick={handleIconClick}
               className="hover:bg-accent rounded transition-colors p-1"
@@ -106,37 +113,37 @@ const NotebookHeader = ({ title, notebookId }: NotebookHeaderProps) => {
                 onChange={(e) => setEditedTitle(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onBlur={handleBlur}
-                className="text-lg font-medium text-foreground border-none shadow-none p-0 h-auto focus-visible:ring-0 min-w-[300px] w-auto bg-transparent"
+                className="text-base sm:text-lg font-medium text-foreground border-none shadow-none p-0 h-auto focus-visible:ring-0 min-w-0 w-full bg-transparent"
                 autoFocus
                 disabled={isUpdating}
               />
             ) : (
               <span
-                className="text-lg font-medium text-foreground cursor-pointer hover:bg-accent rounded px-2 py-1 transition-colors"
+                className="min-w-0 truncate text-base sm:text-lg font-medium text-foreground cursor-pointer hover:bg-accent rounded px-2 py-1 transition-colors"
                 onClick={handleTitleClick}
               >
-                {title}
+                {displayTitle}
               </span>
             )}
           </div>
         </div>
         
-        <div className="flex items-center space-x-4">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
           {notebook && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setIsExportOpen(true)}
             >
-              <i className="fi fi-rr-download h-4 w-4 mr-2"></i>
-              Export
+              <Download className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Export</span>
             </Button>
           )}
           <a
             href="https://github.com/SantanDon/studypod"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center space-x-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/50 hover:border-muted-foreground/30 active:scale-[0.98]"
+            className="hidden sm:inline-flex items-center space-x-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/50 hover:border-muted-foreground/30 active:scale-[0.98]"
             aria-label="Star StudyPod on GitHub"
           >
             <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">

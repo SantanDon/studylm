@@ -6,17 +6,38 @@
 
 import { generateEmbeddings as ollamaGenerateEmbeddings } from "../ai/ollamaService";
 import { isOllamaEnabled } from "@/config/ollamaConfig";
-import { generateVoyageEmbeddings } from "../ai/cloudClient";
 
 /**
- * Route embeddings to the correct provider based on config.
- * Uses Voyage AI when Ollama is disabled; falls back to empty [] if no key.
+ * Generate embeddings only through the user's local Ollama runtime.
+ * Browser-side third-party embedding keys are intentionally unsupported:
+ * VITE_* secrets are public in the client bundle and free cloud limits are too
+ * small for per-chunk ingestion. Keyword ranking remains available below.
  */
 async function generateEmbeddings(text: string): Promise<number[]> {
-  if (!isOllamaEnabled()) {
-    return await generateVoyageEmbeddings(text.substring(0, 1000));
-  }
+  if (!isOllamaEnabled()) return [];
   return await ollamaGenerateEmbeddings(text);
+}
+
+function keywordSearchDocumentChunks(
+  query: string,
+  chunks: DocumentChunk[],
+  limit: number,
+): Array<DocumentChunk & { score: number }> {
+  const terms = [...new Set(
+    query.toLowerCase().match(/[a-z0-9]{3,}/g)?.filter((term) =>
+      !['about', 'from', 'have', 'that', 'the', 'this', 'what', 'when', 'where', 'which', 'with', 'your'].includes(term)
+    ) || [],
+  )];
+
+  return chunks
+    .map((chunk) => {
+      const content = chunk.content.toLowerCase();
+      const score = terms.reduce((total, term) => total + Math.min(content.split(term).length - 1, 8), 0);
+      return { ...chunk, score };
+    })
+    .filter((chunk) => chunk.score > 0)
+    .sort((a, b) => (b.score - a.score) || (a.index - b.index))
+    .slice(0, limit);
 }
 import {
   chunkDocument,
@@ -93,7 +114,7 @@ export async function processDocument(
   options: ProcessDocumentOptions = {},
 ): Promise<ProcessedDocument> {
   const {
-    generateEmbeddings: shouldGenerateEmbeddings = true,
+    generateEmbeddings: shouldGenerateEmbeddings = isOllamaEnabled(),
     chunkSize = 800,
     overlap = 100,
     documentType,
@@ -215,24 +236,26 @@ export async function searchDocumentChunks(
 ): Promise<Array<DocumentChunk & { score: number }>> {
 
   try {
-    // Generate query embedding
-    const queryEmbedding = await generateEmbeddings(query);
+    const embeddedChunks = chunks.filter((chunk) => chunk.embedding && chunk.embedding.length > 0);
+    if (!isOllamaEnabled() || embeddedChunks.length === 0) {
+      return keywordSearchDocumentChunks(query, chunks, limit);
+    }
 
-    // Calculate similarity scores
-    const scoredChunks = chunks
-      .filter((chunk) => chunk.embedding && chunk.embedding.length > 0)
+    const queryEmbedding = await generateEmbeddings(query);
+    if (queryEmbedding.length === 0) {
+      return keywordSearchDocumentChunks(query, chunks, limit);
+    }
+
+    return embeddedChunks
       .map((chunk) => {
         const score = cosineSimilarity(queryEmbedding, chunk.embedding!);
         return { ...chunk, score };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
-
-
-    return scoredChunks;
   } catch (error) {
-    console.error("❌ Chunk search failed:", error);
-    return [];
+    console.error("❌ Chunk search failed; using keyword ranking:", error);
+    return keywordSearchDocumentChunks(query, chunks, limit);
   }
 }
 

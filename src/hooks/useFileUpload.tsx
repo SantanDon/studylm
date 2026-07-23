@@ -4,7 +4,21 @@ import { useToast } from "@/hooks/use-toast";
 import { extractContent, getFileCategory } from "@/lib/extraction/documentExtractor";
 import { validateDocumentContent } from "@/lib/extraction/contentValidator";
 import { useAuth } from "@/hooks/useAuth";
-import { ApiService } from "@/services/apiService";
+import { API_BASE_URL, ApiService } from "@/services/apiService";
+
+type UploadFileResult =
+  | {
+      readonly success: true;
+      readonly filePath: string;
+      readonly content: string;
+      readonly chunks: string[];
+      readonly metadata: Record<string, unknown>;
+    }
+  | {
+      readonly success: false;
+      readonly error: string;
+      readonly fileName: string;
+    };
 
 export const useFileUpload = () => {
   const [isUploading, setIsUploading] = useState(false);
@@ -15,7 +29,7 @@ export const useFileUpload = () => {
     file: File,
     notebookId: string,
     sourceId: string,
-  ): Promise<string | null> => {
+  ): Promise<UploadFileResult> => {
     try {
       setIsUploading(true);
 
@@ -45,8 +59,7 @@ export const useFileUpload = () => {
             const formData = new FormData();
             formData.append('file', file);
             
-            const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
-            const response = await fetch(`${backendUrl}/api/pdf/process-pdf`, {
+            const response = await fetch(`${API_BASE_URL}/pdf/process-pdf`, {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${session.access_token}` },
               body: formData
@@ -82,8 +95,7 @@ export const useFileUpload = () => {
             const formData = new FormData();
             formData.append("image", file);
 
-            const backendUrl = import.meta.env.VITE_BACKEND_URL || "";
-            const response = await fetch(`${backendUrl}/api/images/extract-image`, {
+            const response = await fetch(`${API_BASE_URL}/images/extract-image`, {
               method: "POST",
               headers: { Authorization: `Bearer ${session.access_token}` },
               body: formData,

@@ -353,7 +353,7 @@ export function chunkBySemantic(
   ];
 
   for (const pattern of transitionPatterns) {
-    let match;
+    let match: RegExpExecArray | null;
     const regex = new RegExp(pattern.source, pattern.flags);
     while ((match = regex.exec(text)) !== null) {
       // Only add as break point if far enough from other breaks
@@ -469,7 +469,7 @@ export function chunkByTimestamp(
   text: string,
   options: { chunkSize?: number; overlap?: number; sourceId?: string } = {}
 ): Chunk[] {
-  const { chunkSize = DEFAULT_CHUNK_SIZE } = options;
+  const { chunkSize = DEFAULT_CHUNK_SIZE, sourceId } = options;
   const chunks: Chunk[] = [];
 
   if (!text || text.length === 0) {

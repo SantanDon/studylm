@@ -1,5 +1,4 @@
-import React from 'react';
-import { useSignalQueue } from '@/hooks/useSignalQueue';
+import { useSignalQueue, SignalQueueItem } from '@/hooks/useSignalQueue';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 
@@ -51,7 +50,7 @@ const WhatsHappening = () => {
   }
 
   // Filter drafts
-  const drafts = items.filter(item => item.status === 'draft');
+  const drafts = items.filter((item: SignalQueueItem) => item.status === 'draft');
 
   return (
     <div className="bg-white dark:bg-card border border-gray-100 dark:border-border rounded-2xl p-5 shadow-sm space-y-5">
@@ -81,7 +80,7 @@ const WhatsHappening = () => {
         <div className="space-y-3">
           <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Review Drafts:</div>
           <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-            {drafts.map((draft) => (
+            {drafts.map((draft: SignalQueueItem) => (
               <div 
                 key={draft.id} 
                 className="group relative p-3 border border-gray-100 dark:border-border rounded-xl bg-gray-50/30 hover:bg-gray-50/80 transition-all flex flex-col gap-2"

@@ -6,7 +6,7 @@ import { useNotebookGeneration } from "@/hooks/useNotebookGeneration";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
-import { v4 as uuidv4 } from "uuid";
+import { normalizeSourceRecord, upsertSourceCache, type Source } from "@/hooks/useSources";
 
 export const useTextPaste = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -18,7 +18,8 @@ export const useTextPaste = () => {
   const pasteTextAsSource = async (
     text: string,
     notebookId: string,
-    title: string = "Pasted Text"
+    title: string = "Pasted Text",
+    onPersisted?: (source: LocalSource) => void,
   ): Promise<boolean> => {
     try {
       setIsProcessing(true);
@@ -50,24 +51,23 @@ export const useTextPaste = () => {
         // Continue anyway but with warning
       }
 
-      // Check if this is the first source in the notebook BEFORE adding
-      let existingSources: LocalSource[] = [];
-      if (session?.access_token) {
-        existingSources = await ApiService.fetchSources(notebookId, session.access_token);
-      } else {
-        existingSources = (await localStorageService.getSources(notebookId)) as LocalSource[];
-      }
+      // Determine first-source state from the already-loaded client store.
+      // A remote preflight read here used to block the modal on high-latency
+      // databases even though source creation itself was healthy.
+      const sourceQueryKey = ["sources", notebookId, Boolean(session?.access_token)] as const;
+      const existingSources = session?.access_token
+        ? ((queryClient.getQueryData<Source[]>(sourceQueryKey) || []) as LocalSource[])
+        : (localStorageService.getSources(notebookId) as LocalSource[]);
       const isFirstSource = existingSources.length === 0;
 
       console.log(`📝 Text: isFirstSource=${isFirstSource}, existingSources=${existingSources.length}`);
 
       // Create a source object for the pasted text
-      const sourceId = uuidv4();
       const sourcePayload = {
         title: title,
         type: "text",
         content: text,
-        processing_status: "completed", // No processing needed for plain text
+        processing_status: "completed" as const, // No processing needed for plain text
         metadata: {
           validation: validation, // Store validation results
           sourceType: "pasted-text",
@@ -82,47 +82,50 @@ export const useTextPaste = () => {
         savedSource = await ApiService.createSource(notebookId, sourcePayload, session.access_token);
       } else {
         savedSource = localStorageService.createSource({
-          id: sourceId,
           notebook_id: notebookId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
           ...sourcePayload,
           type: "text"
         });
       }
       
-      // Invalidate sources query to refresh UI
-      queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
+      const normalizedSource = normalizeSourceRecord(savedSource as unknown as Record<string, unknown>);
+      queryClient.setQueryData<Source[]>(sourceQueryKey, (current = []) =>
+        upsertSourceCache(current, normalizedSource),
+      );
+      onPersisted?.(savedSource);
+      void queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
 
-      // IMPORTANT: Trigger notebook generation for first source
+      // First-source notebook generation is enrichment, not source persistence.
+      // Run it after the UI has acknowledged the saved source.
       if (isFirstSource) {
         console.log("🚀 Triggering notebook generation for text source...");
-        try {
-          // Mark notebook as generating
-          if (!session?.access_token) {
-            localStorageService.updateNotebook(notebookId, {
-              generation_status: "processing",
-            });
-          }
-          queryClient.invalidateQueries({ queryKey: ["notebooks"] });
+        void (async () => {
+          try {
+            if (!session?.access_token) {
+              localStorageService.updateNotebook(notebookId, {
+                generation_status: "processing",
+              });
+            }
+            void queryClient.invalidateQueries({ queryKey: ["notebooks"] });
 
-          await generateNotebookContentAsync({
-            notebookId,
-            filePath: savedSource.id, // Use source ID as identifier
-            sourceType: "text",
-          });
-
-          console.log("✅ Notebook generation completed for text source");
-        } catch (genError) {
-          console.error("Failed to generate notebook content:", genError);
-          // Still mark as completed
-          if (!session?.access_token) {
-            localStorageService.updateNotebook(notebookId, {
-              generation_status: "completed",
+            await generateNotebookContentAsync({
+              notebookId,
+              filePath: savedSource.id,
+              sourceType: "text",
             });
+
+            console.log("✅ Notebook generation completed for text source");
+          } catch (genError) {
+            console.error("Failed to generate notebook content:", genError);
+            if (!session?.access_token) {
+              localStorageService.updateNotebook(notebookId, {
+                generation_status: "completed",
+              });
+            }
+          } finally {
+            void queryClient.invalidateQueries({ queryKey: ["notebooks"] });
           }
-        }
-        queryClient.invalidateQueries({ queryKey: ["notebooks"] });
+        })();
       }
       
       toast({

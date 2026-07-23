@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 // import { Send, Upload, FileText, Loader2, RefreshCw } from 'lucide-react'; // Removed Lucide imports
-import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 import { useChatMessages } from '@/hooks/useChatMessages';
 import { useSources } from '@/hooks/useSources';
 import { useGuest, useNotebookLimits } from '@/hooks/useGuest';
@@ -12,12 +10,26 @@ import MarkdownRenderer from '@/components/chat/MarkdownRenderer';
 import ChatInput from '@/components/chat/ChatInput';
 import SovereignChatIntro from '@/components/chat/SovereignChatIntro';
 import CaptureButtons from './CaptureButtons';
-import AddSourcesDialog from './AddSourcesDialog';
-import ResearchFurtherDialog from './ResearchFurtherDialog';
 import { Citation, EnhancedChatMessage } from '@/types/message';
 import { IMMERSIVE_PROMPTS, BOOKMARK_PROMPTS } from '@/config/prompts';
 import { useToast } from '@/hooks/use-toast';
-import type { Source } from '@/types/domain/Source';
+import { formatDisplayTitle } from '@/lib/utils/displayTitle';
+import {
+  getSourceProcessingStatus,
+  isSourceUsableForGroundedChat,
+  parseSourceProcessingMetadata,
+} from '@/lib/sources/sourceProcessing';
+const AddSourcesDialog = lazy(() => import('./AddSourcesDialog'));
+const ResearchFurtherDialog = lazy(() => import('./ResearchFurtherDialog'));
+
+const DialogLoading = () => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+    <div className="rounded-xl border border-border bg-background px-5 py-3 text-sm text-muted-foreground shadow-xl">
+      Loading…
+    </div>
+  </div>
+);
+
 import {
   Dialog,
   DialogContent,
@@ -36,37 +48,26 @@ interface ChatAreaProps {
     generation_status?: string;
     icon?: string;
     example_questions?: string[];
+    joinCode?: string;
+    join_code?: string;
   } | null;
+  activeSourceId?: string | null;
   onCitationClick?: (citation: Citation) => void;
 }
 
-function getSourceMetadata(source: Source): Record<string, unknown> {
-  if (!source?.metadata) return {};
-  const meta = source.metadata as unknown;
-  if (typeof meta === 'string') {
-    try {
-      return JSON.parse(meta) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
-  }
-  return meta as Record<string, unknown>;
-}
 
-function isUsableForGroundedChat(source: Source & { processingStatus?: string }) {
-  const status = source.processing_status || source.processingStatus;
-  if (status !== 'completed') return false;
-  const metadata = getSourceMetadata(source);
-  return !(source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only');
-}
 
 const ChatArea = ({
   hasSource,
   notebookId,
   notebook,
+  activeSourceId,
   onCitationClick
 }: ChatAreaProps) => {
   const [message, setMessage] = useState('');
+  const [failedMessage, setFailedMessage] = useState<string | null>(null);
+  const [chatScope, setChatScope] = useState<'all' | 'active'>('all');
+  const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
   const [showAiLoading, setShowAiLoading] = useState(false);
   const [clickedQuestions, setClickedQuestions] = useState<Set<string>>(new Set());
@@ -84,7 +85,6 @@ const ChatArea = ({
   
   const {
     messages,
-    sendMessage,
     sendMessageAsync,
     isSending,
     deleteChatHistory,
@@ -96,22 +96,23 @@ const ChatArea = ({
   } = useSources(notebookId);
   
   const sourceCount = sources?.length || 0;
+  const activeSource = sources?.find((source) => source.id === activeSourceId) || null;
+  const activeSourceUsable = activeSource ? isSourceUsableForGroundedChat(activeSource) : false;
+  const draftStorageKey = notebookId ? `studypod:chat-draft:${notebookId}` : null;
 
-  const hasReadySource = sources?.some(source => isUsableForGroundedChat(source)) || false;
-  const hasMetadataOnlySource = sources?.some(source => {
-    const metadata = getSourceMetadata(source);
+  const hasReadySource = sources?.some(isSourceUsableForGroundedChat) || false;
+  const hasMetadataOnlySource = sources?.some((source) => {
+    const metadata = parseSourceProcessingMetadata(source.metadata);
     return source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only';
   }) || false;
-  const hasProcessingSource = sources?.some(source => {
-    const status = source.processing_status || (source as { processingStatus?: string }).processingStatus;
-    return status === 'pending' || status === 'uploading' || status === 'processing';
+  const hasProcessingSource = sources?.some((source) => {
+    const status = getSourceProcessingStatus(source);
+    return status === 'pending' || status === 'uploading' || status === 'extracting' || status === 'processing' || status === 'indexing';
   }) || false;
-  const hasFailedSource = sources?.some(source => {
-    const status = source.processing_status || (source as { processingStatus?: string }).processingStatus;
-    return status === 'failed';
-  }) || false;
+  const hasFailedSource = sources?.some((source) => getSourceProcessingStatus(source) === 'failed') || false;
+  const hasConversation = messages.length > 0 || !!pendingUserMessage || showAiLoading || !!failedMessage;
 
-  const isChatDisabled = sourceCount === 0 || !hasReadySource;
+  const isChatDisabled = sourceCount === 0 || !hasReadySource || (chatScope === 'active' && !activeSourceUsable);
 
   // Track when we send a message to show loading state
   const [lastMessageCount, setLastMessageCount] = useState(0);
@@ -119,6 +120,34 @@ const ChatArea = ({
   // Ref for auto-scrolling to the most recent message
   const latestMessageRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!draftStorageKey) {
+      setHydratedDraftKey(null);
+      return;
+    }
+    try {
+      setMessage(localStorage.getItem(draftStorageKey) || '');
+    } catch {
+      setMessage('');
+    }
+    setFailedMessage(null);
+    setHydratedDraftKey(draftStorageKey);
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftStorageKey || hydratedDraftKey !== draftStorageKey) return;
+    try {
+      if (message.trim()) localStorage.setItem(draftStorageKey, message);
+      else localStorage.removeItem(draftStorageKey);
+    } catch {
+      // Draft persistence is best-effort and must never block chat.
+    }
+  }, [draftStorageKey, hydratedDraftKey, message]);
+
+  useEffect(() => {
+    if (chatScope === 'active' && !activeSourceUsable) setChatScope('all');
+  }, [activeSourceUsable, chatScope]);
   useEffect(() => {
     // If we have new messages and we have a pending message, clear it
     if (messages.length > lastMessageCount && pendingUserMessage) {
@@ -156,6 +185,7 @@ const ChatArea = ({
       console.log('📤 Sending message:', textToSend);
 
       try {
+        setFailedMessage(null);
         // Store the pending message to display immediately
         setPendingUserMessage(textToSend);
         setMessage('');
@@ -168,7 +198,8 @@ const ChatArea = ({
           notebookId: notebookId,
           role: 'user',
           content: textToSend,
-          responseStyle: responseStyle
+          responseStyle,
+          sourceIds: chatScope === 'active' && activeSourceId ? [activeSourceId] : undefined,
         });
 
         // Track guest usage
@@ -178,12 +209,15 @@ const ChatArea = ({
 
         console.log('✅ Message sent successfully');
 
-        // Clear pending message and loading state after response
+        // Clear pending message, draft, and loading state after response
         setPendingUserMessage(null);
+        setFailedMessage(null);
         setShowAiLoading(false);
       } catch (error) {
         console.error('❌ Failed to send message:', error);
-        // Clear pending message on error
+        // Restore the exact draft so the user never loses their question.
+        setMessage(textToSend);
+        setFailedMessage(textToSend);
         setPendingUserMessage(null);
         setShowAiLoading(false);
       }
@@ -233,7 +267,7 @@ const ChatArea = ({
 
   // Get the index of the last message for auto-scrolling
   const shouldShowScrollTarget = () => {
-    return messages.length > 0 || pendingUserMessage || showAiLoading;
+    return messages.length > 0 || pendingUserMessage || showAiLoading || failedMessage;
   };
 
   // Show refresh button if there are any messages (including system messages)
@@ -284,6 +318,9 @@ const ChatArea = ({
         ? `Collaborate with Agent... (${messagesRemaining} msgs)`
         : `Start typing... (${messagesRemaining} msgs)`;
     }
+    if (chatScope === 'active' && activeSource) {
+      return `Ask only ${activeSource.title}...`;
+    }
     return chatMode === 'agent' ? "Ask your agent to analyze this notebook..." : "Start typing...";
   };
   return <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -313,6 +350,23 @@ const ChatArea = ({
               </div>
               
               <div className="flex items-center space-x-4">
+                <label className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>Evidence</span>
+                  <select
+                    aria-label="Chat evidence scope"
+                    value={chatScope}
+                    onChange={(event) => setChatScope(event.target.value as 'all' | 'active')}
+                    className="h-8 max-w-44 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                  >
+                    <option value="all">All ready sources</option>
+                    <option value="active" disabled={!activeSourceUsable}>
+                      {activeSourceUsable && activeSource
+                        ? `Current: ${formatDisplayTitle(activeSource.title, 'Current source')}`
+                        : 'Open a ready source first'}
+                    </option>
+                  </select>
+                </label>
+
                 {/* Response Style Toggle */}
                 <div className="flex bg-muted p-1 rounded-md">
                   <button
@@ -352,36 +406,46 @@ const ChatArea = ({
           </div>
 
           <ScrollArea className="flex-1 h-full bg-white dark:bg-background" ref={scrollAreaRef}>
-             {/* Empty State / Sovereign Intro */}
-             {!shouldShowScrollTarget() && (
+             {/* Notebook context stays compact once the conversation begins. */}
+             <div className="border-b border-border bg-background/95 px-5 py-4 sm:px-8">
+               <div className="mx-auto max-w-4xl">
+                 <div className="flex items-center gap-3">
+                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-2xl">
+                     {isGenerating ? <i className="fi fi-rr-spinner animate-spin text-muted-foreground" /> : <span>{notebook?.icon || '☕'}</span>}
+                   </div>
+                   <div className="min-w-0 flex-1">
+                     <h1 className="truncate text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+                       {isGenerating ? 'Preparing your notebook…' : formatDisplayTitle(notebook?.title, 'Untitled notebook')}
+                     </h1>
+                     <p className="mt-0.5 text-xs text-muted-foreground">
+                       {sourceCount} source{sourceCount !== 1 ? 's' : ''}{hasConversation ? ' · conversation in progress' : ''}
+                     </p>
+                   </div>
+                 </div>
+
+                 {!hasConversation && (
+                   <div className="mt-4 rounded-xl border border-border bg-card px-4 py-3 text-sm leading-6 text-muted-foreground shadow-sm">
+                     {isGenerating ? (
+                       <p>StudyPod is analysing your source and preparing its title and overview.</p>
+                     ) : (
+                       <MarkdownRenderer
+                         content={notebook?.description || 'Your sources are ready. Ask a question or choose a starting point below.'}
+                         className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert"
+                       />
+                     )}
+                   </div>
+                 )}
+               </div>
+             </div>
+
+             {!hasConversation && (
                <SovereignChatIntro onPromptClick={handleExampleQuestionClick} />
              )}
 
-            {/* Document Summary */}
-            <div className="p-8 border-b border-gray-200 dark:border-border">
-              <div className="max-w-4xl mx-auto">
-                <div className="flex items-center space-x-4 mb-6">
-                  <div className="w-10 h-10 flex items-center justify-center bg-transparent">
-                    {isGenerating ? <i className="fi fi-rr-spinner text-black font-normal w-10 h-10 animate-spin"></i> : <span className="text-[40px] leading-none">{notebook?.icon || '☕'}</span>}
-                  </div>
-                  <div>
-                    <h1 className="text-2xl font-medium text-gray-900 dark:text-foreground">
-                      {isGenerating ? 'Generating content...' : notebook?.title || 'Untitled Notebook'}
-                    </h1>
-                    <p className="text-sm text-gray-600">{sourceCount} source{sourceCount !== 1 ? 's' : ''}</p>
-                  </div>
-                </div>
-                
-                <div className="bg-gray-50 dark:bg-muted/30 rounded-lg p-6 mb-6">
-                  {isGenerating ? <div className="flex items-center space-x-2 text-gray-600 dark:text-muted-foreground">
-                      
-                      <p>AI is analyzing your source and generating a title and description...</p>
-                    </div> : <MarkdownRenderer content={notebook?.description || 'No description available for this notebook.'} className="prose prose-gray max-w-none text-gray-700 leading-relaxed" />}
-                </div>
-
-                {/* Chat Messages */}
-                {(messages.length > 0 || pendingUserMessage || showAiLoading) && <div className="mb-6 space-y-4">
-                    {messages.map((msg, index) => <div key={msg.id} className={`flex ${isUserMessage(msg) ? 'justify-end' : 'justify-start'}`}>
+             <div className="mx-auto max-w-4xl px-5 py-6 sm:px-8">
+               {/* Chat Messages */}
+                {(messages.length > 0 || pendingUserMessage || showAiLoading || failedMessage) && <div className="mb-6 space-y-4">
+                    {messages.map((msg) => <div key={msg.id} className={`group flex ${isUserMessage(msg) ? 'justify-end' : 'justify-start'}`}>
                         <div className={`${isUserMessage(msg) ? 'max-w-xs lg:max-w-md px-4 py-2 bg-blue-500 text-white rounded-lg' : 'w-full'}`}>
                           <div className={isUserMessage(msg) ? '' : 'prose prose-gray dark:prose-invert max-w-none text-gray-800 dark:text-gray-200'}>
                             <MarkdownRenderer content={msg.message.content} className={isUserMessage(msg) ? '' : ''} onCitationClick={handleCitationClick} isUserMessage={isUserMessage(msg)} />
@@ -412,11 +476,29 @@ const ChatArea = ({
                         </div>
                       </div>}
                     
+                    {failedMessage && !pendingUserMessage && !showAiLoading && (
+                      <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-medium">Message not sent</p>
+                            <p className="mt-1 text-xs opacity-80">Your draft was restored. Retry without retyping it.</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => setFailedMessage(null)}>
+                              Dismiss
+                            </Button>
+                            <Button size="sm" onClick={() => handleSendMessage(failedMessage)} disabled={isSending}>
+                              Retry
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Scroll target for when no AI loading is shown */}
                     {!showAiLoading && shouldShowScrollTarget() && <div ref={latestMessageRef} />}
                   </div>}
-              </div>
-            </div>
+             </div>
           </ScrollArea>
 
           {/* Chat Input - Fixed at bottom */}
@@ -427,7 +509,7 @@ const ChatArea = ({
             disabled={isChatDisabled}
             isLoading={isSending || !!pendingUserMessage}
             sourceCount={sourceCount}
-            exampleQuestions={exampleQuestions}
+            exampleQuestions={!hasConversation ? exampleQuestions : []}
             onExampleQuestionClick={handleExampleQuestionClick}
             placeholder={getPlaceholderText()}
           />
@@ -461,14 +543,22 @@ const ChatArea = ({
       
       {/* Footer */}
       <div className="p-4 border-t border-border flex-shrink-0 bg-background">
-        <p className="text-center text-sm text-muted-foreground">StudyPodLM can be inaccurate; please double-check its responses.</p>
+        <p className="pr-16 text-center text-xs text-muted-foreground sm:pr-0 sm:text-sm">StudyPodLM can be inaccurate; please double-check its responses.</p>
       </div>
       
       {/* Add Sources Dialog */}
-      <AddSourcesDialog open={showAddSourcesDialog} onOpenChange={setShowAddSourcesDialog} notebookId={notebookId} />
+      {showAddSourcesDialog && (
+        <Suspense fallback={<DialogLoading />}>
+          <AddSourcesDialog open={showAddSourcesDialog} onOpenChange={setShowAddSourcesDialog} notebookId={notebookId} />
+        </Suspense>
+      )}
       
       {/* Research Further Dialog */}
-      <ResearchFurtherDialog open={showResearchDialog} onOpenChange={setShowResearchDialog} notebookId={notebookId} />
+      {showResearchDialog && (
+        <Suspense fallback={<DialogLoading />}>
+          <ResearchFurtherDialog open={showResearchDialog} onOpenChange={setShowResearchDialog} notebookId={notebookId} />
+        </Suspense>
+      )}
 
       {/* Share Dialog */}
       <Dialog open={isShareOpen} onOpenChange={setIsShareOpen}>

@@ -1,4 +1,4 @@
-import React, {
+import {
   useEffect,
   useState,
   useCallback,
@@ -15,15 +15,6 @@ import { ApiService } from "@/services/apiService";
 interface AuthProviderProps {
   children: ReactNode;
 }
-
-// Custom hook for easy access to auth context
-const useAuth = () => {
-  const context = React.useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<LocalUser | null>(null);
@@ -53,16 +44,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setError(null);
   }, []);
 
-  const signIn = async (credentials: Record<string, unknown>, sessionData?: unknown) => {
+  const signIn = async (credentials: Record<string, unknown>) => {
     console.log("AuthContext: Starting sign in process...");
     setError(null);
     try {
-      if (sessionData) {
-        console.log("AuthContext: Direct sign in using provided user and session");
-        signInWithCloud(credentials);
-        return;
-      }
-
       const data = await ApiService.signin(credentials);
       
       if (data.mfaRequired) {
@@ -133,9 +118,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
       console.log("AuthContext: Starting logout process...");
+
+      // Revoke any active Login-with-ChatGPT session server-side (best-effort)
+      await fetch('/api/chatgpt/logout', { method: 'POST', credentials: 'include' })
+        .catch(err => console.warn("LWC logout request failed, continuing", err));
 
       // Call backend to clear cookies
       await ApiService.signout().catch(err => console.warn("Signout request failed, continuing local clear", err));
@@ -155,7 +144,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       localStorage.removeItem("currentSession");
       clearAuthState();
     }
-  };
+  }, [clearAuthState]);
 
   useEffect(() => {
     let mounted = true;
@@ -290,6 +279,3 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-
-// Export the custom hook for use in components
-export { useAuth };

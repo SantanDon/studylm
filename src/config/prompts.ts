@@ -13,58 +13,47 @@ export interface PromptCategory {
  */
 export const IMMERSIVE_PROMPTS: PromptCategory[] = [
   {
-    id: 'analysis',
-    label: 'Deep Analysis',
-    description: 'Deconstruct complex topics and identify hidden connections.',
-    icon: '📊',
+    id: 'summary',
+    label: 'Summarize',
+    description: 'Get the main argument, evidence, and key takeaways.',
+    icon: '✦',
     prompts: [
-      "Synthesize these sources into a single coherence map. What is the core thesis linking them?",
-      "Identify the 'Intellectual Debt' in this research—what assumptions are being made without sufficient evidence?",
-      "Perform a forensic audit of the key arguments here. Which one is most vulnerable to a peer review?"
+      'Summarize these sources in plain language. What are the main argument, strongest evidence, and key takeaways?',
+      'Create a one-page study brief from these sources.',
+      'What should I remember from this material a week from now?'
     ]
   },
   {
-    id: 'sovereign',
-    label: 'Sovereign Insight',
-    description: 'Deep dives into the "why" and "so what" of your research.',
-    icon: '🛡️',
+    id: 'explain',
+    label: 'Explain',
+    description: 'Break down difficult ideas without losing accuracy.',
+    icon: '🧩',
     prompts: [
-      "What is the 'Primal Driver' behind these findings? Why does this specific research matter right now?",
-      "Identify the 'Unspoken Implications'—if these conclusions are true, what else must be true?",
-      "Map out the 'Expert Contradictions' found across these sources. Where do the scholars disagree most passionately?"
+      'Explain the most difficult idea in these sources step by step, using a concrete example.',
+      'Teach this material to me as if I am new to the topic.',
+      'Which terms or assumptions do I need to understand first?'
     ]
   },
   {
-    id: 'creation',
-    label: 'Sovereign Creation',
-    description: 'Transform raw research into high-leverage content and social alpha.',
-    icon: '⚡',
+    id: 'compare',
+    label: 'Compare',
+    description: 'Find agreements, conflicts, and missing evidence.',
+    icon: '⇄',
     prompts: [
-      "Draft 5 viral 'Hook' options based on the most surprising discovery in these sources.",
-      "Create a 'Sovereign Bridge'—how can I explain these complex findings to a non-expert audience?",
-      "Condense this research into a 1-page 'Executive Brief' focusing only on actionable insights."
+      'Compare the sources. Where do they agree, disagree, or rely on different assumptions?',
+      'Which argument is best supported, and what evidence is still missing?',
+      'Create a concise comparison table for the main viewpoints.'
     ]
   },
   {
-    id: 'context',
-    label: 'Contextual Anchoring',
-    description: 'Understand the background and historical weight of the research.',
-    icon: '🧭',
+    id: 'create',
+    label: 'Create',
+    description: 'Turn research into useful notes, questions, or drafts.',
+    icon: '✎',
     prompts: [
-      "What is the historical 'Gravity' of this topic? How did we get to this specific state of research?",
-      "Locate this research within the broader 'Academic Landscape'. Who are the key titans in this field?",
-      "Identify the 'Legacy Debt'—what older theories are these new findings trying to displace or refine?"
-    ]
-  },
-  {
-    id: 'immersion',
-    label: 'Sensory Immersion',
-    description: 'Learn through metaphors, visuals, and high-fidelity mental models.',
-    icon: '🧠',
-    prompts: [
-      "Explain the most difficult concept here using a 'Neural Garden' metaphor. How does it grow?",
-      "Visualize the 'Conflict Vectors' between these two opposing viewpoints. Where do they collide?",
-      "Describe the mechanical logic of this system as if it were a high-fidelity rendering."
+      'Turn these sources into a practical study guide with headings and review questions.',
+      'Draft an executive brief from this research.',
+      'Create a set of flashcard-ready questions and answers.'
     ]
   }
 ];

@@ -56,7 +56,7 @@ describe('ExtractionService', () => {
         content: 'Transcript',
       });
 
-      const result = await service.extract(url);
+      await service.extract(url);
 
       expect(service.extractYouTube).toHaveBeenCalledWith(url);
     });

@@ -6,12 +6,22 @@ import { authenticateToken, requireScope } from "../middleware/auth.js";
 import { deepDiveBookmarks } from "../services/bookmarkDeepDiveService.js";
 import { brokerResearchGoals } from "../services/goalBrokerService.js";
 import { MemoryService } from "../services/memoryService.js";
-import { chatWithNotebook, generateNotebookTitleAndDescription } from "../services/aiChatService.js";
+import { chatWithNotebook } from "../services/aiChatService.js";
+import { getLwcChatProvider } from "./chatgpt.js";
 import { researchNotebook } from "../services/researchService.js";
+import { discoverSources } from "../services/discoverService.js";
 import { MasticationService } from "../services/masticationService.js";
 import { agentPulse } from "../services/agentPulse.js";
 import { WebhookDispatcher } from "../services/webhookDispatcher.js";
 import { logger } from "../utils/logger.js";
+import { isTransientDatabaseError } from "../utils/databaseRetry.js";
+import {
+  buildKeywordOnlySourceMetadata,
+  getSourceTrust,
+  parseSourceMetadata,
+  shouldSkipSemanticIndexing,
+} from "../utils/sourceProcessing.js";
+import { listDocuments } from "../services/documentRepository.js";
 
 const router = express.Router();
 
@@ -27,32 +37,6 @@ function getActorName(req) {
 
 function isAgentRequest(req, agentId = null) {
   return req.user?.authMethod === 'api_key' || !!agentId;
-}
-
-function parseSourceMetadata(source) {
-  if (!source?.metadata) return {};
-  if (typeof source.metadata === 'string') {
-    try {
-      return JSON.parse(source.metadata);
-    } catch {
-      return {};
-    }
-  }
-  return source.metadata || {};
-}
-
-function getSourceTrust(source) {
-  const metadata = parseSourceMetadata(source);
-  const status = source.processingStatus || source.processing_status;
-  const isMetadataOnlyYoutube = source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only';
-  return {
-    videoId: metadata.videoId || null,
-    transcriptStatus: metadata.transcriptStatus || null,
-    transcriptLineCount: metadata.transcriptLineCount || 0,
-    extractionWarning: metadata.extractionWarning || null,
-    extractedBy: metadata.extractedBy || null,
-    usableForGroundedChat: status === 'completed' && !isMetadataOnlyYoutube,
-  };
 }
 
 async function getNotebookOrRecover(id, userId, description = "Auto-provisioned") {
@@ -543,14 +527,31 @@ router.post("/:id/sources/tweets", requireScope('sources:write'), async (req, re
  */
 router.put("/:id/sources/:sourceId", requireScope('sources:write'), async (req, res) => {
   try {
-    const updates = req.body;
+    const updates = { ...req.body };
+    const requestedProcessingStatus = updates.processing_status || updates.processingStatus;
+    const isIndexingTransition = ['processing', 'indexing'].includes(requestedProcessingStatus);
+    if (isIndexingTransition) {
+      const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
+      const existingSource = sources.find((source) => source.id === req.params.sourceId);
+      const content = typeof updates.content === 'string' ? updates.content : (existingSource?.content || '');
+      if (shouldSkipSemanticIndexing(content.length)) {
+        const metadata = {
+          ...parseSourceMetadata(existingSource),
+          ...parseSourceMetadata(updates.metadata),
+        };
+        updates.processing_status = 'degraded';
+        updates.processingStatus = 'degraded';
+        updates.content = content;
+        updates.metadata = buildKeywordOnlySourceMetadata(metadata, content.length);
+      }
+    }
     const result = await dbHelpers.updateSource(req.params.sourceId, req.user.userId, updates);
 
     // VERCEL WORKAROUND: If changes is 0, the source was wiped by Vercel serverless. We MUST auto-provision it.
     if (result.changes === 0) {
       logger.info(`🛠️ PUT /sources/:sourceId: Source missing, auto-provisioning...`);
       try {
-        let notebook = await getNotebookOrRecover(req.params.id, req.user.userId);
+        await getNotebookOrRecover(req.params.id, req.user.userId);
 
         await dbHelpers.createSource(
             req.params.sourceId, req.params.id, req.user.userId,
@@ -571,7 +572,13 @@ router.put("/:id/sources/:sourceId", requireScope('sources:write'), async (req, 
       }
     }
 
-    res.json({ success: true, message: "Source updated" });
+    const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
+    const updatedSource = sources.find((source) => source.id === req.params.sourceId);
+    if (!updatedSource) {
+      return res.status(404).json({ error: "Source not found after update" });
+    }
+
+    res.json(updatedSource);
   } catch (error) {
     logger.error("Update source error:", error);
     res.status(500).json({ error: "Failed to update source" });
@@ -719,7 +726,10 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
     if (!notebook) return res.status(404).json({ error: "Notebook not found" });
 
     const sources = await dbHelpers.getSourcesByNotebookId(req.params.id, req.user.userId);
-    const notes = await dbHelpers.getNotesByNotebookId(req.params.id, req.user.userId);
+    const [notes, documents] = await Promise.all([
+      dbHelpers.getNotesByNotebookId(req.params.id, req.user.userId),
+      listDocuments(req.params.id, req.user.userId),
+    ]);
 
     // Provide a structured snapshot so agents don't have to assemble it manually
     res.json({
@@ -731,17 +741,22 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
       },
       sources: sources.map(s => {
         const trust = getSourceTrust(s);
-        const hasContent = typeof s.content === 'string' && s.content.length > 0;
-        const contentStatus = !s.processingStatus || s.processingStatus === 'pending'
+        const hasContent = typeof s.content === 'string' && s.content.trim().length > 0;
+        const processingStatus = trust.status;
+        const contentStatus = ['pending', 'uploading'].includes(processingStatus)
           ? 'pending'
-          : (s.processingStatus === 'processing' ? 'processing'
-          : (s.processingStatus === 'failed' ? 'failed'
-          : (hasContent ? 'available' : 'empty')));
+          : (['extracting', 'processing', 'indexing'].includes(processingStatus)
+            ? 'processing'
+            : (processingStatus === 'failed'
+              ? 'failed'
+              : (processingStatus === 'degraded'
+                ? 'degraded'
+                : (hasContent ? 'available' : 'empty'))));
         return {
           id: s.id,
           title: s.title,
           type: s.type,
-          status: s.processingStatus,
+          status: processingStatus,
           url: s.url || null,
           ...trust,
           contentStatus,
@@ -750,8 +765,7 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
             ? s.content.substring(0, 500) + (s.content.length > 500 ? '...' : '')
             : null,
           fullContentAvailable: hasContent,
-          usableForGroundedChat: hasContent && (s.type === 'youtube' || s.type === 'document' || s.type === 'website'),
-          transcriptStatus: s.transcriptStatus || (s.type === 'youtube' ? 'unknown' : null)
+          transcriptStatus: trust.transcriptStatus || (s.type === 'youtube' ? 'unknown' : null)
         };
       }),
       notes: notes.map(n => ({
@@ -760,6 +774,38 @@ router.get("/:id/context", requireScope('notebooks:read'), async (req, res) => {
         authorId: n.authorId,
         createdAt: n.createdAt
       })),
+      documents: documents.map(document => ({
+        id: document.id,
+        title: document.title,
+        documentType: document.documentType,
+        status: document.status,
+        currentVersion: document.currentVersion,
+        sourceIds: document.sourceIds,
+        contentLength: document.content.length,
+        contentPreview: document.content.slice(0, 500),
+        updatedAt: document.updatedAt,
+      })),
+      agentCapabilities: {
+        documents: {
+          list: `GET /api/notebooks/${req.params.id}/documents`,
+          create: `POST /api/notebooks/${req.params.id}/documents`,
+          revise: `POST /api/notebooks/${req.params.id}/documents/:documentId/revisions/propose`,
+          export: `GET /api/notebooks/${req.params.id}/documents/:documentId/export?format=docx|pdf|md|txt`,
+        },
+        youtube: {
+          ingest: 'POST /api/youtube/ingest with { notebookId, url, language? }',
+          providers: 'GET /api/youtube/providers',
+          transcript: 'GET /api/youtube/youtube-transcript?url=<youtube-url>&language=<language-code>',
+          sourceTimeline: `GET /api/notebooks/${req.params.id}/sources/:sourceId/content`,
+          qualityContract: {
+            transcriptStatus: 'full | partial | metadata_only',
+            videoAvailability: 'available | available_no_transcript | private | restricted | region_blocked | unavailable | unknown',
+            timingQuality: 'provider | mixed | inferred | none',
+            seekableCitations: 'Use only when source.providerCapabilities.seekableCitations is true.',
+          },
+          recommendedWorkflow: 'Use ingest for a one-call notebook source. Inspect source transcriptQuality before chat, and use sourceIds to scope evidence-sensitive questions.',
+        }
+      },
       agentReady: true
     });
   } catch (error) {
@@ -798,7 +844,7 @@ router.post("/:id/immerse", requireScope('missions:write'), async (req, res) => 
  */
 router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
   try {
-    const { message, saveAsNote = false, agentId = null, responseStyle = 'dense' } = req.body;
+    const { message, saveAsNote = false, agentId = null, responseStyle = 'dense', sourceIds = [] } = req.body;
     if (!message) return res.status(400).json({ error: "message is required" });
 
     const notebookId = req.params.id;
@@ -808,12 +854,26 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
     if (!notebook) return res.status(404).json({ error: "Notebook not found" });
 
     const sources = await dbHelpers.getSourcesByNotebookId(notebookId, userId);
+    const requestedSourceIds = Array.isArray(sourceIds)
+      ? [...new Set(sourceIds.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()))].slice(0, 50)
+      : [];
+    const scopedSources = requestedSourceIds.length > 0
+      ? sources.filter((source) => requestedSourceIds.includes(source.id))
+      : sources;
+
+    if (requestedSourceIds.length > 0 && scopedSources.length !== requestedSourceIds.length) {
+      return res.status(400).json({
+        error: "One or more selected sources are unavailable in this notebook.",
+        code: "INVALID_SOURCE_SCOPE",
+      });
+    }
     const notes = await dbHelpers.getNotesByNotebookId(notebookId, userId);
     const messages = await dbHelpers.getChatMessagesByNotebookId(notebookId, userId);
-    // Save the user's message to history
+    // Allocate the turn IDs now, but persist the user's message only once a
+    // corresponding response exists. Provider outages must not leave orphaned
+    // or duplicate questions in notebook history when the user retries.
     const userMsgId = uuidv4();
     const callerIsAgent = isAgentRequest(req, agentId);
-    await dbHelpers.createChatMessage(userMsgId, notebookId, userId, callerIsAgent ? 'agent' : 'user', message);
 
     // Closed-Loop Interceptors
     const normalizedMsg = message.toLowerCase().trim();
@@ -908,6 +968,13 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
     }
 
     if (interceptedResponse) {
+      await dbHelpers.createChatMessage(
+        userMsgId,
+        notebookId,
+        userId,
+        callerIsAgent ? 'agent' : 'user',
+        message,
+      );
       const aiMsgId = uuidv4();
       await dbHelpers.createChatMessage(aiMsgId, notebookId, userId, 'assistant', interceptedResponse, null);
 
@@ -929,23 +996,42 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
         tokensUsed: 0,
         messageId: aiMsgId,
         noteId,
-        joinCode: notebook.joinCode
+        joinCode: notebook.joinCode,
+        sourceScope: requestedSourceIds,
       });
     }
 
     try {
+      // If a ChatGPT (Login with ChatGPT) session is active, use it as the
+      // reasoning provider; otherwise fall back to the default Titan chain.
+      let chatgptProvider = null;
+      try {
+        chatgptProvider = await getLwcChatProvider(req);
+      } catch (e) {
+        logger.debug(`[chat] LWC provider check skipped: ${e?.message}`);
+      }
+
       // Call Gemini using our context service
       const chatResult = await chatWithNotebook({
         notebook,
-        sources,
+        sources: scopedSources,
         notes,
         message,
         history: messages,
         callerType: callerIsAgent ? 'agent' : 'human',
-        responseStyle
+        responseStyle,
+        chatgpt: chatgptProvider,
+        allowWebFallback: requestedSourceIds.length === 0,
       });
 
-      // Save the AI's response to history
+      // Persist the complete turn only after a response was generated.
+      await dbHelpers.createChatMessage(
+        userMsgId,
+        notebookId,
+        userId,
+        callerIsAgent ? 'agent' : 'user',
+        message,
+      );
       const aiMsgId = uuidv4();
       await dbHelpers.createChatMessage(aiMsgId, notebookId, userId, 'assistant', chatResult.answer, chatResult.groundedSources);
 
@@ -965,19 +1051,39 @@ router.post("/:id/chat", requireScope('chat:all'), async (req, res) => {
       res.json({
         answer: chatResult.answer,
         groundedSources: chatResult.groundedSources,
+        citations: chatResult.citations || [],
         tokensUsed: chatResult.tokensUsed,
         messageId: aiMsgId,
         noteId,
-        joinCode: notebook.joinCode
+        joinCode: notebook.joinCode,
+        sourceScope: requestedSourceIds,
       });
 
     } catch (aiError) {
       logger.error("AI chat processing error:", aiError);
-      res.status(500).json({ error: "AI processing failed", details: aiError.message });
+      if (aiError?.code === 'NO_USABLE_SOURCES') {
+        return res.status(422).json({
+          error: aiError.message,
+          code: 'NO_USABLE_SOURCES',
+        });
+      }
+      if (aiError?.code === 'PROVIDER_UNAVAILABLE') {
+        return res.status(503).json({
+          error: "AI providers are temporarily unavailable. Please try again shortly.",
+          code: 'PROVIDER_UNAVAILABLE',
+        });
+      }
+      res.status(500).json({ error: "AI processing failed" });
     }
 
   } catch (error) {
     logger.error("Chat endpoint error:", error);
+    if (isTransientDatabaseError(error)) {
+      return res.status(503).json({
+        error: "The notebook database is temporarily unavailable. Please retry shortly.",
+        code: "DATABASE_TEMPORARILY_UNAVAILABLE",
+      });
+    }
     res.status(500).json({ error: "Failed to process chat" });
   }
 });
@@ -1080,12 +1186,26 @@ router.get("/:id/sources/:sourceId/content", requireScope('sources:read'), requi
       await dbHelpers.createActivityLog(req.params.id, req.user.userId, getActorName(req), 'read_source', `Read full source: ${source.title}`);
     }
 
+    const metadata = parseSourceMetadata(source);
+    const trust = getSourceTrust(source);
     res.json({
       id: source.id,
       title: source.title,
       type: source.type,
       content: source.content,
-      contentLength: source.content ? source.content.length : 0
+      contentLength: source.content ? source.content.length : 0,
+      trust,
+      transcriptSegments: source.type === 'youtube' && Array.isArray(metadata.transcriptSegments)
+        ? metadata.transcriptSegments
+        : [],
+      transcriptProvider: metadata.transcriptProvider || metadata.extractedBy || null,
+      transcriptQuality: trust.transcriptQuality || null,
+      timingQuality: trust.timingQuality || null,
+      videoAvailability: trust.videoAvailability || null,
+      participants: trust.participants || [],
+      chapters: trust.chapters || [],
+      providerCapabilities: trust.providerCapabilities || null,
+      timestampedTranscript: Boolean(metadata.timestampedTranscript),
     });
   } catch (error) {
     logger.error("Failed to get full source content:", error);
@@ -1313,6 +1433,30 @@ router.post("/:id/research-goals", requireScope('notes:create'), async (req, res
   } catch (error) {
     logger.error("Failed to create research goal:", error);
     res.status(500).json({ error: "Failed to create research goal" });
+  }
+});
+
+/**
+ * POST /api/notebooks/:id/discover
+ * Discover agent: takes a loose research goal, runs web search, and queues
+ * candidate source URLs to the signal queue for human approval.
+ */
+router.post("/:id/discover", requireScope('notes:create'), async (req, res) => {
+  try {
+    const { goal, maxQueries } = req.body;
+    if (!goal || typeof goal !== 'string' || goal.length < 3) {
+      return res.status(400).json({ error: "goal is required (min 3 chars)" });
+    }
+    const result = await discoverSources(
+      req.params.id,
+      req.user.userId,
+      goal,
+      Math.min(Number(maxQueries) || 3, 5),
+    );
+    res.json(result);
+  } catch (error) {
+    logger.error("Discover endpoint error:", error);
+    res.status(500).json({ error: "Discovery failed", details: error.message });
   }
 });
 

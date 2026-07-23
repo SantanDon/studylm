@@ -93,10 +93,7 @@ export function EncryptionFlow({ onUnlocked, allowGuest = true }: EncryptionFlow
     }
   };
 
-  const handleAccountCreated = () => {
-    setFlowState('unlocked');
-    onUnlocked?.();
-  };
+
 
   const handleRecoverySetupComplete = () => {
     // After recovery setup, user is authenticated

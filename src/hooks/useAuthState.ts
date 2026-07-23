@@ -16,6 +16,7 @@ export interface UnifiedAuthState {
     id: string;
     email?: string;
     displayName: string;
+    is_verified?: boolean | number;
   } | null;
   authMethod: 'none' | 'legacy' | 'encryption';
 }
@@ -44,6 +45,7 @@ export function useAuthState(): UnifiedAuthState {
         id: uId,
         email: legacyUser.email,
         displayName: legacyUser.displayName || (legacyUser.email ? legacyUser.email.split('@')[0] : `User ${uId.substring(0, 8)}`),
+        is_verified: legacyUser.is_verified,
       };
     } else if (isUnlocked && userId) {
       // Encryption auth system (PIN/passphrase)

@@ -7,6 +7,8 @@
 
 export const config = { runtime: 'edge' };
 
+const YOUTUBE_INNERTUBE_API_KEY = process.env.YOUTUBE_INNERTUBE_API_KEY || '';
+
 const ALLOWED_ORIGINS = [
   'https://studypod-lm.vercel.app',
   'http://localhost:5173',
@@ -213,7 +215,7 @@ export default async function handler(request) {
 
   const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const desktopUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-  const apiKey = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+  const apiKey = YOUTUBE_INNERTUBE_API_KEY;
 
   try {
     // ── Step 1: Session Warmup ─────────────────────────────────────────────────

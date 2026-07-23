@@ -5,7 +5,7 @@
  * Generates and displays recovery key for backup.
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,6 +22,14 @@ import { encrypt } from '@/lib/encryption/encryption';
 import { ApiService } from '@/services/apiService';
 import { useAuth } from '@/hooks/useAuth';
 
+type CloudUser = {
+  readonly id: string;
+  readonly email?: string;
+  readonly displayName?: string;
+  readonly account_type?: string;
+  readonly createdAt: string;
+};
+
 export default function AccountCreation() {
   const [step, setStep] = useState<'passphrase' | 'recovery' | 'confirm'>('passphrase');
   const [displayName, setDisplayName] = useState('');
@@ -31,12 +39,12 @@ export default function AccountCreation() {
   const [recoveryKey, setRecoveryKey] = useState('');
   const [recoveryConfirmed, setRecoveryConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [authData, setAuthData] = useState<{ user: Record<string, unknown>; accessToken: string; refreshToken: string; userId: string; key: CryptoKey; salt: ArrayBuffer } | null>(null);
+  const [authData, setAuthData] = useState<{ user: CloudUser; userId: string; key: CryptoKey; salt: Uint8Array } | null>(null);
   
   const { toast } = useToast();
   const navigate = useNavigate();
   const { setMasterKey } = useEncryptionStore();
-  const { signIn } = useAuth();
+  const { signInWithCloud } = useAuth();
 
   const validateInput = (): string | null => {
     if (!displayName || displayName.length < 3) {
@@ -76,7 +84,7 @@ export default function AccountCreation() {
         recovery_key_hash: hash 
       });
       
-      const { user, accessToken, refreshToken } = apiResponse;
+      const { user } = apiResponse;
       const userId = user.id as string;
 
       // Generate local encryption key
@@ -99,7 +107,7 @@ export default function AccountCreation() {
       storeRecoveryKeyHash(userId, hash);
       
       // Store auth data to be applied after recovery key confirmation
-      setAuthData({ user, accessToken, refreshToken, userId, key, salt });
+      setAuthData({ user, userId, key, salt });
       
       // Move to recovery key display
       setStep('recovery');
@@ -150,12 +158,7 @@ export default function AccountCreation() {
     
     // Apply auth context ONLY after recovery key is saved
     if (authData) {
-      signIn(authData.user, {
-        access_token: authData.accessToken,
-        refresh_token: authData.refreshToken,
-        expires_at: Date.now() + 60 * 60 * 1000,
-        user: authData.user
-      });
+      signInWithCloud(authData.user);
       setCurrentUserId(authData.userId);
       setMasterKey(authData.key, authData.salt, authData.userId);
     }

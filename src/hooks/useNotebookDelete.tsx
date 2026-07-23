@@ -68,7 +68,7 @@ export const useNotebookDelete = () => {
         throw error;
       }
     },
-    onSuccess: (deletedNotebook, notebookId) => {
+    onSuccess: (_, notebookId) => {
       console.log("Delete mutation success, invalidating queries");
 
       // Invalidate all related queries

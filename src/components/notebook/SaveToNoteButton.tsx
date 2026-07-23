@@ -1,5 +1,4 @@
 
-import React from 'react';
 import { Button } from '@/components/ui/button';
 // import { FileText } from 'lucide-react'; // Removed Lucide imports
 import { useNotes } from '@/hooks/useNotes';

@@ -62,6 +62,7 @@ export const useTasks = (notebookId?: string) => {
     tasks,
     isLoading,
     createTask: createTaskMutation.mutate,
+    createTaskAsync: createTaskMutation.mutateAsync,
     isCreating: createTaskMutation.isPending,
   };
 };

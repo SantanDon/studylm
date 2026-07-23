@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -12,12 +12,14 @@ interface CopiedTextDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   notebookId?: string; // Add notebook ID to allow direct text paste
+  onSuccess?: () => void;
 }
 
 const CopiedTextDialog = ({
   open,
   onOpenChange,
-  notebookId
+  notebookId,
+  onSuccess,
 }: CopiedTextDialogProps) => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -49,12 +51,22 @@ const CopiedTextDialog = ({
 
     try {
       // Use the validated text paste function
-      const success = await pasteTextAsSource(content.trim(), notebookId, title.trim());
-      if (success) {
+      let acknowledged = false;
+      const acknowledgePersistence = () => {
+        if (acknowledged) return;
+        acknowledged = true;
         setTitle('');
         setContent('');
         onOpenChange(false);
-      }
+        onSuccess?.();
+      };
+      const success = await pasteTextAsSource(
+        content.trim(),
+        notebookId,
+        title.trim(),
+        acknowledgePersistence,
+      );
+      if (success) acknowledgePersistence();
     } catch (error) {
       console.error('Error submitting copied text:', error);
     }
@@ -93,7 +105,7 @@ const CopiedTextDialog = ({
   }, [content, validationWarning]);
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleClose(); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">

@@ -74,6 +74,36 @@ export const notes = sqliteTable('notes', {
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
+export const documents = sqliteTable('documents', {
+    id: text('id').primaryKey(),
+    notebookId: text('notebook_id').notNull().references(() => notebooks.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    content: text('content').notNull(),
+    documentType: text('document_type').default('general'),
+    template: text('template').default('general'),
+    status: text('status', { enum: ['draft', 'review', 'final'] }).default('draft'),
+    sourceIds: text('source_ids').default('[]'),
+    metadata: text('metadata').default('{}'),
+    currentVersion: integer('current_version').default(1),
+    createdBy: text('created_by'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const documentVersions = sqliteTable('document_versions', {
+    id: text('id').primaryKey(),
+    documentId: text('document_id').notNull().references(() => documents.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    title: text('title').notNull(),
+    content: text('content').notNull(),
+    changeSummary: text('change_summary'),
+    sourceIds: text('source_ids').default('[]'),
+    createdBy: text('created_by'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
 export const memories = sqliteTable('memories', {
     id: text('id').primaryKey(),
     userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

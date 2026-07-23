@@ -1,9 +1,26 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { localStorageService } from "@/services/localStorageService";
 import { useToast } from "@/hooks/use-toast";
-import { processDocument as processDocumentWithEmbeddings } from "@/lib/extraction/documentProcessor";
 import { ApiService } from "@/services/apiService";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  buildSourceProcessingError,
+  parseSourceProcessingMetadata,
+  shouldSkipClientSemanticIndexing,
+} from "@/lib/sources/sourceProcessing";
+
+const MAX_CLIENT_INDEX_CHARACTERS = Number(
+  import.meta.env.VITE_MAX_CLIENT_INDEX_CHARACTERS || 250_000,
+);
+
+const EXTRACTION_ERROR_MARKERS = [
+  "extraction failed",
+  "Unable to extract text",
+  "PDF contains no extractable text",
+  "extraction/OCR failed",
+  "encrypted or password-protected",
+  "corrupted or in an unsupported format",
+];
 
 export const useDocumentProcessing = () => {
   const { toast } = useToast();
@@ -24,112 +41,140 @@ export const useDocumentProcessing = () => {
       notebookId?: string;
       content?: string;
     }) => {
-      console.log("🚀 Ultra-fast document processing for:", {
-        sourceId,
-        filePath,
-        sourceType,
-      });
-
-      // Helper function to update source status
       const updateSourceData = async (updates: Record<string, unknown>) => {
-        try {
-          if (session?.access_token && notebookId) {
-            await ApiService.updateSource(notebookId, sourceId, updates, session.access_token);
-          } else {
-            localStorageService.updateSource(sourceId, updates);
-          }
-        } catch (err) {
-          console.error("Failed to update source status:", err);
+        if (session?.access_token && notebookId) {
+          await ApiService.updateSource(notebookId, sourceId, updates, session.access_token);
+          return;
         }
+        localStorageService.updateSource(sourceId, updates);
       };
 
       let content = providedContent || "";
       let metadata: Record<string, unknown> = {};
 
-      // 1. Try to get source from local storage first if content wasn't provided
-      if (!content) {
-        const localSource = localStorageService.getSourceById(sourceId);
-        
-        if (localSource) {
-          content = localSource.content || "";
-          metadata = localSource.metadata || {};
-        }
+      const localSource = localStorageService.getSourceById(sourceId);
+      if (localSource) {
+        metadata = parseSourceProcessingMetadata(localSource.metadata);
+        if (!content) content = localSource.content || "";
       }
-      
-      // 2. If no local source, try to get it from the temporary file cache saved by useFileUpload
+
       if (!content) {
         try {
           const cachedFile = localStorage.getItem(`file_${filePath}`);
           if (cachedFile) {
-            const fileData = JSON.parse(cachedFile);
+            const fileData = JSON.parse(cachedFile) as {
+              content?: string;
+              metadata?: Record<string, unknown>;
+            };
             content = fileData.content || "";
-            metadata = fileData.metadata || {};
-            console.log("Retrieved content from local file cache");
+            metadata = {
+              ...metadata,
+              ...(fileData.metadata || {}),
+            };
           }
-        } catch (e) {
-          console.error("Failed to parse cached file data", e);
+        } catch (error) {
+          console.error("Failed to parse cached file data", error);
         }
       }
 
-      if (!content) {
-        console.error("Source content not found for:", sourceId);
-        throw new Error(`Source content not found: ${sourceId}`);
+      if (!content.trim()) {
+        const processingError = buildSourceProcessingError(
+          "SOURCE_CONTENT_MISSING",
+          "No usable text was extracted from this source.",
+          "extracting",
+        );
+        await updateSourceData({
+          processing_status: "failed",
+          metadata: {
+            ...metadata,
+            processingStage: "extracting",
+            processingError,
+          },
+        });
+        throw new Error(processingError.message);
       }
 
-      // Update status to processing
-      await updateSourceData({ processing_status: "processing" });
+      const extractionErrorMarker = EXTRACTION_ERROR_MARKERS.find((marker) =>
+        content.toLowerCase().includes(marker.toLowerCase()),
+      );
+
+      if (extractionErrorMarker) {
+        const processingError = buildSourceProcessingError(
+          "SOURCE_EXTRACTION_FAILED",
+          "The source could not be converted into reliable text.",
+          "extracting",
+        );
+        await updateSourceData({
+          processing_status: "failed",
+          metadata: {
+            ...metadata,
+            processingStage: "extracting",
+            processingError,
+            extractionWarning: extractionErrorMarker,
+          },
+        });
+        throw new Error(processingError.message);
+      }
+
+      if (shouldSkipClientSemanticIndexing(content.length, MAX_CLIENT_INDEX_CHARACTERS)) {
+        const processingError = buildSourceProcessingError(
+          "SOURCE_INDEXING_SKIPPED_LARGE",
+          `This ${content.length.toLocaleString()}-character source is available through keyword-grounded chat. Semantic indexing was skipped to keep the notebook responsive.`,
+          "indexing",
+          false,
+        );
+        await updateSourceData({
+          processing_status: "degraded",
+          content,
+          metadata: {
+            ...metadata,
+            processingStage: "degraded",
+            processingError,
+            indexingSkipped: true,
+            indexingStrategy: "keyword_only",
+            contentLength: content.length,
+            processedAt: new Date().toISOString(),
+          },
+        });
+        return {
+          success: false,
+          sourceId,
+          filePath,
+          sourceType,
+          status: "degraded" as const,
+          error: processingError.message,
+          reason: "large_source" as const,
+        };
+      }
+
+      await updateSourceData({
+        processing_status: "processing",
+        metadata: {
+          ...metadata,
+          processingStage: "indexing",
+          processingError: undefined,
+        },
+      });
 
       try {
-        // Check if source has content
-        if (content.trim().length === 0) {
-          console.warn("⚠️ Source has no content, skipping processing");
-          await updateSourceData({ processing_status: "completed" });
-          return { success: true, sourceId, filePath, sourceType };
-        }
-
-        // Check if the content contains extraction error messages
-        const hasExtractionError = content.includes("extraction failed") || 
-                                 content.includes("Unable to extract text") ||
-                                 content.includes("PDF contains no extractable text") ||
-                                 content.includes("extraction/OCR failed") ||
-                                 content.includes("encrypted or password-protected") ||
-                                 content.includes("corrupted or in an unsupported format");
-
-        if (hasExtractionError) {
-          console.warn("⚠️ Source contains extraction error, skipping document processing");
-          // Don't process error content - just mark as completed
-          await updateSourceData({ processing_status: "completed" });
-          return { success: true, sourceId, filePath, sourceType };
-        }
-
-        // Use optimized document processor with parallel chunking and embeddings
-        // Cloud routing (Voyage AI) is handled by documentProcessor automatically
-        console.log("⚡ Processing with optimized document processor...");
-
-        // Process document with parallel chunking and embedding generation
-        const result = await processDocumentWithEmbeddings(
-          sourceId,
-          content,
-          {
-            generateEmbeddings: true,
-            chunkSize: 1000,
-            generateSummary: false, // Keep it fast
-          },
+        const { processDocument: processDocumentWithEmbeddings } = await import(
+          "@/lib/extraction/documentProcessor"
         );
-
-        console.log("✅ Document processed:", {
-          chunks: result.chunks.length,
-          embeddings: result.chunks.filter((c) => c.embedding).length,
+        const result = await processDocumentWithEmbeddings(sourceId, content, {
+          generateEmbeddings: true,
+          chunkSize: 1000,
+          generateSummary: false,
         });
 
-        // Update source with processed data including chunks
         await updateSourceData({
           processing_status: "completed",
-          content: content,
+          content,
           metadata: {
             ...metadata,
             chunks: result.chunks,
             documentEmbedding: result.embeddings,
+            processingStage: "ready",
+            processingError: undefined,
             processedAt: new Date().toISOString(),
           },
         });
@@ -139,27 +184,60 @@ export const useDocumentProcessing = () => {
           sourceId,
           filePath,
           sourceType,
+          status: "completed" as const,
           chunks: result.chunks.length,
-          embeddings: result.chunks.filter((c) => c.embedding).length,
+          embeddings: result.chunks.filter((chunk) => chunk.embedding).length,
         };
       } catch (error) {
-        console.error("Document processing error:", error);
+        const message = error instanceof Error ? error.message : "Document indexing failed";
+        const processingError = buildSourceProcessingError(
+          "SOURCE_INDEXING_FAILED",
+          message,
+          "indexing",
+        );
 
-        // Mark as completed even on error (graceful degradation)
-        await updateSourceData({ processing_status: "completed" });
+        // The extracted text remains useful for keyword-grounded chat, but the
+        // source must be visibly marked as degraded instead of fully complete.
+        await updateSourceData({
+          processing_status: "degraded",
+          content,
+          metadata: {
+            ...metadata,
+            processingStage: "degraded",
+            processingError,
+            processedAt: new Date().toISOString(),
+          },
+        });
 
-        return { success: true, sourceId, filePath, sourceType };
+        return {
+          success: false,
+          sourceId,
+          filePath,
+          sourceType,
+          status: "degraded" as const,
+          error: message,
+        };
       }
     },
     onSuccess: (data) => {
-      console.log("Document processing completed successfully:", data);
       queryClient.invalidateQueries({ queryKey: ["sources"] });
+      if (!data.success && data.status === "degraded") {
+        const isLargeSource = "reason" in data && data.reason === "large_source";
+        toast({
+          title: isLargeSource
+            ? "Large source ready for grounded chat"
+            : "Source added with limited indexing",
+          description: isLargeSource
+            ? "StudyPod preserved the full text and enabled keyword-grounded retrieval without blocking the notebook."
+            : "The text is available for grounded chat, but semantic indexing can be retried.",
+        });
+      }
     },
     onError: (error) => {
-      console.error("Failed to initiate document processing:", error);
+      console.error("Document processing failed:", error);
       toast({
-        title: "Processing Error",
-        description: "Failed to start document processing. Please try again.",
+        title: "Source processing failed",
+        description: error instanceof Error ? error.message : "Please retry or replace this source.",
         variant: "destructive",
       });
     },

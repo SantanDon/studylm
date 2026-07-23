@@ -5,7 +5,7 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  { ignores: ["dist", ".ai-bridge", ".playwright-cli", ".playwright-mcp"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
@@ -24,11 +24,43 @@ export default tseslint.config(
         { allowConstantExport: true },
       ],
       "@typescript-eslint/no-unused-vars": ["warn", {
-        "argsIgnorePattern": "^_",
-        "varsIgnorePattern": "^_",
-        "caughtErrors": "none",
-        "destructuredArrayIgnorePattern": "^_"
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrors: "none",
+        destructuredArrayIgnorePattern: "^_",
       }],
     },
-  }
+  },
+  {
+    files: ["backend/**/*.js", "api/**/*.js"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: {
+        ...globals.node,
+        ...globals.es2021,
+        fetch: "readonly",
+        FormData: "readonly",
+        Blob: "readonly",
+        URL: "readonly",
+        AbortController: "readonly",
+      },
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      // Begin with visibility across the legacy backend without turning the
+      // whole migration into one risky cleanup commit. These become errors as
+      // each route/service is extracted into its own typed module.
+      "no-undef": "warn",
+      "no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrors: "none",
+      }],
+      "no-empty": ["warn", { allowEmptyCatch: true }],
+      "no-control-regex": "warn",
+      "no-useless-escape": "warn",
+      "no-constant-binary-expression": "warn",
+    },
+  },
 );

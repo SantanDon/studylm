@@ -52,6 +52,9 @@ uploads/
 .continue/
 .kiro/
 .opencode/
+.ai-bridge/
+.playwright-cli/
+.playwright-mcp/
 .env.agent
 .codex-alt-index-test
 .codex-index-*

@@ -54,7 +54,7 @@ const GoalsPulse: React.FC = () => {
             completed,
             paused,
             recentTitles: goals.slice(0, 3).map((g: ResearchGoal) => ({
-              id: g.id, title: g.title, status: g.status || 'active', progressPct: g.progressPct || 0
+              id: g.id, title: g.title, status: g.status || 'active', progressPct: g.progress_pct || 0
             })),
           });
         } catch {

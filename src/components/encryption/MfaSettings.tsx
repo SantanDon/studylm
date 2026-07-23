@@ -1,19 +1,19 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { ApiService } from '@/services/apiService';
 import { useToast } from '@/hooks/use-toast';
-import { Shield, Smartphone, Lock, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Shield, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export function MfaSettings() {
   const { user, session } = useAuth();
   const { toast } = useToast();
   
   const [isSetupOpen, setIsSetupOpen] = useState(false);
-  const [step, setStep] = useState<'initial' | 'verify'>('initial');
+  const [, setStep] = useState<'initial' | 'verify'>('initial');
   const [setupData, setSetupData] = useState<{ secret: string; qrCode: string } | null>(null);
   const [verificationCode, setVerificationCode] = useState('');
   const [loading, setLoading] = useState(false);

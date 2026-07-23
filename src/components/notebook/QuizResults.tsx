@@ -2,7 +2,6 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Quiz, QuizResult, QuizQuestion } from '@/types/quiz';
 import { getScoreGrade, calculateScore } from '@/lib/quiz/quizGenerator';

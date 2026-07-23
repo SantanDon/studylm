@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
 import { MessageSegment, Citation } from '@/types/message';
-import { extractCitations } from '@/lib/citations/citationManager';
 import { processMarkdownWithCitations } from './markdownParser';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -78,10 +77,8 @@ const MarkdownRenderer = ({ content, className = '', onCitationClick, isUserMess
   }
 
   const textContent = typeof content === 'string' ? content : '';
-  const parsedCitations = extractCitations(textContent);
-  
   const segments: MessageSegment[] = [{ text: textContent }];
-  const citations: Citation[] = parsedCitations;
+  const citations: Citation[] = [];
   
   return (
     <div className={className}>

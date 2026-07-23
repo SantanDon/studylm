@@ -44,7 +44,7 @@ export function AccountSelector({ onAccountSelected }: AccountSelectorProps) {
   const [isSigningIn, setIsSigningIn] = useState(false);
   
   const { toast } = useToast();
-  const { signIn } = useAuth();
+  const { signInWithCloud } = useAuth();
   const navigate = useNavigate();
 
   const loadAccounts = () => {
@@ -154,13 +154,7 @@ export function AccountSelector({ onAccountSelected }: AccountSelectorProps) {
     try {
       const res = await ApiService.signin({ displayName, passphrase: apiPassphrase });
       const user = res.user;
-      const session = {
-        access_token: res.accessToken,
-        refresh_token: res.refreshToken,
-        expires_at: Date.now() + 60 * 60 * 1000,
-        user: user,
-      };
-      signIn(user, session);
+      signInWithCloud(user);
       toast({
         title: "Welcome back!",
         description: `Successfully signed in as ${user.displayName || user.email}`,

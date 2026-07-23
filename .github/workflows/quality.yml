@@ -1,0 +1,61 @@
+name: StudyPod Quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint frontend and backend
+        run: npm run lint
+
+      - name: Unit and integration tests
+        run: npm test -- --run
+
+      - name: Production build
+        run: npm run build
+
+      - name: Enforce bundle budgets
+        run: npm run check:bundle
+
+      - name: Production dependency audit
+        run: |
+          npm audit --omit=dev --audit-level=critical
+          npm --prefix backend audit --omit=dev --audit-level=critical
+
+      - name: Reject committed local artifacts
+        shell: bash
+        run: |
+          if git ls-files | grep -E '^(\.ai-bridge/qa-artifacts|\.playwright-(cli|mcp)/|uploads/|scratch/qa-sources/)'; then
+            echo "Local QA or upload artifacts must not be committed."
+            exit 1
+          fi

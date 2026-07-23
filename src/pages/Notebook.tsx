@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useNotebooks } from '@/hooks/useNotebooks';
 import { useSources } from '@/hooks/useSources';
@@ -7,7 +7,6 @@ import { useAgentIngestion } from '@/hooks/useAgentIngestion';
 import NotebookHeader from '@/components/notebook/NotebookHeader';
 import SourcesSidebar from '@/components/notebook/SourcesSidebar';
 import ChatArea from '@/components/notebook/ChatArea';
-import StudioSidebar from '@/components/notebook/StudioSidebar';
 import MobileNotebookTabs from '@/components/notebook/MobileNotebookTabs';
 import PodcastGenerationIndicator from '@/components/notebook/PodcastGenerationIndicator';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -15,21 +14,34 @@ import { Citation } from '@/types/message';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import AntigravityTelemetry from '@/components/agent/AntigravityTelemetry';
 
+const StudioSidebar = lazy(() => import('@/components/notebook/StudioSidebar'));
+const DocumentsPanel = lazy(() => import('@/components/notebook/DocumentsPanel'));
+
+const StudioLoading = () => (
+  <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
+    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    Loading Studio…
+  </div>
+);
+
 const Notebook = () => {
   const { id: notebookId } = useParams();
   const { notebooks, isLoading } = useNotebooks();
   const { sources } = useSources(notebookId);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const [documentWorkspaceOpen, setDocumentWorkspaceOpen] = useState(false);
+  const [initialDocumentId, setInitialDocumentId] = useState<string | null>(null);
   const isDesktop = useIsDesktop();
   const { isIngesting, ingestionStatus } = useAgentIngestion(notebookId);
 
-  const notebook = notebooks?.find(n => n.id === notebookId);
+  const notebook = notebooks?.find((n: { id: string }) => n.id === notebookId);
   const hasSource = sources && sources.length > 0;
   const isSourceDocumentOpen = !!selectedCitation;
 
   const handleCitationClick = (citation: Citation) => {
     setSelectedCitation(citation);
+    setActiveSourceId(citation.source_id);
   };
 
   const handleCitationClose = () => {
@@ -40,7 +52,16 @@ const Notebook = () => {
     setActiveSourceId(sourceId);
   };
 
-  console.log("DEBUG: Notebook.tsx executing", { notebookId, notebooks, sources, isDesktop });
+
+  useEffect(() => {
+    const openDocuments = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string }>).detail;
+      setInitialDocumentId(detail?.documentId || null);
+      setDocumentWorkspaceOpen(true);
+    };
+    window.addEventListener('studypod:open-document', openDocuments);
+    return () => window.removeEventListener('studypod:open-document', openDocuments);
+  }, []);
 
   if (isLoading) {
     return (
@@ -92,7 +113,21 @@ const Notebook = () => {
          </div>
       )}
       
-      {isDesktop ? (
+      {documentWorkspaceOpen && notebookId ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <Suspense fallback={<StudioLoading />}>
+            <DocumentsPanel
+              notebookId={notebookId}
+              activeSourceId={activeSourceId}
+              initialDocumentId={initialDocumentId}
+              onClose={() => {
+                setDocumentWorkspaceOpen(false);
+                setInitialDocumentId(null);
+              }}
+            />
+          </Suspense>
+        </div>
+      ) : isDesktop ? (
         // Desktop layout (3-column resizable)
         <div className="flex-1 flex overflow-hidden">
           <ResizablePanelGroup direction="horizontal">
@@ -132,13 +167,14 @@ const Notebook = () => {
                 message="Failed to load chat. Please try again."
                 showHomeButton={false}
               >
-                <ChatArea 
-                  hasSource={hasSource || false} 
+                <ChatArea
+                  hasSource={hasSource || false}
                   notebookId={notebookId}
                   notebook={notebook}
+                  activeSourceId={activeSourceId}
                   onCitationClick={handleCitationClick}
                 />
-              </ErrorBoundary>
+        </ErrorBoundary>
             </ResizablePanel>
             
             <ResizableHandle withHandle className="w-1.5 bg-gray-100/50 hover:bg-primary/30 transition-colors" />
@@ -154,11 +190,13 @@ const Notebook = () => {
                 message="Failed to load studio. Please try again."
                 showHomeButton={false}
               >
-                <StudioSidebar
-                  notebookId={notebookId}
-                  onCitationClick={handleCitationClick}
-                  activeSourceId={activeSourceId}
-                />
+                <Suspense fallback={<StudioLoading />}>
+                  <StudioSidebar
+                    notebookId={notebookId}
+                    onCitationClick={handleCitationClick}
+                    activeSourceId={activeSourceId}
+                  />
+                </Suspense>
               </ErrorBoundary>
             </ResizablePanel>
           </ResizablePanelGroup>
@@ -178,6 +216,8 @@ const Notebook = () => {
             onCitationClose={handleCitationClose}
             setSelectedCitation={setSelectedCitation}
             onCitationClick={handleCitationClick}
+            activeSourceId={activeSourceId}
+            onActiveSourceChange={handleActiveSourceChange}
           />
         </ErrorBoundary>
       )}

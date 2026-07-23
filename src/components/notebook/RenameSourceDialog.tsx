@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,6 @@ const RenameSourceDialog = ({
   open,
   onOpenChange,
   source,
-  notebookId,
 }: RenameSourceDialogProps) => {
   const [title, setTitle] = useState("");
   const { updateSource, isUpdating } = useSourceUpdate();

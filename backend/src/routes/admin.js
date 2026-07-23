@@ -1,9 +1,13 @@
 import express from 'express';
 import { sql } from 'drizzle-orm';
 import { getDatabase, schema } from '../db/database.js';
+import { authenticateToken, requireScope } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
+
+router.use(authenticateToken);
+router.use(requireScope('admin:keys'));
 
 // Administrative Migration Trigger
 router.get('/migrate', async (req, res) => {

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, FileText, Globe, Video, Mic } from "lucide-react";
+import { Upload, FileText, Globe, Video } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useNotebooks } from "@/hooks/useNotebooks";
 import { useGuest } from "@/hooks/useGuest";
@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 const EmptyDashboard = () => {
   const navigate = useNavigate();
   const { createNotebook, isCreating, joinNotebookAsync, isJoining } = useNotebooks();
-  const { canCreateNotebook, showAuthPrompt, remainingNotebooks, isGuest } = useGuest();
+  const { canCreateNotebook, showAuthPrompt, isGuest } = useGuest();
   const { toast } = useToast();
 
   const [isJoinOpen, setIsJoinOpen] = useState(false);
