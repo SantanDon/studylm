@@ -1,12 +1,22 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import {
+  Bookmark,
+  ClipboardPaste,
+  FileText,
+  Link,
+  Loader2,
+  ShieldCheck,
+  UploadCloud,
+  Youtube,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-// import { Upload, FileText, Link, Copy } from "lucide-react"; // Removed Lucide imports
 import MultipleWebsiteUrlsDialog from "./MultipleWebsiteUrlsDialog";
 import CopiedTextDialog from "./CopiedTextDialog";
 import YouTubeUrlInput from "./YouTubeUrlInput";
@@ -19,15 +29,51 @@ interface AddSourcesDialogProps {
   notebookId?: string;
 }
 
+const sourceOptions = [
+  {
+    title: "YouTube Ingestion",
+    description: "Transcript, chapters, timestamps, and metadata",
+    icon: Youtube,
+    tone: "text-red-500 bg-red-500/10",
+    action: "youtube",
+  },
+  {
+    title: "Website URLs",
+    description: "Readable text from one or several webpages",
+    icon: Link,
+    tone: "text-emerald-500 bg-emerald-500/10",
+    action: "website",
+  },
+  {
+    title: "Pasted Content",
+    description: "Notes, excerpts, research, or copied text",
+    icon: ClipboardPaste,
+    tone: "text-violet-500 bg-violet-500/10",
+    action: "paste",
+  },
+  {
+    title: "Bookmarks & Tweets",
+    description: "Import saved links and connected conversations",
+    icon: Bookmark,
+    tone: "text-indigo-500 bg-indigo-500/10",
+    action: "bookmarks",
+  },
+] as const;
+
+const formats = ["PDF", "DOCX", "EPUB", "TXT", "Markdown", "MP3", "WAV", "M4A"];
+
 const AddSourcesDialog = ({
   open,
   onOpenChange,
   notebookId,
 }: AddSourcesDialogProps) => {
   const [showCopiedTextDialog, setShowCopiedTextDialog] = useState(false);
-  const [showMultipleWebsiteDialog, setShowMultipleWebsiteDialog] = useState(false);
+  const [showMultipleWebsiteDialog, setShowMultipleWebsiteDialog] =
+    useState(false);
   const [showYouTubeDialog, setShowYouTubeDialog] = useState(false);
-  const [showBookmarkImportDialog, setShowBookmarkImportDialog] = useState(false);
+  const [showBookmarkImportDialog, setShowBookmarkImportDialog] =
+    useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     handleMultipleWebsiteSubmit,
@@ -36,160 +82,234 @@ const AddSourcesDialog = ({
     handleDrop,
     handleFileSelect,
     dragActive,
-    isProcessingFiles
+    isProcessingFiles,
+    pendingFileNames,
   } = useAddSourcesHandlers(notebookId, onOpenChange, open);
 
+  const openFilePicker = () => {
+    if (!isProcessingFiles) fileInputRef.current?.click();
+  };
 
+  const handleSourceOption = (
+    action: (typeof sourceOptions)[number]["action"],
+  ) => {
+    if (action === "youtube") setShowYouTubeDialog(true);
+    if (action === "website") setShowMultipleWebsiteDialog(true);
+    if (action === "paste") setShowCopiedTextDialog(true);
+    if (action === "bookmarks") setShowBookmarkImportDialog(true);
+  };
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto border-white/5 bg-black/40 backdrop-blur-2xl">
-          <DialogHeader className="pb-6 border-b border-white/5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center border border-white/10">
-                  <i className="fi fi-rr-book-alt text-white"></i>
+        <DialogContent
+          className="max-h-[92vh] max-w-3xl overflow-hidden border-border bg-background/95 p-0 shadow-2xl backdrop-blur-xl"
+          onPointerDownOutside={(event) => {
+            if (isProcessingFiles) event.preventDefault();
+          }}
+        >
+          <div className="max-h-[92vh] overflow-y-auto">
+            <DialogHeader className="border-b border-border px-5 py-5 text-left sm:px-6">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <FileText className="h-5 w-5" />
                 </div>
-                <DialogTitle className="text-2xl font-bold tracking-tight text-white">
-                  Add sources
-                </DialogTitle>
+                <div>
+                  <DialogTitle className="text-xl">Add sources</DialogTitle>
+                  <DialogDescription className="mt-1 max-w-xl leading-5">
+                    Bring your material into this notebook. StudyPod will
+                    extract it, show its status, and tell you when it is ready
+                    for grounded chat.
+                  </DialogDescription>
+                </div>
               </div>
-            </div>
-          </DialogHeader>
+            </DialogHeader>
 
-          <div className="space-y-8 py-6">
-            <div>
-              <h2 className="text-xl font-medium text-white/90 mb-2">Primary sources</h2>
-              <p className="text-white/50 text-sm leading-relaxed">
-                Add documents, transcripts, websites, and pasted text. StudyPodLM will show when each source is ready to use in chat.
-              </p>
-            </div>
-
-            {/* File Upload Area */}
-            <div
-              className={`group border-2 border-dashed rounded-2xl p-12 text-center transition-all duration-500 ${
-                dragActive
-                  ? "border-blue-500/50 bg-blue-500/5 shadow-[0_0_40px_-10px_rgba(59,130,246,0.3)]"
-                  : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
-              } ${isProcessingFiles ? "opacity-50 pointer-events-none" : ""}`}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-            >
-              <div className="flex flex-col items-center space-y-6">
-                <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-white/5 border border-white/10 group-hover:scale-110 transition-transform duration-500">
-                  <i className="fi fi-rr-upload text-2xl text-white/70"></i>
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-lg font-semibold text-white">
-                    {isProcessingFiles
-                      ? "Uploading files..."
-                      : "Drop your files here"}
-                  </h3>
-                  <p className="text-white/40 text-sm">
-                    {isProcessingFiles ? (
-                      "Extracting text and preparing sources for chat"
-                    ) : (
-                      <>
-                        PDF, Word, Markdown, EPUB, TXT, or Audio. Or{" "}
-                        <button
-                          className="text-white font-medium hover:underline decoration-white/30"
-                          onClick={() =>
-                            document.getElementById("file-upload")?.click()
-                          }
-                          disabled={isProcessingFiles}
-                        >
-                          browse files
-                        </button>
-                      </>
-                    )}
-                  </p>
-                </div>
-                <input
-                  id="file-upload"
-                  type="file"
-                  multiple
-                  className="hidden"
-                  accept=".pdf,.docx,.txt,.md,.markdown,.mp3,.wav,.m4a,.epub"
-                  onChange={handleFileSelect}
-                  disabled={isProcessingFiles}
-                />
-              </div>
-            </div>
-
-            {/* Integration Options - REORGANIZED FOR LO */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Button
-                variant="outline"
-                className="h-auto p-6 flex flex-col items-center space-y-4 bg-white/[0.02] border-white/10 hover:bg-white/5 hover:border-red-500/50 transition-all duration-500 group"
-                onClick={() => setShowYouTubeDialog(true)}
-                disabled={isProcessingFiles}
-              >
-                <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 group-hover:bg-red-500/20 group-hover:scale-110 transition-all duration-500 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-red-500 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M23.498 6.163c-.272-.98-1.09-1.755-2.115-2.021C19.516 3.6 12 3.6 12 3.6s-7.516 0-9.383.542C1.59 4.408.773 5.184.5 6.163.003 7.984 0 12 0 12s.003 4.015.5 5.837c.272.98 1.09 1.755 2.115 2.021C4.484 20.4 12 20.4 12 20.4s7.516 0 9.383-.542c1.025-.266 1.843-1.042 2.115-2.021.497-1.822.5-5.837.5-5.837s-.003-4.015-.5-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                  </svg>
-                </div>
-                <div className="text-center">
-                  <span className="text-lg font-bold text-white block">YouTube Ingestion</span>
-                  <span className="text-sm text-white/40">
-                    Import transcripts, chapters, and metadata
+            <div className="space-y-6 px-5 py-5 sm:px-6">
+              <section aria-labelledby="upload-files-heading">
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div>
+                    <h2
+                      id="upload-files-heading"
+                      className="text-sm font-semibold"
+                    >
+                      Upload files
+                    </h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Choose up to 20 files—50 MB each, 250 MB total.
+                    </p>
+                  </div>
+                  <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                    You may close this dialog while this page stays open
                   </span>
                 </div>
-              </Button>
 
-              <Button
-                variant="outline"
-                className="h-auto p-6 flex flex-col items-center space-y-3 bg-white/[0.02] border-white/10 hover:bg-white/5 hover:border-indigo-500/50 transition-all duration-500 group"
-                onClick={() => setShowBookmarkImportDialog(true)}
-                disabled={isProcessingFiles}
-              >
-                <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-all duration-500">
-                  <i className="fi fi-rr-bookmark text-xl text-indigo-500"></i>
-                </div>
-                <div className="text-center">
-                  <span className="font-semibold text-white block">Bookmarks & Tweets</span>
-                  <span className="text-xs text-white/40">Crawl links & replies recursively</span>
-                </div>
-              </Button>
+                <div
+                  role="button"
+                  tabIndex={isProcessingFiles ? -1 : 0}
+                  aria-label="Upload source files"
+                  aria-busy={isProcessingFiles}
+                  className={`rounded-2xl border-2 border-dashed px-5 py-7 text-center outline-none transition sm:px-8 ${
+                    dragActive
+                      ? "border-primary bg-primary/5 ring-4 ring-primary/10"
+                      : "border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+                  } ${isProcessingFiles ? "cursor-wait" : "cursor-pointer"}`}
+                  onClick={openFilePicker}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openFilePicker();
+                    }
+                  }}
+                  onDragEnter={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDragOver={handleDrag}
+                  onDrop={handleDrop}
+                >
+                  <input
+                    ref={fileInputRef}
+                    id="file-upload"
+                    type="file"
+                    multiple
+                    className="sr-only"
+                    accept=".pdf,.docx,.txt,.md,.markdown,.mp3,.wav,.m4a,.epub"
+                    onChange={handleFileSelect}
+                    disabled={isProcessingFiles}
+                    tabIndex={-1}
+                  />
 
-              <Button
-                variant="outline"
-                className="h-auto p-6 flex flex-col items-center space-y-3 bg-white/[0.02] border-white/10 hover:bg-white/5 hover:border-green-500/50 transition-all duration-500 group"
-                onClick={() => setShowMultipleWebsiteDialog(true)}
-                disabled={isProcessingFiles}
-              >
-                <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 group-hover:bg-green-500/20 transition-all duration-500">
-                  <i className="fi fi-rr-link text-xl text-green-500"></i>
+                  {isProcessingFiles ? (
+                    <div
+                      className="flex flex-col items-center"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                      <h3 className="mt-3 text-sm font-semibold">
+                        Adding {pendingFileNames.length || "your"} source
+                        {pendingFileNames.length === 1 ? "" : "s"}
+                      </h3>
+                      <p className="mt-1 max-w-md text-xs leading-5 text-muted-foreground">
+                        Creating source records now. Text extraction and
+                        indexing will continue in the Sources panel.
+                      </p>
+                      {pendingFileNames.length > 0 && (
+                        <div className="mt-3 flex max-w-full flex-wrap justify-center gap-1.5">
+                          {pendingFileNames.slice(0, 3).map((name) => (
+                            <span
+                              key={name}
+                              className="max-w-[220px] truncate rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground"
+                            >
+                              {name}
+                            </span>
+                          ))}
+                          {pendingFileNames.length > 3 && (
+                            <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+                              +{pendingFileNames.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <UploadCloud className="h-6 w-6" />
+                      </div>
+                      <h3 className="mt-3 text-sm font-semibold">
+                        {dragActive
+                          ? "Drop files to add them"
+                          : "Drop files here"}
+                      </h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        or choose them from your computer
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="mt-4"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openFilePicker();
+                        }}
+                      >
+                        Browse files
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                <div className="text-center">
-                  <span className="font-semibold text-white block">Website URLs</span>
-                  <span className="text-xs text-white/40">Extract readable article text</span>
-                </div>
-              </Button>
 
-              <Button
-                variant="outline"
-                className="h-auto p-6 flex flex-col items-center space-y-3 bg-white/[0.02] border-white/10 hover:bg-white/5 hover:border-purple-500/50 transition-all duration-500 group"
-                onClick={() => setShowCopiedTextDialog(true)}
-                disabled={isProcessingFiles}
-              >
-                <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 group-hover:bg-purple-500/20 transition-all duration-500">
-                  <i className="fi fi-rr-copy text-xl text-purple-500"></i>
+                <div
+                  className="mt-3 flex flex-wrap gap-1.5"
+                  aria-label="Supported file types"
+                >
+                  {formats.map((format) => (
+                    <span
+                      key={format}
+                      className="rounded-md border border-border bg-card px-2 py-1 text-[10px] font-medium text-muted-foreground"
+                    >
+                      {format}
+                    </span>
+                  ))}
                 </div>
-                <div className="text-center">
-                  <span className="font-semibold text-white block">Pasted Content</span>
-                  <span className="text-xs text-white/40">Add notes or copied text</span>
+              </section>
+
+              <section aria-labelledby="other-sources-heading">
+                <div className="mb-3">
+                  <h2
+                    id="other-sources-heading"
+                    className="text-sm font-semibold"
+                  >
+                    Add another kind of source
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Import a transcript, webpage, saved link, or text directly.
+                  </p>
                 </div>
-              </Button>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {sourceOptions.map((option) => {
+                    const Icon = option.icon;
+                    return (
+                      <Button
+                        key={option.action}
+                        type="button"
+                        variant="outline"
+                        className="h-auto justify-start gap-3 rounded-xl p-3 text-left"
+                        onClick={() => handleSourceOption(option.action)}
+                        disabled={isProcessingFiles}
+                      >
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${option.tone}`}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium">
+                            {option.title}
+                          </span>
+                          <span className="mt-0.5 block whitespace-normal text-[11px] font-normal leading-4 text-muted-foreground">
+                            {option.description}
+                          </span>
+                        </span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <div className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2.5 text-[11px] leading-5 text-muted-foreground">
+                <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                <span>
+                  StudyPod keeps the original source separate from generated
+                  notes and documents. Failed files remain visible with a retry
+                  option.
+                </span>
+              </div>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Sub-dialogs */}
       {showCopiedTextDialog && (
         <CopiedTextDialog
           open={showCopiedTextDialog}

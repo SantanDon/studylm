@@ -1,6 +1,6 @@
 /**
  * Component Utility Functions and Constants
- * 
+ *
  * This file contains constants and helper functions used in context providers
  * and components to satisfy Fast Refresh requirements.
  */
@@ -15,7 +15,7 @@ export const safeGetItem = (key: string): string | null => {
   }
 };
 
-export const safeParseJSON = <T,>(data: string | null): T | null => {
+export const safeParseJSON = <T>(data: string | null): T | null => {
   if (!data) return null;
   try {
     return JSON.parse(data) as T;
@@ -36,7 +36,15 @@ export const GUEST_LIMITS = {
 } as const;
 
 export function generateGuestId(): string {
-  return `guest_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new Error("Secure random generation is unavailable");
+  }
+  const bytes = new Uint8Array(18);
+  globalThis.crypto.getRandomValues(bytes);
+  const identifier = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `guest_${identifier}`;
 }
 
 export interface GuestUsage {

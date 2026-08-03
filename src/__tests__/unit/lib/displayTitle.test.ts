@@ -4,6 +4,8 @@ import { formatChapterTitle, formatDisplayTitle } from '@/lib/utils/displayTitle
 describe('display title formatting', () => {
   it('cleans markdown, JSON, file extensions, and upload timestamps', () => {
     expect(formatDisplayTitle('**Title:** "The_AI_Driven_Leader_1784716887665.pdf"')).toBe('The AI Driven Leader');
+    expect(formatDisplayTitle('SA-Constitution.pdf')).toBe('SA Constitution');
+    expect(formatDisplayTitle('State-of-the-art')).toBe('State-of-the-art');
     expect(formatDisplayTitle('{"title":"The Republic"}')).toBe('The Republic');
     expect(formatDisplayTitle('```markdown\n# Plato Republic\n```')).toBe('Plato Republic');
   });

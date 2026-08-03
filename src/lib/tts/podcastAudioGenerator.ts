@@ -1,15 +1,16 @@
 /**
  * Podcast Audio Generator
  * Generates full podcast audio from script segments using TTS providers
- * 
+ *
  * UPDATED: Now uses TTSWorkerManager for Kokoro TTS to prevent UI freezing
  */
 
-import { PodcastScript } from '../podcastGenerator';
-import { TTSProvider, getTTSConfig, saveTTSConfig } from './ttsService';
-import { UltimateTTSProvider } from './ultimateTTSProvider';
-import { WebSpeechProvider } from './webSpeechProvider';
-import { TTSWorkerManager, getTTSWorkerManager } from './ttsWorker';
+import { PodcastScript } from "../podcastGenerator";
+import { TTSProvider, getTTSConfig, saveTTSConfig } from "./ttsService";
+import { UltimateTTSProvider } from "./ultimateTTSProvider";
+import { WebSpeechProvider } from "./webSpeechProvider";
+import { TTSWorkerManager, getTTSWorkerManager } from "./ttsWorker";
+import { combineWavBlobs } from "./wavUtils";
 
 export interface PodcastAudioConfig {
   host1Voice: string;
@@ -42,14 +43,14 @@ export interface GenerationProgress {
 }
 
 const DEFAULT_AUDIO_CONFIG: PodcastAudioConfig = {
-  host1Voice: 'am_onyx',
-  host2Voice: 'af_nova',
+  host1Voice: "am_onyx",
+  host2Voice: "af_nova",
   speed: 0.95,
   pauseBetweenSegments: 600,
   enableStudioEQ: true,
 };
 
-const AUDIO_CONFIG_KEY = 'podcast_audio_config';
+const AUDIO_CONFIG_KEY = "podcast_audio_config";
 
 export function getPodcastAudioConfig(): PodcastAudioConfig {
   try {
@@ -58,12 +59,14 @@ export function getPodcastAudioConfig(): PodcastAudioConfig {
       return { ...DEFAULT_AUDIO_CONFIG, ...JSON.parse(stored) };
     }
   } catch (e) {
-    console.warn('Failed to load podcast audio config:', e);
+    console.warn("Failed to load podcast audio config:", e);
   }
   return DEFAULT_AUDIO_CONFIG;
 }
 
-export function savePodcastAudioConfig(config: Partial<PodcastAudioConfig>): void {
+export function savePodcastAudioConfig(
+  config: Partial<PodcastAudioConfig>,
+): void {
   const current = getPodcastAudioConfig();
   const updated = { ...current, ...config };
   localStorage.setItem(AUDIO_CONFIG_KEY, JSON.stringify(updated));
@@ -83,42 +86,42 @@ export class PodcastAudioGenerator {
 
   async initialize(): Promise<{ provider: string; available: boolean }> {
     const config = getTTSConfig();
-    
+
     // Try Ultimate TTS Studio ONLY if explicitly configured (avoid unnecessary health checks)
-    if (config.provider === 'ultimate-tts') {
+    if (config.provider === "ultimate-tts") {
       try {
         const ultimateTTS = new UltimateTTSProvider(config.endpoint);
         const isAvailable = await ultimateTTS.isAvailable();
-        
+
         if (isAvailable) {
           this.provider = ultimateTTS;
           this.isUsingFallback = false;
           this.isUsingWorker = false;
-          console.log('🎙️ Using Ultimate TTS Studio for podcast generation');
-          return { provider: 'Ultimate TTS Studio', available: true };
+          console.log("🎙️ Using Ultimate TTS Studio for podcast generation");
+          return { provider: "Ultimate TTS Studio", available: true };
         }
       } catch (e) {
-        console.warn('Ultimate TTS Studio not available:', e);
+        console.warn("Ultimate TTS Studio not available:", e);
       }
     }
-    
+
     // Try Kokoro TTS (via Worker)
     // This is the default preferred method for high quality
-    if (config.provider === 'kokoro') {
+    if (config.provider === "kokoro") {
       const workerSupported = TTSWorkerManager.isSupported();
       if (workerSupported) {
         try {
-            await this.workerManager.initialize();
-            this.isUsingWorker = true;
-            this.isUsingFallback = false;
-            console.log('🎙️ Using Kokoro TTS (Worker) for podcast generation');
-            return { provider: 'Kokoro TTS (Worker)', available: true };
+          await this.workerManager.initialize();
+          this.isUsingWorker = true;
+          this.isUsingFallback = false;
+          console.log("🎙️ Using Kokoro TTS (Worker) for podcast generation");
+          return { provider: "Kokoro TTS (Worker)", available: true };
         } catch (e) {
-            console.error('Failed to initialize Kokoro Worker:', e);
-            // Fall through to fallback
+          console.error("Failed to initialize Kokoro Worker:", e);
+          // Fall through to fallback
         }
       } else {
-        console.warn('Web Workers not supported, falling back...');
+        console.warn("Web Workers not supported, falling back...");
       }
     }
 
@@ -128,56 +131,57 @@ export class PodcastAudioGenerator {
       this.provider = this.webSpeechFallback;
       this.isUsingFallback = true;
       this.isUsingWorker = false;
-      console.log('🔊 Using Web Speech API for podcast generation');
-      return { provider: 'Web Speech API', available: true };
+      console.log("🔊 Using Web Speech API for podcast generation");
+      return { provider: "Web Speech API", available: true };
     }
 
-    return { provider: 'None', available: false };
+    return { provider: "None", available: false };
   }
 
-  async getAvailableVoices(): Promise<{ id: string; name: string; gender?: string }[]> {
+  async getAvailableVoices(): Promise<
+    { id: string; name: string; gender?: string }[]
+  > {
     if (!this.provider && !this.isUsingWorker) {
       await this.initialize();
     }
 
-    // If using worker, return Kokoro voices (we can import the list or ask the worker, 
+    // If using worker, return Kokoro voices (we can import the list or ask the worker,
     // but for now reusing the constant from the provider file is safe/fastest)
     if (this.isUsingWorker) {
-         // We can dynamically load if needed, but for now specific imports are cleaner than circular deps
-         // Re-using the known list from the constant file which we already imported keys for
-         // In a perfect world, we'd ask the worker, but this is synchronous UI data
-         const { KOKORO_VOICES } = await import('./kokoroTTSProvider');
-         return Object.entries(KOKORO_VOICES).map(([id, info]) => ({
-            id,
-            name: info.name,
-            gender: info.gender,
-        }));
+      // We can dynamically load if needed, but for now specific imports are cleaner than circular deps
+      // Re-using the known list from the constant file which we already imported keys for
+      // In a perfect world, we'd ask the worker, but this is synchronous UI data
+      const { KOKORO_VOICES } = await import("./kokoroTTSProvider");
+      return Object.entries(KOKORO_VOICES).map(([id, info]) => ({
+        id,
+        name: info.name,
+        gender: info.gender,
+      }));
     }
 
     if (this.provider) {
       const voices = await this.provider.getVoices();
-      return voices.map(v => ({
+      return voices.map((v) => ({
         id: v.id,
         name: v.name,
         gender: v.gender,
       }));
     }
-    
+
     return [];
   }
 
   async generatePodcastAudio(
     script: PodcastScript,
     config?: Partial<PodcastAudioConfig>,
-    onProgress?: (progress: GenerationProgress) => void
+    onProgress?: (progress: GenerationProgress) => void,
   ): Promise<PodcastAudioResult> {
-    
     // Ensure initialized
     if (!this.provider && !this.isUsingWorker) {
-        const init = await this.initialize();
-        if (!init.available) {
-            throw new Error('No TTS provider available.');
-        }
+      const init = await this.initialize();
+      if (!init.available) {
+        throw new Error("No TTS provider available.");
+      }
     }
 
     const audioConfig = { ...getPodcastAudioConfig(), ...config };
@@ -190,19 +194,26 @@ export class PodcastAudioGenerator {
       return this.generateWithWebSpeech(script, audioConfig, onProgress);
     }
 
-    console.log(`🎙️ Generating unified podcast audio for ${script.segments.length} segments...`);
-    const providerName = this.isUsingWorker ? 'Kokoro TTS (Worker)' : this.provider!.name;
+    console.log(
+      `🎙️ Generating unified podcast audio for ${script.segments.length} segments...`,
+    );
+    const providerName = this.isUsingWorker
+      ? "Kokoro TTS (Worker)"
+      : this.provider!.name;
 
-    // Optimize/Combine segments for fewer calls if possible? 
+    // Optimize/Combine segments for fewer calls if possible?
     // For now, keep 1:1 to ensure granular progress updates and easy stitching
-    
+
     for (let i = 0; i < script.segments.length; i++) {
       const segment = script.segments[i];
-      
+
       const speakerName = segment.speaker as string;
       const scriptMeta = script.metadata;
-      const host1Name = scriptMeta?.host1Name || 'Alex';
-      const voice = speakerName === host1Name ? audioConfig.host1Voice : audioConfig.host2Voice;
+      const host1Name = scriptMeta?.host1Name || "Alex";
+      const voice =
+        speakerName === host1Name
+          ? audioConfig.host1Voice
+          : audioConfig.host2Voice;
 
       onProgress?.({
         currentSegment: i + 1,
@@ -217,26 +228,28 @@ export class PodcastAudioGenerator {
         let duration: number;
 
         if (this.isUsingWorker) {
-             const result = await this.workerManager.synthesize(
-                segment.text,
-                voice,
-                audioConfig.speed
-             );
-             audioBlob = result.audioBlob;
-             audioUrl = result.audioUrl;
-             duration = result.duration;
+          const result = await this.workerManager.synthesize(
+            segment.text,
+            voice,
+            audioConfig.speed,
+          );
+          audioBlob = result.audioBlob;
+          audioUrl = result.audioUrl;
+          duration = result.duration;
         } else {
-            // Main thread provider (Ultimate TTS)
-            const response = await this.provider!.synthesize({
-                text: segment.text,
-                voice,
-                speed: audioConfig.speed,
-            });
-            audioBlob = response.audioBlob;
-            audioUrl = response.audioUrl;
-            duration = response.duration || this.estimateDuration(segment.text, audioConfig.speed);
+          // Main thread provider (Ultimate TTS)
+          const response = await this.provider!.synthesize({
+            text: segment.text,
+            voice,
+            speed: audioConfig.speed,
+          });
+          audioBlob = response.audioBlob;
+          audioUrl = response.audioUrl;
+          duration =
+            response.duration ||
+            this.estimateDuration(segment.text, audioConfig.speed);
         }
-        
+
         segmentAudios.push({
           index: i,
           speaker: segment.speaker,
@@ -250,10 +263,11 @@ export class PodcastAudioGenerator {
         // Add natural pause between speakers
         if (i < script.segments.length - 1) {
           const nextSpeaker = script.segments[i + 1].speaker;
-          const pauseDuration = segment.speaker === nextSpeaker 
-            ? audioConfig.pauseBetweenSegments / 2000  // 250ms for same speaker
-            : audioConfig.pauseBetweenSegments / 1000; // 500ms for different speaker
-          
+          const pauseDuration =
+            segment.speaker === nextSpeaker
+              ? audioConfig.pauseBetweenSegments / 2000 // 250ms for same speaker
+              : audioConfig.pauseBetweenSegments / 1000; // 500ms for different speaker
+
           const pauseBlob = this.createSilence(pauseDuration);
           audioBlobs.push(pauseBlob);
           totalDuration += pauseBlob.size > 0 ? pauseDuration : 0; // Approximate
@@ -265,25 +279,27 @@ export class PodcastAudioGenerator {
     }
 
     if (audioBlobs.length === 0) {
-      throw new Error('Failed to generate any audio segments');
+      throw new Error("Failed to generate any audio segments");
     }
 
     onProgress?.({
       currentSegment: script.segments.length,
       totalSegments: script.segments.length,
-      status: 'Creating unified audio file...',
+      status: "Creating unified audio file...",
       percentage: 95,
     });
 
     const combinedBlob = await this.combineAudioBlobs(audioBlobs);
     const combinedUrl = URL.createObjectURL(combinedBlob);
 
-    console.log(`✅ Podcast audio ready: ${totalDuration.toFixed(1)}s total duration`);
+    console.log(
+      `✅ Podcast audio ready: ${totalDuration.toFixed(1)}s total duration`,
+    );
 
     onProgress?.({
       currentSegment: script.segments.length,
       totalSegments: script.segments.length,
-      status: 'Complete!',
+      status: "Complete!",
       percentage: 100,
     });
 
@@ -299,30 +315,32 @@ export class PodcastAudioGenerator {
   private async generateWithWebSpeech(
     script: PodcastScript,
     config: PodcastAudioConfig,
-    onProgress?: (progress: GenerationProgress) => void
+    onProgress?: (progress: GenerationProgress) => void,
   ): Promise<PodcastAudioResult> {
     // For Web Speech API, we create a script-based result
     const segmentAudios: SegmentAudio[] = script.segments.map((segment, i) => ({
       index: i,
       speaker: segment.speaker,
-      audioUrl: '', 
+      audioUrl: "",
       duration: this.estimateDuration(segment.text, config.speed),
     }));
 
     const totalDuration = segmentAudios.reduce((sum, s) => sum + s.duration, 0);
 
     const scriptData = {
-      type: 'web-speech-script',
+      type: "web-speech-script",
       script,
       config,
     };
-    const scriptBlob = new Blob([JSON.stringify(scriptData)], { type: 'application/json' });
+    const scriptBlob = new Blob([JSON.stringify(scriptData)], {
+      type: "application/json",
+    });
     const scriptUrl = URL.createObjectURL(scriptBlob);
 
     onProgress?.({
       currentSegment: script.segments.length,
       totalSegments: script.segments.length,
-      status: 'Ready for playback (Web Speech)',
+      status: "Ready for playback (Web Speech)",
       percentage: 100,
     });
 
@@ -330,7 +348,7 @@ export class PodcastAudioGenerator {
       audioBlob: scriptBlob,
       audioUrl: scriptUrl,
       duration: totalDuration,
-      provider: 'Web Speech API',
+      provider: "Web Speech API",
       segments: segmentAudios,
     };
   }
@@ -353,10 +371,10 @@ export class PodcastAudioGenerator {
       }
     };
 
-    writeString(0, 'RIFF');
+    writeString(0, "RIFF");
     view.setUint32(4, 36 + numSamples * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
     view.setUint32(16, 16, true);
     view.setUint16(20, 1, true);
     view.setUint16(22, 1, true);
@@ -364,15 +382,14 @@ export class PodcastAudioGenerator {
     view.setUint32(28, sampleRate * 2, true);
     view.setUint16(32, 2, true);
     view.setUint16(34, 16, true);
-    writeString(36, 'data');
+    writeString(36, "data");
     view.setUint32(40, numSamples * 2, true);
 
-    return new Blob([buffer], { type: 'audio/wav' });
+    return new Blob([buffer], { type: "audio/wav" });
   }
 
   private async combineAudioBlobs(blobs: Blob[]): Promise<Blob> {
-    const combined = new Blob(blobs, { type: 'audio/wav' });
-    return combined;
+    return combineWavBlobs(blobs);
   }
 
   // Check if Ultimate TTS Studio is available at a given endpoint
@@ -383,7 +400,7 @@ export class PodcastAudioGenerator {
 
   // Update the TTS endpoint
   static setEndpoint(endpoint: string): void {
-    saveTTSConfig({ endpoint, provider: 'ultimate-tts' });
+    saveTTSConfig({ endpoint, provider: "ultimate-tts" });
   }
 }
 

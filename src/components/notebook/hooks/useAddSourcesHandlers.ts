@@ -8,82 +8,142 @@ import { useYoutubeProcessing } from "@/hooks/useYoutubeProcessing";
 import { useGuest, useNotebookLimits } from "@/hooks/useGuest";
 import { useNotebookUpdate } from "@/hooks/useNotebookUpdate";
 import { useToast } from "@/hooks/use-toast";
+import { validateSourceFiles } from "@/lib/sources/sourceUploadValidation";
+
+type UploadSourceType =
+  "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook";
 
 export function useAddSourcesHandlers(
-  notebookId: string | undefined, 
+  notebookId: string | undefined,
   onOpenChange: (open: boolean) => void,
-  open: boolean
+  open: boolean,
 ) {
   const [isLocallyProcessing, setIsLocallyProcessing] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [pendingFileNames, setPendingFileNames] = useState<string[]>([]);
 
-  const { addSourceAsync, updateSource } = useSources(notebookId);
+  const { sources, addSourceAsync, updateSource } = useSources(notebookId);
   const { uploadFile } = useFileUpload();
   const { processDocumentAsync } = useDocumentProcessing();
   const { generateNotebookContentAsync } = useNotebookGeneration();
   const { updateNotebook } = useNotebookUpdate();
-  const { addWebsitesAsSources, isProcessing: isWebsiteProcessing } = useWebsiteProcessing();
-  const { addYoutubeVideoAsSource, isProcessing: isYoutubeProcessing } = useYoutubeProcessing();
+  const { addWebsitesAsSources, isProcessing: isWebsiteProcessing } =
+    useWebsiteProcessing();
+  const { addYoutubeVideoAsSource, isProcessing: isYoutubeProcessing } =
+    useYoutubeProcessing();
 
   const { toast } = useToast();
   const { isGuest, showAuthPrompt, incrementUsage } = useGuest();
   const { canAddSource, sourcesRemaining } = useNotebookLimits(notebookId);
+  const isProcessingFiles =
+    isLocallyProcessing || isWebsiteProcessing || isYoutubeProcessing;
 
   // Reset local processing state when dialog opens
   useEffect(() => {
     if (open) {
       setIsLocallyProcessing(false);
+      setPendingFileNames([]);
     }
   }, [open]);
 
   const handleFileUpload = useCallback(
-    async (files: File[]) => {
+    async (selectedFiles: File[]) => {
+      const { accepted: files, rejected } = validateSourceFiles(selectedFiles);
+      if (rejected.length > 0) {
+        const details = rejected
+          .slice(0, 3)
+          .map(({ file, reason }) => `${file.name}: ${reason}`)
+          .join(" | ");
+        toast({
+          title:
+            rejected.length === selectedFiles.length
+              ? "Files not added"
+              : "Some files were skipped",
+          description: details,
+          variant: "destructive",
+        });
+      }
+      if (files.length === 0) return;
+      const shouldGenerateNotebook = sources.length === 0;
+      setPendingFileNames(files.map((file) => file.name));
       if (isGuest && !canAddSource) {
-        showAuthPrompt('add more sources');
+        setPendingFileNames([]);
+        showAuthPrompt("add more sources");
         return;
       }
 
       if (isGuest && files.length > sourcesRemaining) {
+        setPendingFileNames([]);
         toast({
           title: "Source limit reached",
-          description: `You can only add ${sourcesRemaining} more source${sourcesRemaining !== 1 ? 's' : ''}. Sign up for unlimited.`,
+          description: `You can only add ${sourcesRemaining} more source${sourcesRemaining !== 1 ? "s" : ""}. Sign up for unlimited.`,
           variant: "destructive",
         });
         return;
       }
 
-      const detectFileType = (file: File): "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook" => {
-        if (file.type.includes("pdf") || file.name.toLowerCase().endsWith(".pdf")) return "pdf";
-        if (file.name.toLowerCase().endsWith(".docx") || file.type.includes("wordprocessingml")) return "doc";
+      const detectFileType = (file: File): UploadSourceType => {
+        if (
+          file.type.includes("pdf") ||
+          file.name.toLowerCase().endsWith(".pdf")
+        )
+          return "pdf";
+        if (
+          file.name.toLowerCase().endsWith(".docx") ||
+          file.type.includes("wordprocessingml")
+        )
+          return "doc";
         if (file.type.includes("audio")) return "audio";
         if (file.type.includes("image")) return "image";
-        if (file.type === "application/epub+zip" || file.name.toLowerCase().endsWith(".epub")) return "ebook";
+        if (
+          file.type === "application/epub+zip" ||
+          file.name.toLowerCase().endsWith(".epub")
+        )
+          return "ebook";
         return "text";
       };
 
-      const processFileAsync = async (file: File, sourceId: string, notebookId: string) => {
+      const processFileAsync = async (
+        file: File,
+        sourceId: string,
+        notebookId: string,
+      ) => {
         try {
           const fileType = detectFileType(file);
 
-          updateSource({ sourceId, updates: { processing_status: "uploading" } });
+          updateSource({
+            sourceId,
+            updates: { processing_status: "uploading" },
+          });
 
           const uploadResult = await uploadFile(file, notebookId, sourceId);
-          
+
           if (uploadResult.success === false) {
             const errorContext = uploadResult.error;
-            console.error(`[SourcePipeline] Upload failed for ${file.name}:`, errorContext);
+            console.error(
+              `[SourcePipeline] Upload failed for ${file.name}:`,
+              errorContext,
+            );
             throw new Error(`Upload Error: ${errorContext}`);
           }
 
           const { filePath, content } = uploadResult;
 
-          updateSource({ sourceId, updates: { file_path: filePath, processing_status: "processing", content } });
+          updateSource({
+            sourceId,
+            updates: {
+              file_path: filePath,
+              processing_status: "processing",
+              content,
+            },
+          });
 
           // Auto-update notebook title from EPUB metadata if it's an ebook
           if (fileType === "ebook" && uploadResult.metadata) {
-            const epubTitle = (uploadResult.metadata as Record<string, unknown>)?.epubTitle as string;
+            const epubTitle = (uploadResult.metadata as Record<string, unknown>)
+              ?.epubTitle as string;
             if (epubTitle && epubTitle.length > 0) {
-              console.log(`📖 Auto-setting notebook title from EPUB: "${epubTitle}"`);
+              console.info(`[SourcePipeline] Using EPUB title: "${epubTitle}"`);
               updateNotebook({ id: notebookId, updates: { title: epubTitle } });
               // Also update the source title to the book title
               updateSource({ sourceId, updates: { title: epubTitle } });
@@ -98,73 +158,106 @@ export function useAddSourcesHandlers(
             content,
           });
 
-          await generateNotebookContentAsync({ notebookId, filePath, sourceType: fileType });
+          return { filePath, sourceType: fileType };
         } catch (error) {
           console.error("File processing failed for:", file.name, error);
           updateSource({ sourceId, updates: { processing_status: "failed" } });
+          throw error;
         }
       };
 
       if (!notebookId) {
-        toast({ title: "Error", description: "No notebook selected", variant: "destructive" });
+        setPendingFileNames([]);
+        toast({
+          title: "Error",
+          description: "No notebook selected",
+          variant: "destructive",
+        });
         return;
       }
 
       setIsLocallyProcessing(true);
 
       try {
-        const firstFile = files[0];
-        const firstFileType = detectFileType(firstFile);
-        
-        const firstSource = await addSourceAsync({
-          notebookId,
-          title: firstFile.name,
-          type: firstFileType as "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
-          file_size: firstFile.size,
-          processing_status: "pending",
-          metadata: { fileName: firstFile.name, fileType: firstFile.type },
-        });
+        const createdSources: Array<{ file: File; sourceId: string }> = [];
+        let creationFailures = 0;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let remainingSources: any[] = [];
-
-        if (files.length > 1) {
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          remainingSources = await Promise.all(
-            files.slice(1).map(async (file) => {
-              const fileType = detectFileType(file);
-              return await addSourceAsync({
-                notebookId,
-                title: file.name,
-                type: fileType as "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook",
-                file_size: file.size,
-                processing_status: "pending",
-                metadata: { fileName: file.name, fileType: file.type },
-              });
-            }),
-          );
+        // Create records sequentially so each successful file is known and can
+        // always advance out of "pending", even if another record fails.
+        for (const file of files) {
+          try {
+            const source = await addSourceAsync({
+              notebookId,
+              title: file.name,
+              type: detectFileType(file),
+              file_size: file.size,
+              processing_status: "pending",
+              metadata: { fileName: file.name, fileType: file.type },
+            });
+            createdSources.push({ file, sourceId: source.id });
+          } catch (error) {
+            creationFailures += 1;
+            console.error(`Failed to create source for ${file.name}:`, error);
+          }
         }
 
-        const allCreatedSources = [firstSource, ...remainingSources];
+        if (createdSources.length === 0) {
+          throw new Error("No source records could be created");
+        }
 
         if (isGuest) {
-          files.forEach(() => incrementUsage('sources', notebookId));
+          createdSources.forEach(() => incrementUsage("sources", notebookId));
         }
 
         setIsLocallyProcessing(false);
+        setPendingFileNames([]);
         onOpenChange(false);
 
         toast({
-          title: "Files Added",
-          description: `${files.length} file${files.length > 1 ? "s" : ""} added and processing started`,
+          title: creationFailures > 0 ? "Some files added" : "Files added",
+          description:
+            creationFailures > 0
+              ? `${createdSources.length} added; ${creationFailures} could not be created. You can retry the failed files.`
+              : `${createdSources.length} file${createdSources.length > 1 ? "s" : ""} added and processing started`,
+          variant: creationFailures > 0 ? "destructive" : "default",
         });
 
-        const processingPromises = files.map((file, index) =>
-          processFileAsync(file, allCreatedSources[index].id, notebookId)
-        );
-
-        Promise.allSettled(processingPromises).then((results) => {
-          const failed = results.filter((r) => r.status === "rejected").length;
+        void (async () => {
+          let enrichmentSource: {
+            filePath: string;
+            sourceType: UploadSourceType;
+          } | null = null;
+          let failed = 0;
+          for (let index = 0; index < createdSources.length; index += 3) {
+            const batch = createdSources.slice(index, index + 3);
+            const results = await Promise.allSettled(
+              batch.map(({ file, sourceId }) =>
+                processFileAsync(file, sourceId, notebookId),
+              ),
+            );
+            failed += results.filter(
+              (result) => result.status === "rejected",
+            ).length;
+            if (!enrichmentSource) {
+              const firstCompleted = results.find(
+                (result) => result.status === "fulfilled",
+              );
+              if (firstCompleted?.status === "fulfilled") {
+                enrichmentSource = firstCompleted.value;
+              }
+            }
+          }
+          if (shouldGenerateNotebook && enrichmentSource) {
+            try {
+              await generateNotebookContentAsync({
+                notebookId,
+                filePath: enrichmentSource.filePath,
+                sourceType: enrichmentSource.sourceType,
+              });
+            } catch (error) {
+              console.warn("Notebook enrichment failed after upload:", error);
+            }
+          }
           if (failed > 0) {
             toast({
               title: "Processing Issues",
@@ -172,15 +265,21 @@ export function useAddSourcesHandlers(
               variant: "destructive",
             });
           }
-        });
+        })();
       } catch (error) {
         console.error("Error creating sources:", error);
         setIsLocallyProcessing(false);
-        toast({ title: "Error", description: "Failed to add files. Please try again.", variant: "destructive" });
+        setPendingFileNames([]);
+        toast({
+          title: "Error",
+          description: "Failed to add files. Please try again.",
+          variant: "destructive",
+        });
       }
     },
     [
       notebookId,
+      sources,
       toast,
       addSourceAsync,
       updateSource,
@@ -201,14 +300,14 @@ export function useAddSourcesHandlers(
     if (!notebookId) return;
 
     if (isGuest && !canAddSource) {
-      showAuthPrompt('add more sources');
+      showAuthPrompt("add more sources");
       return;
     }
 
     if (isGuest && urls.length > sourcesRemaining) {
       toast({
         title: "Source limit reached",
-        description: `You can only add ${sourcesRemaining} more source${sourcesRemaining !== 1 ? 's' : ''}. Sign up for unlimited.`,
+        description: `You can only add ${sourcesRemaining} more source${sourcesRemaining !== 1 ? "s" : ""}. Sign up for unlimited.`,
         variant: "destructive",
       });
       return;
@@ -219,32 +318,45 @@ export function useAddSourcesHandlers(
     try {
       const success = await addWebsitesAsSources(urls, notebookId);
       if (success) {
-        if (isGuest) urls.forEach(() => incrementUsage('sources', notebookId));
-        toast({ title: "Websites Added", description: `Successfully added websites to your notebook` });
+        if (isGuest) urls.forEach(() => incrementUsage("sources", notebookId));
+        toast({
+          title: "Websites Added",
+          description: `Successfully added websites to your notebook`,
+        });
         onOpenChange(false);
       } else {
         throw new Error("Failed to add websites");
       }
     } catch (error) {
       console.error("Error adding multiple websites:", error);
-      toast({ title: "Error", description: "Failed to add websites", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Failed to add websites",
+        variant: "destructive",
+      });
     } finally {
       setIsLocallyProcessing(false);
     }
   };
 
-  const handleYouTubeSubmit = async (url: string, language = 'en'): Promise<boolean> => {
+  const handleYouTubeSubmit = async (
+    url: string,
+    language = "en",
+  ): Promise<boolean> => {
     if (!notebookId) return false;
 
     if (isGuest && !canAddSource) {
-      showAuthPrompt('add more sources');
+      showAuthPrompt("add more sources");
       return;
     }
     setIsLocallyProcessing(true);
 
     try {
       const success = await addYoutubeVideoAsSource(url, notebookId, language);
-      if (success) onOpenChange(false);
+      if (success) {
+        if (isGuest) incrementUsage("sources", notebookId);
+        onOpenChange(false);
+      }
       return success;
     } catch (error) {
       console.error("Error adding YouTube video:", error);
@@ -269,25 +381,31 @@ export function useAddSourcesHandlers(
       e.preventDefault();
       e.stopPropagation();
       setDragActive(false);
+      if (isProcessingFiles) return;
       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
         const files = Array.from(e.dataTransfer.files);
-        handleFileUpload(files);
+        void handleFileUpload(files);
       }
     },
-    [handleFileUpload],
+    [handleFileUpload, isProcessingFiles],
   );
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files[0]) {
-        const files = Array.from(e.target.files);
-        handleFileUpload(files);
+      const input = e.currentTarget;
+      if (isProcessingFiles) {
+        input.value = "";
+        return;
+      }
+      if (input.files && input.files[0]) {
+        const files = Array.from(input.files);
+        void handleFileUpload(files).finally(() => {
+          input.value = "";
+        });
       }
     },
-    [handleFileUpload],
+    [handleFileUpload, isProcessingFiles],
   );
-
-  const isProcessingFiles = isLocallyProcessing || isWebsiteProcessing || isYoutubeProcessing;
 
   return {
     handleFileUpload,
@@ -297,6 +415,7 @@ export function useAddSourcesHandlers(
     handleDrop,
     handleFileSelect,
     dragActive,
-    isProcessingFiles
+    isProcessingFiles,
+    pendingFileNames,
   };
 }

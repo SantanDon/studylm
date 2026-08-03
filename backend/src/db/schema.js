@@ -195,7 +195,7 @@ export const agentMissions = sqliteTable('agent_missions', {
   goal: text('goal').notNull(),
   cron: text('cron'),
   maxNotes: integer('max_notes').default(5),
-  status: text('status', { enum: ['active', 'paused', 'completed', 'failed'] }).default('active'),
+  status: text('status', { enum: ['ready', 'running', 'paused', 'completed', 'failed'] }).default('ready'),
   lastRunAt: integer('last_run_at', { mode: 'timestamp' }),
   nextRunAt: integer('next_run_at', { mode: 'timestamp' }),
   result: text('result'),
@@ -228,6 +228,38 @@ export const apiKeys = sqliteTable('api_keys', {
   lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
+
+export const oauthClients = sqliteTable('oauth_clients', {
+  clientId: text('client_id').primaryKey(),
+  clientName: text('client_name').notNull(),
+  redirectUris: text('redirect_uris').notNull(),
+  grantTypes: text('grant_types').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const oauthAuthorizationCodes = sqliteTable('oauth_authorization_codes', {
+  codeHash: text('code_hash').primaryKey(),
+  clientId: text('client_id').notNull().references(() => oauthClients.clientId, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  redirectUri: text('redirect_uri').notNull(),
+  codeChallenge: text('code_challenge').notNull(),
+  scopes: text('scopes').notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  used: integer('used', { mode: 'boolean' }).default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const oauthRefreshTokens = sqliteTable('oauth_refresh_tokens', {
+  tokenHash: text('token_hash').primaryKey(),
+  clientId: text('client_id').notNull().references(() => oauthClients.clientId, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  scopes: text('scopes').notNull(),
+  accessKeyId: text('access_key_id').references(() => apiKeys.id, { onDelete: 'set null' }),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  revoked: integer('revoked', { mode: 'boolean' }).default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
 
 export const pairingCodes = sqliteTable('pairing_codes', {
   code: text('code').primaryKey(),

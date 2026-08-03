@@ -1,18 +1,18 @@
 /**
  * Streaming TTS Generator - HYBRID VERSION
- * 
+ *
  * Uses Web Worker with Kokoro TTS for high-quality audio (non-blocking)
  * Falls back to Web Speech API if workers aren't supported
- * 
+ *
  * Priority:
  * 1. Web Worker + Kokoro TTS (high quality, non-blocking)
  * 2. Web Speech API (lower quality, but always works)
  */
 
-import { PodcastScript, PodcastSegment } from '../podcastGenerator';
-import type { TTSWorkerManager } from './ttsWorker';
-import { AudioContentCleaner } from './AudioContentCleaner';
-import { AudioValidator } from './audioValidator';
+import { PodcastScript, PodcastSegment } from "../podcastGenerator";
+import type { SynthesisResult, TTSWorkerManager } from "./ttsWorker";
+import { AudioContentCleaner } from "./AudioContentCleaner";
+import { AudioValidator } from "./audioValidator";
 
 export interface StreamingConfig {
   host1Voice: string;
@@ -20,13 +20,14 @@ export interface StreamingConfig {
   speed: number;
   batchSize: number;
   yieldDuration: number;
+  pauseBetweenSegments: number;
   useKokoro?: boolean;
   forceWebSpeech?: boolean;
   speakerVoiceMap?: Record<string, string>; // Custom speaker → voice mapping
 }
 
 export interface StreamingProgress {
-  phase: 'loading' | 'generating' | 'complete' | 'error' | 'cancelled';
+  phase: "loading" | "generating" | "complete" | "error" | "cancelled";
   currentSegment: number;
   totalSegments: number;
   percentage: number;
@@ -46,14 +47,28 @@ type ProgressCallback = (progress: StreamingProgress) => void;
 type AudioReadyCallback = (result: StreamingResult) => void;
 
 const DEFAULT_CONFIG: StreamingConfig = {
-  host1Voice: 'am_onyx',
-  host2Voice: 'af_nova',
+  host1Voice: "am_onyx",
+  host2Voice: "af_nova",
   speed: 0.9,
   batchSize: 1,
   yieldDuration: 50,
+  pauseBetweenSegments: 600,
   useKokoro: true, // Enable Kokoro TTS via Web Worker
   forceWebSpeech: false, // Don't force Web Speech - use Kokoro if available
 };
+
+export function podcastPauseMilliseconds(
+  currentSpeaker: string,
+  nextSpeaker: string | undefined,
+  format: "dialogue" | "solo" = "dialogue",
+  basePauseMs = DEFAULT_CONFIG.pauseBetweenSegments,
+): number {
+  if (!nextSpeaker) return 0;
+  const boundedPause = Math.min(2000, Math.max(0, Number(basePauseMs) || 0));
+  return format === "solo" || currentSpeaker === nextSpeaker
+    ? Math.round(boundedPause / 2)
+    : Math.round(boundedPause);
+}
 
 interface GeneratedAudio {
   url: string;
@@ -70,6 +85,7 @@ class StreamingTTSGenerator {
   private shouldCancel = false;
   private generatedAudios: GeneratedAudio[] = [];
   private currentScript: PodcastScript | null = null;
+  private currentConfig: StreamingConfig = { ...DEFAULT_CONFIG };
   private workerManager: TTSWorkerManager | null = null;
   private usingKokoro = false;
   private audioElements: HTMLAudioElement[] = [];
@@ -82,14 +98,16 @@ class StreamingTTSGenerator {
   async isKokoroAvailable(): Promise<boolean> {
     try {
       // Check for Worker support
-      if (typeof Worker === 'undefined') return false;
-      
+      if (typeof Worker === "undefined") return false;
+
       // Check for SharedArrayBuffer (required for ONNX threading)
-      if (typeof SharedArrayBuffer === 'undefined') {
-        console.warn('SharedArrayBuffer not available - COOP/COEP headers may be missing');
+      if (typeof SharedArrayBuffer === "undefined") {
+        console.warn(
+          "SharedArrayBuffer not available - COOP/COEP headers may be missing",
+        );
         return false;
       }
-      
+
       return true;
     } catch {
       return false;
@@ -101,7 +119,7 @@ class StreamingTTSGenerator {
    */
   private async getWorkerManager(): Promise<TTSWorkerManager> {
     if (!this.workerManager) {
-      const { getTTSWorkerManager } = await import('./ttsWorker');
+      const { getTTSWorkerManager } = await import("./ttsWorker");
       this.workerManager = getTTSWorkerManager();
     }
     return this.workerManager;
@@ -114,23 +132,24 @@ class StreamingTTSGenerator {
     script: PodcastScript,
     config: Partial<StreamingConfig>,
     onProgress: ProgressCallback,
-    onAudioReady: AudioReadyCallback
+    onAudioReady: AudioReadyCallback,
   ): Promise<void> {
     if (this.isGenerating) {
-      console.warn('Generation already in progress');
+      console.warn("Generation already in progress");
       return;
     }
 
     this.isGenerating = true;
     this.shouldCancel = false;
-    this.generatedAudios = [];
+    this.discardGeneratedAudio();
     this.currentScript = script;
     this.audioElements = [];
 
     // Fill missing voice config from saved user settings
     if (!config.host1Voice || !config.host2Voice) {
       try {
-        const { getPodcastAudioConfig } = await import('./podcastAudioGenerator');
+        const { getPodcastAudioConfig } =
+          await import("./podcastAudioGenerator");
         const savedConfig = getPodcastAudioConfig();
         config = {
           ...config,
@@ -144,23 +163,38 @@ class StreamingTTSGenerator {
     }
 
     const fullConfig = { ...DEFAULT_CONFIG, ...config };
+    this.currentConfig = fullConfig;
 
     // Determine which TTS to use
     if (fullConfig.forceWebSpeech) {
-      console.log('Using Web Speech API (forced)');
+      console.log("Using Web Speech API (forced)");
       this.usingKokoro = false;
-      await this.generateWithWebSpeech(script, fullConfig, onProgress, onAudioReady);
-    } else if (fullConfig.useKokoro && await this.isKokoroAvailable()) {
-      console.log('Using Kokoro TTS via Web Worker');
+      await this.generateWithWebSpeech(
+        script,
+        fullConfig,
+        onProgress,
+        onAudioReady,
+      );
+    } else if (fullConfig.useKokoro && (await this.isKokoroAvailable())) {
+      console.log("Using Kokoro TTS via Web Worker");
       this.usingKokoro = true;
-      await this.generateWithKokoroWorker(script, fullConfig, onProgress, onAudioReady);
+      await this.generateWithKokoroWorker(
+        script,
+        fullConfig,
+        onProgress,
+        onAudioReady,
+      );
     } else {
-      console.log('Falling back to Web Speech API');
+      console.log("Falling back to Web Speech API");
       this.usingKokoro = false;
-      await this.generateWithWebSpeech(script, fullConfig, onProgress, onAudioReady);
+      await this.generateWithWebSpeech(
+        script,
+        fullConfig,
+        onProgress,
+        onAudioReady,
+      );
     }
   }
-
 
   /**
    * Generate using Kokoro TTS via Web Worker - HIGH QUALITY, NON-BLOCKING
@@ -169,18 +203,18 @@ class StreamingTTSGenerator {
     script: PodcastScript,
     config: StreamingConfig,
     onProgress: ProgressCallback,
-    onAudioReady: AudioReadyCallback
+    onAudioReady: AudioReadyCallback,
   ): Promise<void> {
     try {
       // Get or create worker manager (lazy loaded)
       const workerManager = await this.getWorkerManager();
 
       onProgress({
-        phase: 'loading',
+        phase: "loading",
         currentSegment: 0,
         totalSegments: script.segments.length,
         percentage: 5,
-        message: 'Initializing Kokoro TTS (first time may take a moment)...',
+        message: "Initializing Kokoro TTS (first time may take a moment)...",
         canPlay: false,
         usingKokoro: true,
       });
@@ -189,7 +223,7 @@ class StreamingTTSGenerator {
       if (!workerManager.isWorkerReady()) {
         await workerManager.initialize((msg, pct) => {
           onProgress({
-            phase: 'loading',
+            phase: "loading",
             currentSegment: 0,
             totalSegments: script.segments.length,
             percentage: Math.min(20, 5 + pct * 0.15),
@@ -201,7 +235,7 @@ class StreamingTTSGenerator {
       }
 
       if (this.shouldCancel) {
-        this.cleanup('cancelled', onProgress);
+        this.cleanup("cancelled", onProgress);
         return;
       }
 
@@ -210,7 +244,7 @@ class StreamingTTSGenerator {
       const totalSegments = optimizedSegments.length;
 
       onProgress({
-        phase: 'generating',
+        phase: "generating",
         currentSegment: 0,
         totalSegments,
         percentage: 20,
@@ -221,23 +255,25 @@ class StreamingTTSGenerator {
 
       // Generate each segment
       const startTime = Date.now();
-      
+
       for (let i = 0; i < optimizedSegments.length; i++) {
         if (this.shouldCancel) {
-          this.cleanup('cancelled', onProgress);
+          this.cleanup("cancelled", onProgress);
           return;
         }
 
         const segment = optimizedSegments[i];
-        const voice = config.speakerVoiceMap?.[segment.speaker]
-          ?? (segment.speaker === 'Alex' ? config.host1Voice : config.host2Voice);
+        const voice =
+          config.speakerVoiceMap?.[segment.speaker] ??
+          (segment.speaker === "Alex" ? config.host1Voice : config.host2Voice);
 
         try {
           // Clean text for natural TTS delivery before synthesis
           const cleanText = AudioContentCleaner.cleanSegment(segment.text);
 
           // Generate audio via worker (non-blocking!)
-          const result = await workerManager.synthesize(
+          const result = await this.synthesizeWithRetry(
+            workerManager,
             cleanText,
             voice,
             config.speed,
@@ -245,16 +281,31 @@ class StreamingTTSGenerator {
               // Per-segment progress
               const overallPct = 20 + ((i + pct / 100) / totalSegments) * 75;
               onProgress({
-                phase: 'generating',
+                phase: "generating",
                 currentSegment: i + 1,
                 totalSegments,
                 percentage: Math.round(overallPct),
                 message: `${segment.speaker}: "${cleanText.substring(0, 40)}..."`,
                 canPlay: this.generatedAudios.length > 0,
                 usingKokoro: true,
-                estimatedTimeRemaining: this.estimateRemainingTime(startTime, i, totalSegments),
+                estimatedTimeRemaining: this.estimateRemainingTime(
+                  startTime,
+                  i,
+                  totalSegments,
+                ),
               });
-            }
+            },
+            () => {
+              onProgress({
+                phase: "generating",
+                currentSegment: i + 1,
+                totalSegments,
+                percentage: Math.round(20 + (i / totalSegments) * 75),
+                message: `Retrying ${segment.speaker}'s line (${i + 1}/${totalSegments})...`,
+                canPlay: this.generatedAudios.length > 0,
+                usingKokoro: true,
+              });
+            },
           );
 
           // Store the generated audio
@@ -264,35 +315,41 @@ class StreamingTTSGenerator {
             speaker: segment.speaker,
             text: segment.text,
             isKokoro: true,
-            blob: result.audioBlob // Store blob for combination
+            blob: result.audioBlob, // Store blob for combination
           });
 
           // Update progress
           const percentage = Math.round(20 + ((i + 1) / totalSegments) * 75);
           onProgress({
-            phase: 'generating',
+            phase: "generating",
             currentSegment: i + 1,
             totalSegments,
             percentage,
             message: `Generated ${segment.speaker}'s line (${i + 1}/${totalSegments})`,
             canPlay: true,
             usingKokoro: true,
-            estimatedTimeRemaining: this.estimateRemainingTime(startTime, i + 1, totalSegments),
+            estimatedTimeRemaining: this.estimateRemainingTime(
+              startTime,
+              i + 1,
+              totalSegments,
+            ),
           });
 
           // Notify audio ready
           onAudioReady({
-            audioUrls: this.generatedAudios.map(a => a.url),
-            totalDuration: this.generatedAudios.reduce((sum, a) => sum + a.duration, 0),
+            audioUrls: this.generatedAudios.map((a) => a.url),
+            totalDuration: this.generatedAudios.reduce(
+              (sum, a) => sum + a.duration,
+              0,
+            ),
             segmentsReady: this.generatedAudios.length,
           });
 
           // Small yield not needed when using worker - keeping loop tight for background performance
           // await new Promise(r => setTimeout(r, config.yieldDuration));
-
         } catch (error) {
           console.error(`Failed to generate segment ${i}:`, error);
-          // Continue with next segment on error
+          throw error;
         }
       }
 
@@ -302,32 +359,44 @@ class StreamingTTSGenerator {
 
       // Complete
       onProgress({
-        phase: 'complete',
+        phase: "complete",
         currentSegment: totalSegments,
         totalSegments,
         percentage: 100,
-        message: 'High-quality podcast ready! Click play to listen.',
+        message: "High-quality podcast ready! Click play to listen.",
         canPlay: true,
         usingKokoro: true,
       });
 
       // Final audio ready callback - this triggers the auto-save
       onAudioReady({
-        audioUrls: this.generatedAudios.map(a => a.url),
-        totalDuration: this.generatedAudios.reduce((sum, a) => sum + a.duration, 0),
+        audioUrls: this.generatedAudios.map((a) => a.url),
+        totalDuration: this.generatedAudios.reduce(
+          (sum, a) => sum + a.duration,
+          0,
+        ),
         segmentsReady: this.generatedAudios.length,
       });
-
     } catch (error) {
-      console.error('Kokoro worker generation failed:', error);
-      
-      // Fall back to Web Speech
-      console.log('Falling back to Web Speech API...');
+      if (this.shouldCancel) {
+        this.cleanup("cancelled", onProgress);
+        return;
+      }
+
+      console.error("Kokoro worker generation failed:", error);
+
+      // A partial Kokoro episode must never be mixed with the complete fallback.
+      this.discardGeneratedAudio();
+      console.log("Falling back to Web Speech API...");
       this.usingKokoro = false;
-      await this.generateWithWebSpeech(script, config, onProgress, onAudioReady);
+      await this.generateWithWebSpeech(
+        script,
+        config,
+        onProgress,
+        onAudioReady,
+      );
     }
   }
-
 
   /**
    * Generate using Web Speech API - FALLBACK, NON-BLOCKING
@@ -336,58 +405,61 @@ class StreamingTTSGenerator {
     script: PodcastScript,
     config: StreamingConfig,
     onProgress: ProgressCallback,
-    onAudioReady: AudioReadyCallback
+    onAudioReady: AudioReadyCallback,
   ): Promise<void> {
     onProgress({
-      phase: 'loading',
+      phase: "loading",
       currentSegment: 0,
       totalSegments: script.segments.length,
       percentage: 5,
-      message: 'Preparing podcast with Web Speech...',
+      message: "Preparing podcast with Web Speech...",
       canPlay: false,
       usingKokoro: false,
     });
 
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
 
     if (this.shouldCancel) {
-      this.cleanup('cancelled', onProgress);
+      this.cleanup("cancelled", onProgress);
       return;
     }
 
     const optimizedSegments = this.optimizeSegments(script.segments);
 
     onProgress({
-      phase: 'generating',
+      phase: "generating",
       currentSegment: 0,
       totalSegments: optimizedSegments.length,
       percentage: 10,
-      message: 'Processing segments...',
+      message: "Processing segments...",
       canPlay: false,
       usingKokoro: false,
     });
 
     for (let i = 0; i < optimizedSegments.length; i++) {
       if (this.shouldCancel) {
-        this.cleanup('cancelled', onProgress);
+        this.cleanup("cancelled", onProgress);
         return;
       }
 
       const segment = optimizedSegments[i];
       const cleanText = AudioContentCleaner.cleanSegment(segment.text);
 
-      const host1 = this.currentScript?.metadata?.host1Name || 'Alex';
+      const host1 = this.currentScript?.metadata?.host1Name || "Alex";
       // Create a data URL for tracking
       const segmentData = {
-        type: 'web-speech-segment',
+        type: "web-speech-segment",
         index: i,
         speaker: segment.speaker,
         text: cleanText,
-        voice: segment.speaker === host1 ? config.host1Voice : config.host2Voice,
+        voice:
+          segment.speaker === host1 ? config.host1Voice : config.host2Voice,
         speed: config.speed,
       };
 
-      const blob = new Blob([JSON.stringify(segmentData)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(segmentData)], {
+        type: "application/json",
+      });
       const url = URL.createObjectURL(blob);
 
       this.generatedAudios.push({
@@ -396,12 +468,14 @@ class StreamingTTSGenerator {
         speaker: segment.speaker,
         text: segment.text,
         isKokoro: false,
-        blob // Keep blob consistent structure
+        blob, // Keep blob consistent structure
       });
 
-      const percentage = Math.round(10 + ((i + 1) / optimizedSegments.length) * 85);
+      const percentage = Math.round(
+        10 + ((i + 1) / optimizedSegments.length) * 85,
+      );
       onProgress({
-        phase: 'generating',
+        phase: "generating",
         currentSegment: i + 1,
         totalSegments: optimizedSegments.length,
         percentage,
@@ -411,31 +485,37 @@ class StreamingTTSGenerator {
       });
 
       onAudioReady({
-        audioUrls: this.generatedAudios.map(a => a.url),
-        totalDuration: this.generatedAudios.reduce((sum, a) => sum + a.duration, 0),
+        audioUrls: this.generatedAudios.map((a) => a.url),
+        totalDuration: this.generatedAudios.reduce(
+          (sum, a) => sum + a.duration,
+          0,
+        ),
         segmentsReady: this.generatedAudios.length,
       });
 
-      await new Promise(r => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 20));
     }
 
     // Mark generation as complete BEFORE calling final callbacks
     this.isGenerating = false;
 
     onProgress({
-      phase: 'complete',
+      phase: "complete",
       currentSegment: optimizedSegments.length,
       totalSegments: optimizedSegments.length,
       percentage: 100,
-      message: 'Podcast ready! Click play to listen.',
+      message: "Podcast ready! Click play to listen.",
       canPlay: true,
       usingKokoro: false,
     });
 
     // Final audio ready callback - this triggers the auto-save
     onAudioReady({
-      audioUrls: this.generatedAudios.map(a => a.url),
-      totalDuration: this.generatedAudios.reduce((sum, a) => sum + a.duration, 0),
+      audioUrls: this.generatedAudios.map((a) => a.url),
+      totalDuration: this.generatedAudios.reduce(
+        (sum, a) => sum + a.duration,
+        0,
+      ),
       segmentsReady: this.generatedAudios.length,
     });
   }
@@ -445,12 +525,12 @@ class StreamingTTSGenerator {
    */
   cancel(): void {
     this.shouldCancel = true;
-    
+
     if (this.workerManager) {
       this.workerManager.cancel();
     }
-    
-    if (typeof speechSynthesis !== 'undefined') {
+
+    if (typeof speechSynthesis !== "undefined") {
       speechSynthesis.cancel();
     }
 
@@ -473,15 +553,14 @@ class StreamingTTSGenerator {
     return this.currentScript;
   }
 
-
   /**
    * Ensure Web Speech voices are loaded
    */
   private async ensureVoicesLoaded(): Promise<SpeechSynthesisVoice[]> {
-    if (typeof speechSynthesis === 'undefined') return [];
-    
+    if (typeof speechSynthesis === "undefined") return [];
+
     let voices = speechSynthesis.getVoices();
-    
+
     // Voices might not be loaded yet, wait for them
     if (voices.length === 0) {
       await new Promise<void>((resolve) => {
@@ -494,20 +573,20 @@ class StreamingTTSGenerator {
             setTimeout(checkVoices, 100);
           }
         };
-        
+
         // Also listen for voiceschanged event
         speechSynthesis.onvoiceschanged = () => {
           voices = speechSynthesis.getVoices();
           if (voices.length > 0) resolve();
         };
-        
+
         checkVoices();
-        
+
         // Timeout after 2 seconds
         setTimeout(resolve, 2000);
       });
     }
-    
+
     return voices;
   }
 
@@ -527,22 +606,22 @@ class StreamingTTSGenerator {
       // Play Kokoro audio via Audio element
       const audio = new Audio(segment.url);
       this.audioElements.push(audio);
-      
+
       audio.onended = () => {
         const idx = this.audioElements.indexOf(audio);
         if (idx > -1) this.audioElements.splice(idx, 1);
         this.isPlaying = false;
         onEnd?.();
       };
-      
+
       audio.onerror = () => {
-        console.error('Audio playback error');
+        console.error("Audio playback error");
         this.isPlaying = false;
         onEnd?.();
       };
-      
-      audio.play().catch(err => {
-        console.error('Failed to play audio:', err);
+
+      audio.play().catch((err) => {
+        console.error("Failed to play audio:", err);
         this.isPlaying = false;
         onEnd?.();
       });
@@ -556,10 +635,10 @@ class StreamingTTSGenerator {
    * Play segment using Web Speech API with proper voice loading
    */
   private async playSegmentWithWebSpeech(
-    segment: GeneratedAudio, 
-    onEnd?: () => void
+    segment: GeneratedAudio,
+    onEnd?: () => void,
   ): Promise<void> {
-    if (typeof speechSynthesis === 'undefined') {
+    if (typeof speechSynthesis === "undefined") {
       this.isPlaying = false;
       onEnd?.();
       return;
@@ -569,45 +648,52 @@ class StreamingTTSGenerator {
 
     // Ensure voices are loaded
     const voices = await this.ensureVoicesLoaded();
-    
+
     const playText = AudioContentCleaner.cleanSegment(segment.text);
     const utterance = new SpeechSynthesisUtterance(playText);
-    
+
     // Force English language
-    utterance.lang = 'en-US';
-    
+    utterance.lang = "en-US";
+
     // Filter to English voices only
-    const englishVoices = voices.filter(v => 
-      v.lang.startsWith('en-') || 
-      v.lang === 'en'
+    const englishVoices = voices.filter(
+      (v) => v.lang.startsWith("en-") || v.lang === "en",
     );
-    
-    const host1 = this.currentScript?.metadata?.host1Name || 'Alex';
+
+    const host1 = this.currentScript?.metadata?.host1Name || "Alex";
     if (segment.speaker === host1) {
       // Find male English voice
-      const maleVoice = englishVoices.find(v =>
-        v.name.includes('Male') ||
-        v.name.includes('David') ||
-        v.name.includes('Mark') ||
-        v.name.includes('James') ||
-        v.name.includes('Guy') ||
-        v.name.includes('Microsoft David') ||
-        v.name.includes('Google US English Male')
-      ) || englishVoices.find(v => v.lang === 'en-US') || englishVoices[0];
-      
+      const maleVoice =
+        englishVoices.find(
+          (v) =>
+            v.name.includes("Male") ||
+            v.name.includes("David") ||
+            v.name.includes("Mark") ||
+            v.name.includes("James") ||
+            v.name.includes("Guy") ||
+            v.name.includes("Microsoft David") ||
+            v.name.includes("Google US English Male"),
+        ) ||
+        englishVoices.find((v) => v.lang === "en-US") ||
+        englishVoices[0];
+
       if (maleVoice) utterance.voice = maleVoice;
       utterance.pitch = 1.0;
     } else {
       // Find female English voice
-      const femaleVoice = englishVoices.find(v =>
-        v.name.includes('Female') ||
-        v.name.includes('Zira') ||
-        v.name.includes('Samantha') ||
-        v.name.includes('Google') ||
-        v.name.includes('Microsoft Zira') ||
-        v.name.includes('Google US English Female')
-      ) || englishVoices.find(v => v.lang === 'en-US') || englishVoices[0];
-      
+      const femaleVoice =
+        englishVoices.find(
+          (v) =>
+            v.name.includes("Female") ||
+            v.name.includes("Zira") ||
+            v.name.includes("Samantha") ||
+            v.name.includes("Google") ||
+            v.name.includes("Microsoft Zira") ||
+            v.name.includes("Google US English Female"),
+        ) ||
+        englishVoices.find((v) => v.lang === "en-US") ||
+        englishVoices[0];
+
       if (femaleVoice) utterance.voice = femaleVoice;
       utterance.pitch = 1.1;
     }
@@ -618,7 +704,7 @@ class StreamingTTSGenerator {
       onEnd?.();
     };
     utterance.onerror = (e) => {
-      console.error('Speech synthesis error:', e);
+      console.error("Speech synthesis error:", e);
       this.isPlaying = false;
       onEnd?.();
     };
@@ -632,7 +718,7 @@ class StreamingTTSGenerator {
   playAll(
     startIndex: number = 0,
     onSegmentChange?: (index: number) => void,
-    onComplete?: () => void
+    onComplete?: () => void,
   ): void {
     if (startIndex === 0) {
       this.isSequencePlaying = true;
@@ -666,7 +752,7 @@ class StreamingTTSGenerator {
   stopPlayback(): void {
     this.isPlaying = false;
     this.isSequencePlaying = false;
-    
+
     // Stop Audio elements
     for (const audio of this.audioElements) {
       audio.pause();
@@ -677,7 +763,7 @@ class StreamingTTSGenerator {
     this.audioElements = [];
 
     // Stop Web Speech
-    if (typeof speechSynthesis !== 'undefined') {
+    if (typeof speechSynthesis !== "undefined") {
       speechSynthesis.cancel();
     }
   }
@@ -697,27 +783,36 @@ class StreamingTTSGenerator {
    */
   async combineAudios(enableStudioEQ: boolean = true): Promise<string | null> {
     if (this.generatedAudios.length === 0) {
-      console.warn('[StreamingTTSGenerator] No audios to combine');
+      console.warn("[StreamingTTSGenerator] No audios to combine");
       return null;
     }
 
     if (!this.usingKokoro) {
-      console.log('[StreamingTTSGenerator] Web Speech mode — no saveable audio');
+      console.log(
+        "[StreamingTTSGenerator] Web Speech mode — no saveable audio",
+      );
       return null;
     }
 
-    const validAudios = this.generatedAudios.filter(a => !!a.blob && a.blob.size > 0);
-    const blobs = validAudios.map(a => a.blob!);
+    const validAudios = this.generatedAudios.filter(
+      (a) => !!a.blob && a.blob.size > 0,
+    );
+    const blobs = validAudios.map((a) => a.blob!);
 
-    console.log(`[StreamingTTSGenerator] Combining ${blobs.length} audio blobs. Studio EQ: ${enableStudioEQ}`);
+    console.log(
+      `[StreamingTTSGenerator] Combining ${blobs.length} audio blobs. Studio EQ: ${enableStudioEQ}`,
+    );
 
     if (blobs.length === 0) {
-      console.warn('[StreamingTTSGenerator] No valid blobs to combine');
+      console.warn("[StreamingTTSGenerator] No valid blobs to combine");
       return null;
     }
 
     try {
-      const combined = await this.combineWavsProperly(validAudios, enableStudioEQ);
+      const combined = await this.combineWavsProperly(
+        validAudios,
+        enableStudioEQ,
+      );
       const url = URL.createObjectURL(combined);
 
       // Validate the combined audio for speech content
@@ -725,7 +820,7 @@ class StreamingTTSGenerator {
 
       return url;
     } catch (e) {
-      console.error('[StreamingTTSGenerator] Failed to combine audio', e);
+      console.error("[StreamingTTSGenerator] Failed to combine audio", e);
       return null;
     }
   }
@@ -737,13 +832,20 @@ class StreamingTTSGenerator {
     try {
       const result = await AudioValidator.validateBlob(blob);
       if (!result.hasSpeech) {
-        console.warn('[StreamingTTSGenerator] ⚠️ Combined audio validation:', result.issues.join('; '));
-        console.warn(`[StreamingTTSGenerator] RMS=${result.rms.toFixed(4)}, silence=${(result.silenceRatio * 100).toFixed(0)}%, duration=${result.duration.toFixed(1)}s`);
+        console.warn(
+          "[StreamingTTSGenerator] ⚠️ Combined audio validation:",
+          result.issues.join("; "),
+        );
+        console.warn(
+          `[StreamingTTSGenerator] RMS=${result.rms.toFixed(4)}, silence=${(result.silenceRatio * 100).toFixed(0)}%, duration=${result.duration.toFixed(1)}s`,
+        );
       } else {
-        console.log(`[StreamingTTSGenerator] ✅ Audio validated: RMS=${result.rms.toFixed(4)}, duration=${result.duration.toFixed(1)}s, ${result.sampleRate}Hz`);
+        console.log(
+          `[StreamingTTSGenerator] ✅ Audio validated: RMS=${result.rms.toFixed(4)}, duration=${result.duration.toFixed(1)}s, ${result.sampleRate}Hz`,
+        );
       }
     } catch (e) {
-      console.warn('[StreamingTTSGenerator] Audio validation error:', e);
+      console.warn("[StreamingTTSGenerator] Audio validation error:", e);
     }
   }
 
@@ -752,21 +854,29 @@ class StreamingTTSGenerator {
    * Primary: decode via AudioContext, concatenate PCM, re-encode.
    * Fallback: manually parse WAV headers, extract PCM, assemble.
    */
-  private async combineWavsProperly(validAudios: GeneratedAudio[], enableStudioEQ: boolean): Promise<Blob> {
+  private async combineWavsProperly(
+    validAudios: GeneratedAudio[],
+    enableStudioEQ: boolean,
+  ): Promise<Blob> {
     // Primary path: AudioContext decode + re-encode
     try {
       return await this.combineViaAudioContext(validAudios, enableStudioEQ);
     } catch (decodeError) {
-      console.warn('[StreamingTTSGenerator] AudioContext decode failed, using manual PCM extraction:', decodeError);
-      const blobs = validAudios.map(a => a.blob!).filter(b => b.size > 0);
-      return this.combineViaPcmExtraction(blobs);
+      console.warn(
+        "[StreamingTTSGenerator] AudioContext decode failed, using manual PCM extraction:",
+        decodeError,
+      );
+      return this.combineViaPcmExtraction(validAudios);
     }
   }
 
   /**
    * Combine via AudioContext decode/re-encode.
    */
-  private async combineViaAudioContext(validAudios: GeneratedAudio[], enableStudioEQ: boolean): Promise<Blob> {
+  private async combineViaAudioContext(
+    validAudios: GeneratedAudio[],
+    enableStudioEQ: boolean,
+  ): Promise<Blob> {
     const audioContext = new AudioContext();
     const audioBuffers: AudioBuffer[] = [];
 
@@ -776,30 +886,53 @@ class StreamingTTSGenerator {
       audioBuffers.push(audioBuffer);
     }
 
-    const totalLength = audioBuffers.reduce((sum, buf) => sum + buf.length, 0);
     const sampleRate = audioBuffers[0]?.sampleRate || 24000;
-    const numChannels = enableStudioEQ ? 2 : (audioBuffers[0]?.numberOfChannels || 1);
+    const podcastFormat =
+      this.currentScript?.metadata?.format === "solo" ? "solo" : "dialogue";
+    const pauseFrames = validAudios.map((audio, index) =>
+      Math.round(
+        (podcastPauseMilliseconds(
+          audio.speaker,
+          validAudios[index + 1]?.speaker,
+          podcastFormat,
+          this.currentConfig.pauseBetweenSegments,
+        ) /
+          1000) *
+          sampleRate,
+      ),
+    );
+    const totalLength = audioBuffers.reduce(
+      (sum, buffer, index) => sum + buffer.length + pauseFrames[index],
+      0,
+    );
+    const numChannels = enableStudioEQ
+      ? 2
+      : audioBuffers[0]?.numberOfChannels || 1;
 
     if (enableStudioEQ) {
       // Use OfflineAudioContext to render high-quality mastered stereo audio
-      const offlineCtx = new OfflineAudioContext(numChannels, totalLength, sampleRate);
+      const offlineCtx = new OfflineAudioContext(
+        numChannels,
+        totalLength,
+        sampleRate,
+      );
 
       // Setup EQ / Master FX: Compressor
       const compressor = offlineCtx.createDynamicsCompressor();
       compressor.threshold.value = -20; // dB
-      compressor.knee.value = 30;       // dB
-      compressor.ratio.value = 3;        // 3:1 ratio
-      compressor.attack.value = 0.003;   // 3ms
-      compressor.release.value = 0.25;   // 250ms
+      compressor.knee.value = 30; // dB
+      compressor.ratio.value = 3; // 3:1 ratio
+      compressor.attack.value = 0.003; // 3ms
+      compressor.release.value = 0.25; // 250ms
       compressor.connect(offlineCtx.destination);
 
       // Setup EQ: highpass and presence boost peaking filter
       const highPass = offlineCtx.createBiquadFilter();
-      highPass.type = 'highpass';
+      highPass.type = "highpass";
       highPass.frequency.value = 80;
 
       const peakingEQ = offlineCtx.createBiquadFilter();
-      peakingEQ.type = 'peaking';
+      peakingEQ.type = "peaking";
       peakingEQ.frequency.value = 3000;
       peakingEQ.Q.value = 1.0;
       peakingEQ.gain.value = 2.0;
@@ -809,9 +942,8 @@ class StreamingTTSGenerator {
 
       // Map and position buffers on the timeline
       let currentSampleOffset = 0;
-      const podcastFormat = this.currentScript?.metadata?.format || 'dialogue';
-      const host1 = this.currentScript?.metadata?.host1Name || 'Alex';
-      const host2 = this.currentScript?.metadata?.host2Name || 'Sarah';
+      const host1 = this.currentScript?.metadata?.host1Name || "Alex";
+      const host2 = this.currentScript?.metadata?.host2Name || "Sarah";
 
       for (let i = 0; i < audioBuffers.length; i++) {
         const buffer = audioBuffers[i];
@@ -824,7 +956,7 @@ class StreamingTTSGenerator {
         // Stereo panning
         const panner = offlineCtx.createStereoPanner();
         let panVal = 0;
-        if (podcastFormat === 'dialogue') {
+        if (podcastFormat === "dialogue") {
           if (speaker === host1) {
             panVal = -0.15;
           } else if (speaker === host2) {
@@ -833,35 +965,58 @@ class StreamingTTSGenerator {
         }
         panner.pan.value = panVal;
 
-        source.connect(panner);
+        const startTime = currentSampleOffset / sampleRate;
+        const endTime = startTime + buffer.duration;
+        const fadeSeconds = Math.min(0.012, buffer.duration / 3);
+        const gain = offlineCtx.createGain();
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(1, startTime + fadeSeconds);
+        gain.gain.setValueAtTime(
+          1,
+          Math.max(startTime + fadeSeconds, endTime - fadeSeconds),
+        );
+        gain.gain.linearRampToValueAtTime(0, endTime);
+
+        source.connect(gain);
+        gain.connect(panner);
         panner.connect(highPass);
 
-        const startTime = currentSampleOffset / sampleRate;
         source.start(startTime);
 
-        currentSampleOffset += buffer.length;
+        currentSampleOffset += buffer.length + pauseFrames[i];
       }
 
       const renderedBuffer = await offlineCtx.startRendering();
       const wavBlob = this.audioBufferToWav(renderedBuffer);
-      console.log(`[StreamingTTSGenerator] Mastered via OfflineAudioContext: ${wavBlob.size} bytes`);
+      console.log(
+        `[StreamingTTSGenerator] Mastered via OfflineAudioContext: ${wavBlob.size} bytes`,
+      );
       await audioContext.close();
       return wavBlob;
     } else {
-      const combinedBuffer = audioContext.createBuffer(numChannels, totalLength, sampleRate);
+      const combinedBuffer = audioContext.createBuffer(
+        numChannels,
+        totalLength,
+        sampleRate,
+      );
 
       let offset = 0;
-      for (const buffer of audioBuffers) {
+      for (let index = 0; index < audioBuffers.length; index += 1) {
+        const buffer = audioBuffers[index];
         for (let channel = 0; channel < numChannels; channel++) {
           const dest = combinedBuffer.getChannelData(channel);
-          const src = buffer.getChannelData(Math.min(channel, buffer.numberOfChannels - 1));
+          const src = buffer.getChannelData(
+            Math.min(channel, buffer.numberOfChannels - 1),
+          );
           dest.set(src, offset);
         }
-        offset += buffer.length;
+        offset += buffer.length + pauseFrames[index];
       }
 
       const wavBlob = this.audioBufferToWav(combinedBuffer);
-      console.log(`[StreamingTTSGenerator] Combined flat: ${wavBlob.size} bytes`);
+      console.log(
+        `[StreamingTTSGenerator] Combined flat: ${wavBlob.size} bytes`,
+      );
       await audioContext.close();
       return wavBlob;
     }
@@ -871,45 +1026,74 @@ class StreamingTTSGenerator {
    * Fallback: manually parse WAV headers, concatenate PCM data,
    * write a single new WAV header.
    */
-  private async combineViaPcmExtraction(blobs: Blob[]): Promise<Blob> {
+  private async combineViaPcmExtraction(
+    validAudios: GeneratedAudio[],
+  ): Promise<Blob> {
     let totalPcmLength = 0;
     const pcmChunks: ArrayBuffer[] = [];
     let sampleRate = 24000;
     let channels = 1;
     let bitsPerSample = 16;
+    const podcastFormat =
+      this.currentScript?.metadata?.format === "solo" ? "solo" : "dialogue";
 
-    for (const blob of blobs) {
+    for (let audioIndex = 0; audioIndex < validAudios.length; audioIndex += 1) {
+      const audio = validAudios[audioIndex];
+      const blob = audio.blob!;
       const buffer = await blob.arrayBuffer();
       const view = new DataView(buffer);
+      let foundPcm = false;
 
       // Find the data chunk
       let offset = 12;
       const fileLen = buffer.byteLength;
 
       while (offset < fileLen - 8) {
-        const chunkId = String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
+        const chunkId = String.fromCharCode(
+          view.getUint8(offset),
+          view.getUint8(offset + 1),
+          view.getUint8(offset + 2),
+          view.getUint8(offset + 3),
+        );
         const chunkSize = view.getUint32(offset + 4, true);
 
-        if (chunkId === 'fmt ') {
+        if (chunkId === "fmt ") {
           channels = view.getUint16(offset + 10, true);
           sampleRate = view.getUint32(offset + 12, true);
           bitsPerSample = view.getUint16(offset + 22, true);
         }
 
-        if (chunkId === 'data') {
+        if (chunkId === "data") {
           const pcmStart = offset + 8;
           const pcmData = buffer.slice(pcmStart, pcmStart + chunkSize);
           pcmChunks.push(pcmData);
           totalPcmLength += pcmData.byteLength;
+          foundPcm = true;
         }
 
         offset += 8 + chunkSize;
         if (chunkSize % 2 !== 0) offset++;
       }
+
+      if (foundPcm && audioIndex < validAudios.length - 1) {
+        const pauseMs = podcastPauseMilliseconds(
+          audio.speaker,
+          validAudios[audioIndex + 1]?.speaker,
+          podcastFormat,
+          this.currentConfig.pauseBetweenSegments,
+        );
+        const bytesPerFrame = channels * (bitsPerSample / 8);
+        const silenceBytes =
+          Math.round((sampleRate * pauseMs) / 1000) * bytesPerFrame;
+        if (silenceBytes > 0) {
+          pcmChunks.push(new ArrayBuffer(silenceBytes));
+          totalPcmLength += silenceBytes;
+        }
+      }
     }
 
     if (pcmChunks.length === 0) {
-      throw new Error('No PCM data found in any WAV blob');
+      throw new Error("No PCM data found in any WAV blob");
     }
 
     const blockAlign = channels * (bitsPerSample / 8);
@@ -922,13 +1106,14 @@ class StreamingTTSGenerator {
     const wavView = new DataView(wavBuffer);
 
     const writeStr = (off: number, s: string) => {
-      for (let i = 0; i < s.length; i++) wavView.setUint8(off + i, s.charCodeAt(i));
+      for (let i = 0; i < s.length; i++)
+        wavView.setUint8(off + i, s.charCodeAt(i));
     };
 
-    writeStr(0, 'RIFF');
+    writeStr(0, "RIFF");
     wavView.setUint32(4, totalSize - 8, true);
-    writeStr(8, 'WAVE');
-    writeStr(12, 'fmt ');
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
     wavView.setUint32(16, 16, true);
     wavView.setUint16(20, 1, true);
     wavView.setUint16(22, channels, true);
@@ -936,7 +1121,7 @@ class StreamingTTSGenerator {
     wavView.setUint32(28, byteRate, true);
     wavView.setUint16(32, blockAlign, true);
     wavView.setUint16(34, bitsPerSample, true);
-    writeStr(36, 'data');
+    writeStr(36, "data");
     wavView.setUint32(40, totalPcmLength, true);
 
     let writeOffset = 44;
@@ -947,8 +1132,10 @@ class StreamingTTSGenerator {
       writeOffset += src.length;
     }
 
-    const result = new Blob([wavBuffer], { type: 'audio/wav' });
-    console.log(`[StreamingTTSGenerator] Combined via PCM extraction: ${result.size} bytes, ${sampleRate}Hz, ${channels}ch`);
+    const result = new Blob([wavBuffer], { type: "audio/wav" });
+    console.log(
+      `[StreamingTTSGenerator] Combined via PCM extraction: ${result.size} bytes, ${sampleRate}Hz, ${channels}ch`,
+    );
     return result;
   }
 
@@ -960,27 +1147,27 @@ class StreamingTTSGenerator {
     const sampleRate = buffer.sampleRate;
     const format = 1; // PCM
     const bitDepth = 16;
-    
+
     const bytesPerSample = bitDepth / 8;
     const blockAlign = numChannels * bytesPerSample;
-    
+
     const dataLength = buffer.length * blockAlign;
     const bufferLength = 44 + dataLength;
-    
+
     const arrayBuffer = new ArrayBuffer(bufferLength);
     const view = new DataView(arrayBuffer);
-    
+
     // WAV header
     const writeString = (offset: number, str: string) => {
       for (let i = 0; i < str.length; i++) {
         view.setUint8(offset + i, str.charCodeAt(i));
       }
     };
-    
-    writeString(0, 'RIFF');
+
+    writeString(0, "RIFF");
     view.setUint32(4, bufferLength - 8, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
     view.setUint32(16, 16, true); // fmt chunk size
     view.setUint16(20, format, true);
     view.setUint16(22, numChannels, true);
@@ -988,21 +1175,24 @@ class StreamingTTSGenerator {
     view.setUint32(28, sampleRate * blockAlign, true);
     view.setUint16(32, blockAlign, true);
     view.setUint16(34, bitDepth, true);
-    writeString(36, 'data');
+    writeString(36, "data");
     view.setUint32(40, dataLength, true);
-    
+
     // Write audio data
     let offset = 44;
     for (let i = 0; i < buffer.length; i++) {
       for (let channel = 0; channel < numChannels; channel++) {
-        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
-        const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+        const sample = Math.max(
+          -1,
+          Math.min(1, buffer.getChannelData(channel)[i]),
+        );
+        const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
         view.setInt16(offset, intSample, true);
         offset += 2;
       }
     }
-    
-    return new Blob([arrayBuffer], { type: 'audio/wav' });
+
+    return new Blob([arrayBuffer], { type: "audio/wav" });
   }
 
   reset(): void {
@@ -1011,7 +1201,6 @@ class StreamingTTSGenerator {
     this.currentScript = null;
     this.isGenerating = false;
   }
-
 
   private optimizeSegments(segments: PodcastSegment[]): PodcastSegment[] {
     const optimized: PodcastSegment[] = [];
@@ -1023,8 +1212,11 @@ class StreamingTTSGenerator {
         continue;
       }
 
-      if (current.speaker === seg.speaker && (current.text.length + seg.text.length) < 300) {
-        current.text += ' ' + seg.text;
+      if (
+        current.speaker === seg.speaker &&
+        current.text.length + seg.text.length < 300
+      ) {
+        current.text += " " + seg.text;
       } else {
         optimized.push(current);
         current = { ...seg };
@@ -1039,29 +1231,77 @@ class StreamingTTSGenerator {
     return optimized;
   }
 
+  private async synthesizeWithRetry(
+    workerManager: TTSWorkerManager,
+    text: string,
+    voice: string,
+    speed: number,
+    onProgress: (message: string, percentage: number) => void,
+    onRetry: () => void,
+  ): Promise<SynthesisResult> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        return await workerManager.synthesize(text, voice, speed, onProgress);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          onRetry();
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Audio synthesis failed after retrying");
+  }
+
+  private discardGeneratedAudio(): void {
+    for (const audio of this.generatedAudios) {
+      if (
+        audio.url.startsWith("blob:") &&
+        typeof URL !== "undefined" &&
+        typeof URL.revokeObjectURL === "function"
+      ) {
+        URL.revokeObjectURL(audio.url);
+      }
+    }
+    this.generatedAudios = [];
+  }
+
   private estimateDuration(text: string): number {
     const words = text.split(/\s+/).length;
     return (words / 150) * 60;
   }
 
-  private estimateRemainingTime(startTime: number, completedSegments: number, totalSegments: number): number {
+  private estimateRemainingTime(
+    startTime: number,
+    completedSegments: number,
+    totalSegments: number,
+  ): number {
     if (completedSegments === 0) return 0;
-    
+
     const elapsed = (Date.now() - startTime) / 1000;
     const avgTimePerSegment = elapsed / completedSegments;
     const remaining = totalSegments - completedSegments;
-    
+
     return Math.round(avgTimePerSegment * remaining);
   }
 
-  private cleanup(reason: 'cancelled' | 'error', onProgress: ProgressCallback): void {
+  private cleanup(
+    reason: "cancelled" | "error",
+    onProgress: ProgressCallback,
+  ): void {
     this.isGenerating = false;
     onProgress({
       phase: reason,
       currentSegment: 0,
       totalSegments: 0,
       percentage: 0,
-      message: reason === 'cancelled' ? 'Generation cancelled' : 'Generation failed',
+      message:
+        reason === "cancelled" ? "Generation cancelled" : "Generation failed",
       canPlay: this.generatedAudios.length > 0,
     });
   }

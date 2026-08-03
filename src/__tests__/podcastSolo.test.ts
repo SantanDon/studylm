@@ -37,4 +37,31 @@ describe('generatePodcastScript with Solo format', () => {
     expect(script.segments.length).toBeGreaterThan(1);
     expect(script.segments.every(seg => seg.speaker === "Alex")).toBe(true);
   });
+
+  it('filters hostile segment values and normalizes a solo script safely', async () => {
+    const { chatCompletion } = await import('@/lib/ai/ollamaService');
+    vi.mocked(chatCompletion).mockResolvedValueOnce(JSON.stringify({
+      title: { unsafe: true },
+      segments: [
+        ...Array.from({ length: 15 }, (_, i) => ({
+          speaker: i % 2 === 0 ? 'Unknown host' : 42,
+          text: `  Valid educational segment ${i + 1} with enough content to narrate safely.  `,
+        })),
+        null,
+        17,
+        { speaker: 'Unknown host', text: '   ' },
+        { speaker: 'Unknown host', text: { unsafe: true } },
+      ],
+    }));
+
+    const script = await generatePodcastScript(
+      'This sufficiently detailed source explains photosynthesis, chlorophyll, glucose, oxygen, and how plants convert light energy into stored chemical energy.',
+      { host1Name: 'Priya', format: 'solo' }
+    );
+
+    expect(script.title).toBe('Deep Dive Episode');
+    expect(script.segments).toHaveLength(15);
+    expect(script.segments.every(segment => segment.speaker === 'Priya')).toBe(true);
+    expect(script.segments.every(segment => typeof segment.text === 'string' && segment.text.length > 0)).toBe(true);
+  });
 });

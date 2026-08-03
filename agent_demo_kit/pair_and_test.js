@@ -14,26 +14,28 @@
  * No external dependencies required.
  */
 
-const API_BASE = process.env.STUDYPOD_API || 'http://localhost:3001/api';
+const API_BASE = process.env.STUDYPOD_API || "http://localhost:4000/api";
 const PIN = process.argv[2];
 
 if (!PIN || PIN.length !== 6) {
-  console.error('Usage: node pair_and_test.js <6-DIGIT-PIN>');
-  console.error('  Generate the PIN from StudyPodLM -> Profile -> Agent Pairing');
+  console.error("Usage: node pair_and_test.js <6-DIGIT-PIN>");
+  console.error(
+    "  Generate the PIN from StudyPodLM -> Profile -> Agent Pairing",
+  );
   process.exit(1);
 }
 
 async function main() {
   console.log(`\nPairing with code [${PIN}]...`);
   const pairRes = await fetch(`${API_BASE}/auth/pair/complete`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: PIN, label: 'DemoAgent' })
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: PIN, label: "DemoAgent" }),
   });
 
   if (!pairRes.ok) {
     const err = await pairRes.json().catch(() => ({}));
-    console.error('Pairing failed:', err.error || pairRes.statusText);
+    console.error("Pairing failed:", err.error || pairRes.statusText);
     process.exit(1);
   }
 
@@ -42,22 +44,24 @@ async function main() {
 
   const headers = {
     Authorization: `Bearer ${key}`,
-    'Content-Type': 'application/json'
+    "Content-Type": "application/json",
   };
 
-  console.log('\nVerifying identity...');
+  console.log("\nVerifying identity...");
   const meRes = await fetch(`${API_BASE}/auth/me`, { headers });
   const me = await meRes.json();
   console.log(`   ID: ${me.id}`);
   console.log(`   Name: ${me.displayName}`);
   console.log(`   Type: ${me.accountType || me.account_type}`);
 
-  console.log('\nListing notebooks...');
+  console.log("\nListing notebooks...");
   const nbRes = await fetch(`${API_BASE}/notebooks`, { headers });
   const notebooks = await nbRes.json();
 
   if (!Array.isArray(notebooks) || notebooks.length === 0) {
-    console.log('   No notebooks found. Create one in the StudyPodLM UI first.');
+    console.log(
+      "   No notebooks found. Create one in the StudyPodLM UI first.",
+    );
     return;
   }
 
@@ -67,44 +71,52 @@ async function main() {
 
   const targetNotebook = notebooks[0];
   console.log(`\nPosting test note to "${targetNotebook.title}"...`);
-  const noteRes = await fetch(`${API_BASE}/notebooks/${targetNotebook.id}/notes`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      content: `**AGENT TEST** - This note was posted by pair_and_test.js at ${new Date().toISOString()}.`
-    })
-  });
+  const noteRes = await fetch(
+    `${API_BASE}/notebooks/${targetNotebook.id}/notes`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        content: `**AGENT TEST** - This note was posted by pair_and_test.js at ${new Date().toISOString()}.`,
+      }),
+    },
+  );
 
   if (noteRes.ok) {
     const note = await noteRes.json();
     console.log(`Note created: ${note.id}`);
   } else {
     const err = await noteRes.json().catch(() => ({}));
-    console.error('Note creation failed:', err.error || noteRes.statusText);
+    console.error("Note creation failed:", err.error || noteRes.statusText);
   }
 
   console.log(`\nTesting notebook chat on "${targetNotebook.title}"...`);
-  const chatRes = await fetch(`${API_BASE}/notebooks/${targetNotebook.id}/chat`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      message: 'Summarize the current notebook context in one sentence.',
-      saveAsNote: false
-    })
-  });
+  const chatRes = await fetch(
+    `${API_BASE}/notebooks/${targetNotebook.id}/chat`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        message: "Summarize the current notebook context in one sentence.",
+        saveAsNote: false,
+      }),
+    },
+  );
 
   if (chatRes.ok) {
     const chat = await chatRes.json();
-    console.log(`Chat success. Model says: ${chat.response?.substring(0, 80)}...`);
+    console.log(
+      `Chat success. Model says: ${chat.response?.substring(0, 80)}...`,
+    );
   } else {
     const err = await chatRes.json().catch(() => ({}));
-    console.error('Chat failed:', err.error || chatRes.statusText);
+    console.error("Chat failed:", err.error || chatRes.statusText);
   }
 
-  console.log('\nAgent demo complete.');
+  console.log("\nAgent demo complete.");
 }
 
-main().catch(err => {
-  console.error('Fatal error:', err.message);
+main().catch((err) => {
+  console.error("Fatal error:", err.message);
   process.exit(1);
 });

@@ -23,7 +23,7 @@ node agent_demo_kit/pair_and_test.js <6-DIGIT-PIN>
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `STUDYPOD_API` | `http://localhost:3001/api` | API base URL |
+| `STUDYPOD_API` | `http://localhost:4000/api` | API base URL |
 
 ## Full API Reference
 

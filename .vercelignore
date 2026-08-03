@@ -1,5 +1,7 @@
 node_modules
 backend/node_modules
+backend/package.json
+backend/package-lock.json
 uploads
 dist
 .git
@@ -13,6 +15,14 @@ dist
 .playwright-cli
 .playwright-mcp
 scratch
+coverage
+test-results
+playwright-report
+tests
+backend/python
+**/__pycache__
+**/*.pyc
+**/*.pyo
 *.db
 *.db-shm
 *.db-wal

@@ -11,8 +11,8 @@
  *     Falls back gracefully if no bearer token is configured.
  */
 
-import fetch from 'node-fetch';
-import { logger } from '../utils/logger.js';
+import fetch from "node-fetch";
+import { logger } from "../utils/logger.js";
 
 const TWITTER_BEARER_TOKEN = process.env.TWITTER_BEARER_TOKEN || null;
 
@@ -34,8 +34,8 @@ async function fetchViaOEmbed(tweetUrl) {
   const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(tweetUrl)}&omit_script=true&hide_thread=false`;
 
   const response = await fetch(oembedUrl, {
-    headers: { 'User-Agent': 'StudyPodLM-Research/1.0' },
-    timeout: 10000
+    headers: { "User-Agent": "StudyPodLM-Research/1.0" },
+    timeout: 10000,
   });
 
   if (!response.ok) {
@@ -45,23 +45,23 @@ async function fetchViaOEmbed(tweetUrl) {
   const data = await response.json();
 
   // Strip HTML tags from the embed HTML to get clean text
-  const rawHtml = data.html || '';
+  const rawHtml = data.html || "";
   const textContent = rawHtml
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<a[^>]*href="(https?:\/\/[^"]+)"[^>]*>([^<]*)<\/a>/gi, '$2 [$1]')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<a[^>]*href="(https?:\/\/[^"]+)"[^>]*>([^<]*)<\/a>/gi, "$2 [$1]")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .trim();
 
   return {
     text: textContent,
-    author: data.author_name || 'Unknown',
-    authorUrl: data.author_url || '',
-    embedHtml: rawHtml
+    author: data.author_name || "Unknown",
+    authorUrl: data.author_url || "",
+    embedHtml: rawHtml,
   };
 }
 
@@ -77,14 +77,16 @@ async function fetchViaTweetAPI(tweetId) {
   try {
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${TWITTER_BEARER_TOKEN}`,
-        'User-Agent': 'StudyPodLM-Research/1.0'
+        Authorization: `Bearer ${TWITTER_BEARER_TOKEN}`,
+        "User-Agent": "StudyPodLM-Research/1.0",
       },
-      timeout: 10000
+      timeout: 10000,
     });
 
     if (!response.ok) {
-      logger.warn(`[TweetAPI] API v2 failed for tweet ${tweetId}: HTTP ${response.status}`);
+      logger.warn(
+        `[TweetAPI] API v2 failed for tweet ${tweetId}: HTTP ${response.status}`,
+      );
       return null;
     }
 
@@ -93,18 +95,22 @@ async function fetchViaTweetAPI(tweetId) {
 
     const tweet = data.data;
     const users = data.includes?.users || [];
-    const author = users.find(u => u.id === tweet.author_id);
+    const author = users.find((u) => u.id === tweet.author_id);
 
     // Extract URLs from entities
     const entityUrls = (tweet.entities?.urls || [])
-      .filter(u => !u.expanded_url.includes('twitter.com') && !u.expanded_url.includes('x.com'))
-      .map(u => u.expanded_url);
+      .filter(
+        (u) =>
+          !u.expanded_url.includes("twitter.com") &&
+          !u.expanded_url.includes("x.com"),
+      )
+      .map((u) => u.expanded_url);
 
     return {
       text: tweet.text,
-      author: author ? `${author.name} (@${author.username})` : 'Unknown',
+      author: author ? `${author.name} (@${author.username})` : "Unknown",
       entityUrls,
-      tweetId
+      tweetId,
     };
   } catch (err) {
     logger.warn(`[TweetAPI] v2 fetch failed: ${err.message}`);
@@ -117,27 +123,31 @@ async function fetchViaTweetAPI(tweetId) {
  * Mines links from the replies — this is the "comments with links" feature.
  * Returns at most 50 replies, extracting all URLs found.
  */
-async function fetchReplyLinks(tweetId, authorUsername) {
+async function fetchReplyLinks(tweetId) {
   if (!TWITTER_BEARER_TOKEN) {
-    logger.info('[TweetAPI] No bearer token — skipping reply link mining');
+    logger.info("[TweetAPI] No bearer token — skipping reply link mining");
     return [];
   }
 
   // Search for replies to this tweet
-  const query = encodeURIComponent(`conversation_id:${tweetId} has:links -is:retweet`);
+  const query = encodeURIComponent(
+    `conversation_id:${tweetId} has:links -is:retweet`,
+  );
   const url = `https://api.twitter.com/2/tweets/search/recent?query=${query}&tweet.fields=text,entities&max_results=50`;
 
   try {
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${TWITTER_BEARER_TOKEN}`,
-        'User-Agent': 'StudyPodLM-Research/1.0'
+        Authorization: `Bearer ${TWITTER_BEARER_TOKEN}`,
+        "User-Agent": "StudyPodLM-Research/1.0",
       },
-      timeout: 12000
+      timeout: 12000,
     });
 
     if (!response.ok) {
-      logger.warn(`[TweetAPI] Reply search failed for ${tweetId}: HTTP ${response.status}`);
+      logger.warn(
+        `[TweetAPI] Reply search failed for ${tweetId}: HTTP ${response.status}`,
+      );
       return [];
     }
 
@@ -148,12 +158,19 @@ async function fetchReplyLinks(tweetId, authorUsername) {
     const replyLinks = new Set();
     for (const reply of data.data) {
       const urls = (reply.entities?.urls || [])
-        .filter(u => !u.expanded_url.includes('twitter.com') && !u.expanded_url.includes('x.com') && !u.expanded_url.includes('t.co'))
-        .map(u => u.expanded_url);
-      urls.forEach(u => replyLinks.add(u));
+        .filter(
+          (u) =>
+            !u.expanded_url.includes("twitter.com") &&
+            !u.expanded_url.includes("x.com") &&
+            !u.expanded_url.includes("t.co"),
+        )
+        .map((u) => u.expanded_url);
+      urls.forEach((u) => replyLinks.add(u));
     }
 
-    logger.info(`[TweetAPI] Found ${replyLinks.size} unique links across ${data.data.length} replies`);
+    logger.info(
+      `[TweetAPI] Found ${replyLinks.size} unique links across ${data.data.length} replies`,
+    );
     return Array.from(replyLinks);
   } catch (err) {
     logger.warn(`[TweetAPI] Reply link mining failed: ${err.message}`);
@@ -167,7 +184,7 @@ async function fetchReplyLinks(tweetId, authorUsername) {
 export function extractUrlsFromText(text) {
   const matches = text.match(URL_REGEX) || [];
   // Clean up trailing punctuation that gets caught
-  return [...new Set(matches.map(u => u.replace(/[.,;:!?)\]"']+$/, '')))];
+  return [...new Set(matches.map((u) => u.replace(/[.,;:!?)\]"']+$/, "")))];
 }
 
 /**
@@ -176,18 +193,19 @@ export function extractUrlsFromText(text) {
 export function classifyUrl(url) {
   try {
     const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, '');
+    const host = u.hostname.replace(/^www\./, "");
 
-    if (host === 'github.com') return 'github';
-    if (host === 'youtube.com' || host === 'youtu.be') return 'youtube';
-    if (host === 'reddit.com') return 'reddit';
-    if (host === 'arxiv.org') return 'arxiv';
-    if (host === 'medium.com' || u.pathname.includes('/p/')) return 'article';
-    if (host === 'substack.com' || u.hostname.includes('.substack.com')) return 'article';
-    if (host === 'twitter.com' || host === 'x.com') return 'tweet';
-    return 'website';
+    if (host === "github.com") return "github";
+    if (host === "youtube.com" || host === "youtu.be") return "youtube";
+    if (host === "reddit.com") return "reddit";
+    if (host === "arxiv.org") return "arxiv";
+    if (host === "medium.com" || u.pathname.includes("/p/")) return "article";
+    if (host === "substack.com" || u.hostname.includes(".substack.com"))
+      return "article";
+    if (host === "twitter.com" || host === "x.com") return "tweet";
+    return "website";
   } catch {
-    return 'website';
+    return "website";
   }
 }
 
@@ -212,9 +230,9 @@ export async function extractTweet(tweetUrl) {
     throw new Error(`Could not parse tweet ID from URL: ${tweetUrl}`);
   }
 
-  let tweetText = '';
-  let author = 'Unknown';
-  let authorUrl = '';
+  let tweetText = "";
+  let author = "Unknown";
+  let authorUrl = "";
   let entityUrls = [];
 
   // Try Twitter API v2 first (richer entity URLs), fall back to oEmbed
@@ -223,13 +241,17 @@ export async function extractTweet(tweetUrl) {
     tweetText = apiResult.text;
     author = apiResult.author;
     entityUrls = apiResult.entityUrls;
-    logger.info(`[TweetExtraction] Got tweet via API v2: "${tweetText.substring(0, 80)}..."`);
+    logger.info(
+      `[TweetExtraction] Got tweet via API v2: "${tweetText.substring(0, 80)}..."`,
+    );
   } else {
     const oembedResult = await fetchViaOEmbed(tweetUrl);
     tweetText = oembedResult.text;
     author = oembedResult.author;
     authorUrl = oembedResult.authorUrl;
-    logger.info(`[TweetExtraction] Got tweet via oEmbed: "${tweetText.substring(0, 80)}..."`);
+    logger.info(
+      `[TweetExtraction] Got tweet via oEmbed: "${tweetText.substring(0, 80)}..."`,
+    );
   }
 
   // Extract URLs from tweet body text (catches t.co expanded links too)
@@ -237,21 +259,23 @@ export async function extractTweet(tweetUrl) {
 
   // Combine entity URLs (from API) with text-extracted URLs, deduplicate
   const bodyLinks = [...new Set([...entityUrls, ...textUrls])].filter(
-    u => !u.includes('twitter.com') && !u.includes('x.com')
+    (u) => !u.includes("twitter.com") && !u.includes("x.com"),
   );
 
   // Mine reply threads for links (only with Bearer Token)
-  const replyLinks = await fetchReplyLinks(tweetId, author);
+  const replyLinks = await fetchReplyLinks(tweetId);
 
   // Final deduplication across all sources
   const allLinks = [...new Set([...bodyLinks, ...replyLinks])];
 
-  const classifiedLinks = allLinks.map(url => ({
+  const classifiedLinks = allLinks.map((url) => ({
     url,
-    type: classifyUrl(url)
+    type: classifyUrl(url),
   }));
 
-  logger.info(`[TweetExtraction] Complete: ${bodyLinks.length} body links, ${replyLinks.length} reply links`);
+  logger.info(
+    `[TweetExtraction] Complete: ${bodyLinks.length} body links, ${replyLinks.length} reply links`,
+  );
 
   return {
     tweetId,
@@ -262,7 +286,7 @@ export async function extractTweet(tweetUrl) {
     bodyLinks,
     replyLinks,
     allLinks,
-    classifiedLinks
+    classifiedLinks,
   };
 }
 
@@ -288,38 +312,51 @@ export function parseTwitterBookmarksExport(fileContent) {
 
     const extractFromItem = (item) => {
       const tweetId = item?.tweet?.id_str || item?.tweetId || item?.id;
-      const username = item?.tweet?.user?.screen_name || item?.user?.screen_name || 'unknown';
-      const text = item?.tweet?.full_text || item?.tweet?.text || item?.text || '';
-      const author = item?.tweet?.user?.name || item?.user?.name || (username !== 'unknown' ? `@${username}` : 'Unknown');
+      const username =
+        item?.tweet?.user?.screen_name || item?.user?.screen_name || "unknown";
+      const text =
+        item?.tweet?.full_text || item?.tweet?.text || item?.text || "";
+      const author =
+        item?.tweet?.user?.name ||
+        item?.user?.name ||
+        (username !== "unknown" ? `@${username}` : "Unknown");
 
       if (tweetId) {
         urls.push({
           url: `https://x.com/${username}/status/${tweetId}`,
           text: text.trim(),
-          author: author.trim()
+          author: author.trim(),
         });
       }
     };
 
     if (Array.isArray(data)) {
-      data.forEach(item => {
+      data.forEach((item) => {
         if (item?.tweet) {
           extractFromItem(item);
         } else if (item?.bookmarkTimeline?.instructions) {
           // Alternative export format
           const instructions = item.bookmarkTimeline.instructions;
-          instructions.forEach(inst => {
-            (inst?.entries || []).forEach(entry => {
-              const tweetResult = entry?.content?.itemContent?.tweet_results?.result?.tweet || entry?.content?.itemContent?.tweet_results?.result;
+          instructions.forEach((inst) => {
+            (inst?.entries || []).forEach((entry) => {
+              const tweetResult =
+                entry?.content?.itemContent?.tweet_results?.result?.tweet ||
+                entry?.content?.itemContent?.tweet_results?.result;
               const id = tweetResult?.rest_id;
-              const screenName = tweetResult?.core?.user_results?.result?.legacy?.screen_name;
-              const text = tweetResult?.legacy?.full_text || tweetResult?.legacy?.text || '';
-              const author = tweetResult?.core?.user_results?.result?.legacy?.name || (screenName ? `@${screenName}` : 'Unknown');
+              const screenName =
+                tweetResult?.core?.user_results?.result?.legacy?.screen_name;
+              const text =
+                tweetResult?.legacy?.full_text ||
+                tweetResult?.legacy?.text ||
+                "";
+              const author =
+                tweetResult?.core?.user_results?.result?.legacy?.name ||
+                (screenName ? `@${screenName}` : "Unknown");
               if (id && screenName) {
                 urls.push({
                   url: `https://x.com/${screenName}/status/${id}`,
                   text: text.trim(),
-                  author: author.trim()
+                  author: author.trim(),
                 });
               }
             });
@@ -332,13 +369,15 @@ export function parseTwitterBookmarksExport(fileContent) {
 
     // Deduplicate by url
     const seen = new Set();
-    const uniqueUrls = urls.filter(item => {
+    const uniqueUrls = urls.filter((item) => {
       if (!item.url || seen.has(item.url)) return false;
       seen.add(item.url);
       return true;
     });
 
-    logger.info(`[BookmarkParser] Parsed ${uniqueUrls.length} unique tweet bookmarks from archive`);
+    logger.info(
+      `[BookmarkParser] Parsed ${uniqueUrls.length} unique tweet bookmarks from archive`,
+    );
     return uniqueUrls;
   } catch (err) {
     throw new Error(`Failed to parse Twitter bookmarks export: ${err.message}`);

@@ -50,7 +50,12 @@ function generateId(): string {
 function isValidFlashcard(obj: unknown): boolean {
   if (typeof obj !== 'object' || obj === null) return false;
   const card = obj as Record<string, unknown>;
-  return typeof card.front === 'string' && typeof card.back === 'string';
+  return typeof card.front === 'string'
+    && card.front.trim().length > 0
+    && card.front.trim().length <= 1_000
+    && typeof card.back === 'string'
+    && card.back.trim().length > 0
+    && card.back.trim().length <= 4_000;
 }
 
 function parseFlashcardResponse(response: string): GeneratedCard[] {
@@ -116,9 +121,10 @@ export async function generateFlashcards(
     ? cleanedContent.substring(0, maxContentLength) + '...'
     : cleanedContent;
 
+  const requestedCardCount = Math.max(1, Math.min(50, Math.floor(numCards) || 5));
   const prompt = FLASHCARD_PROMPT_TEMPLATE
     .replace('{content}', truncatedContent)
-    .replace('{numCards}', String(numCards));
+    .replace('{numCards}', String(requestedCardCount));
 
   onProgress?.('Generating flashcards with AI...');
 
@@ -140,7 +146,7 @@ export async function generateFlashcards(
 
     onProgress?.('Parsing generated flashcards...');
 
-    const generatedCards = parseFlashcardResponse(response);
+    const generatedCards = parseFlashcardResponse(response).slice(0, requestedCardCount);
 
     if (generatedCards.length === 0) {
       throw new Error('Failed to parse any flashcards from the response');

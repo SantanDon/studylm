@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { GuestProvider } from "@/contexts/GuestContext";
 import { AuthPromptModal, GuestBanner } from "@/components/auth/AuthPrompt";
@@ -24,6 +24,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
 const Privacy = lazy(() => import('./pages/Privacy'));
 const Terms = lazy(() => import('./pages/Terms'));
+const ChatGPTConnect = lazy(() => import('./pages/ChatGPTConnect'));
 
 const RouteFallback = () => (
   <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
@@ -53,7 +54,16 @@ import GlobalSearch from "@/components/dashboard/GlobalSearch";
 // ...
 const AppContent = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const completeAuthentication = () => {
+    const requested = new URLSearchParams(location.search).get('returnTo');
+    const returnTo = requested?.startsWith('/') && !requested.startsWith('//')
+      ? requested
+      : '/';
+    navigate(returnTo, { replace: true });
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -78,7 +88,7 @@ const AppContent = () => {
           path="/auth" 
           element={
             <EncryptionFlow 
-              onUnlocked={() => navigate('/', { replace: true })} 
+              onUnlocked={completeAuthentication}
               allowGuest={true}
             />
           } 
@@ -88,6 +98,7 @@ const AppContent = () => {
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
+        <Route path="/connect/chatgpt" element={<ChatGPTConnect />} />
         
         {/* Protected routes - require encryption/authentication */}
         <Route 

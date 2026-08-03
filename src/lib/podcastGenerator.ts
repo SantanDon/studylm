@@ -368,9 +368,10 @@ function tryParseJSON(text: string): PodcastScript | null {
  */
 function normalizeScript(script: PodcastScript, host1Name?: string, host2Name?: string, format: 'dialogue' | 'solo' = 'dialogue'): PodcastScript {
   return {
-    title: script.title || "Deep Dive Episode",
+    title: typeof script.title === 'string' && script.title.trim() ? script.title.trim().slice(0, 300) : "Deep Dive Episode",
     segments: script.segments
-      .filter((seg) => seg && seg.text && String(seg.text).trim().length > 0)
+      .filter((seg): seg is PodcastSegment => typeof seg === 'object' && seg !== null && typeof seg.text === 'string' && seg.text.trim().length > 0 && seg.text.trim().length <= 4_000)
+      .slice(0, 200)
       .map((seg) => ({
         speaker: format === 'solo' ? (host1Name || "Alex") : normalizeSpeaker(seg.speaker, host1Name, host2Name),
         text: cleanText(seg.text),

@@ -67,6 +67,22 @@ interface GeneratedQuestion {
   explanation: string;
 }
 
+function isValidGeneratedQuestion(question: unknown, questionType: QuestionType): question is GeneratedQuestion {
+  if (typeof question !== 'object' || question === null) return false;
+  const value = question as Record<string, unknown>;
+  const expectedOptions = questionType === 'true_false' ? 2 : 4;
+  return typeof value.question === 'string'
+    && value.question.trim().length > 0
+    && Array.isArray(value.options)
+    && value.options.length === expectedOptions
+    && value.options.every(option => typeof option === 'string' && option.trim().length > 0)
+    && Number.isInteger(value.correctAnswer)
+    && Number(value.correctAnswer) >= 0
+    && Number(value.correctAnswer) < expectedOptions
+    && typeof value.explanation === 'string'
+    && value.explanation.trim().length > 0;
+}
+
 interface QuizGeneratorOptions {
   sources: LocalSource[];
   numQuestions: number;
@@ -103,7 +119,7 @@ function isValidQuizResponse(obj: unknown): obj is ParsedQuizResponse {
   return Array.isArray(response.questions);
 }
 
-function parseQuizResponse(responseText: string, sourceIds: string[], difficulty: QuestionDifficulty, questionType: QuestionType): QuizQuestion[] {
+function parseQuizResponse(responseText: string, sourceIds: string[], difficulty: QuestionDifficulty, questionType: QuestionType, maxQuestions: number): QuizQuestion[] {
   const parsed = parseJsonResponse<ParsedQuizResponse>(responseText, isValidQuizResponse);
   
   if (!parsed || !parsed.questions || parsed.questions.length === 0) {
@@ -112,7 +128,12 @@ function parseQuizResponse(responseText: string, sourceIds: string[], difficulty
     throw new Error('Failed to parse quiz questions from AI response');
   }
 
-  return parsed.questions.map((q, index) => ({
+  const validQuestions = parsed.questions
+    .filter((question): question is GeneratedQuestion => isValidGeneratedQuestion(question, questionType))
+    .slice(0, maxQuestions);
+  if (validQuestions.length === 0) throw new Error('AI response contained no structurally valid quiz questions');
+
+  return validQuestions.map((q, index) => ({
     id: generateId(),
     question: q.question,
     options: q.options,
@@ -143,12 +164,13 @@ export async function generateQuiz(options: QuizGeneratorOptions): Promise<Quiz>
     throw new Error('No content available in the provided sources');
   }
 
+  const requestedQuestionCount = Math.max(1, Math.min(50, Math.floor(numQuestions) || 5));
   const questionTypeInstructions = questionType === 'true_false' 
     ? TRUE_FALSE_INSTRUCTIONS 
     : MULTIPLE_CHOICE_INSTRUCTIONS;
 
   const prompt = QUIZ_PROMPT_TEMPLATE
-    .replace(/{numQuestions}/g, numQuestions.toString())
+    .replace(/{numQuestions}/g, requestedQuestionCount.toString())
     .replace(/{difficulty}/g, difficulty)
     .replace(/{questionType}/g, questionType === 'true_false' ? 'true/false' : 'multiple choice')
     .replace(/{questionTypeInstructions}/g, questionTypeInstructions)
@@ -163,7 +185,7 @@ export async function generateQuiz(options: QuizGeneratorOptions): Promise<Quiz>
     temperature: 0.4,
   });
 
-  const questions = parseQuizResponse(responseText, sourceIds, difficulty, questionType);
+  const questions = parseQuizResponse(responseText, sourceIds, difficulty, questionType, requestedQuestionCount);
 
   if (questions.length === 0) {
     throw new Error('No questions were generated');

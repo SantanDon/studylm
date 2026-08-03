@@ -16,6 +16,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { FEATURE_FLAGS } from '@/config/featureFlags';
 import SignalQueuePanel from './SignalQueuePanel';
 import ResearchGoalsPanel from './ResearchGoalsPanel';
+import AgentMissionPanel from './AgentMissionPanel';
 import AudiobookView from './AudiobookView';
 import { Headphones } from 'lucide-react';
 
@@ -45,6 +46,7 @@ const StudioSidebar = ({
 
   const [isSignalQueueSectionOpen, setIsSignalQueueSectionOpen] = React.useState(false);
   const [isResearchGoalsSectionOpen, setIsResearchGoalsSectionOpen] = React.useState(false);
+  const [isAgentMissionsSectionOpen, setIsAgentMissionsSectionOpen] = React.useState(false);
   const [activeWorkspace, setActiveWorkspace] = React.useState<'studio' | 'audiobook'>('studio');
 
   const { notes, sources, installedModels, conceptMaps, currentSession } = data;
@@ -298,6 +300,27 @@ const StudioSidebar = ({
               <CollapsibleContent className="pt-2">
                 <div className="max-h-[360px] overflow-y-auto pr-1">
                   {notebookId && <ResearchGoalsPanel notebookId={notebookId} activeSourceId={activeSourceId ?? null} />}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Agent Missions Section */}
+            <Collapsible open={isAgentMissionsSectionOpen} onOpenChange={setIsAgentMissionsSectionOpen}>
+              <CollapsibleTrigger className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-3 shadow-sm transition-all hover:border-indigo-300 dark:border-indigo-900/60 dark:from-indigo-950/40 dark:to-violet-950/30">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-indigo-200 bg-white text-indigo-600 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
+                    <i className="fi fi-rr-robot text-xs" aria-hidden="true"></i>
+                  </div>
+                  <div className="flex min-w-0 flex-col items-start">
+                    <span className="text-sm font-semibold text-foreground">Agent Missions</span>
+                    <span className="text-[9px] leading-none text-muted-foreground">Run grounded research jobs</span>
+                  </div>
+                </div>
+                <i className={`fi fi-rr-angle-small-down text-muted-foreground transition-transform duration-300 ${isAgentMissionsSectionOpen ? 'rotate-180' : ''}`}></i>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                <div className="max-h-[520px] overflow-y-auto pr-1">
+                  {notebookId && <AgentMissionPanel notebookId={notebookId} />}
                 </div>
               </CollapsibleContent>
             </Collapsible>

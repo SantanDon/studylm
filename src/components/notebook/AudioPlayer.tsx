@@ -25,6 +25,9 @@ interface AudioPlayerProps {
   audioUrl: string;
   title?: string;
   notebookId?: string;
+  mediaId?: string;
+  mediaKind?: "podcast" | "audiobook";
+  allowDelete?: boolean;
   expiresAt?: string | null;
   onError?: () => void;
   onDeleted?: () => void;
@@ -36,6 +39,9 @@ const AudioPlayer = ({
   audioUrl,
   title = "Deep Dive Conversation",
   notebookId,
+  mediaId,
+  mediaKind = "podcast",
+  allowDelete = true,
   expiresAt,
   onError,
   onDeleted,
@@ -46,6 +52,8 @@ const AudioPlayer = ({
     audioUrl,
     title,
     notebookId,
+    mediaId,
+    mediaKind,
     expiresAt,
     onError,
     onDeleted,
@@ -63,7 +71,8 @@ const AudioPlayer = ({
     isDownloading,
     audioError,
     autoRetryInProgress,
-    playbackRate
+    playbackRate,
+    resumedFrom,
   } = state;
   const { audioRef } = refs;
   const {
@@ -75,7 +84,7 @@ const AudioPlayer = ({
     retryLoad,
     downloadAudio,
     deleteAudio,
-    formatTime
+    formatTime,
   } = handlers;
 
   return (
@@ -84,7 +93,13 @@ const AudioPlayer = ({
 
       <div className="flex items-center justify-between">
         <div className="flex-1">
-          <h4 className="font-medium text-gray-900">{title}</h4>
+          <h4 className="font-medium text-foreground">{title}</h4>
+          {resumedFrom > 0 && (
+            <p className="mt-1 text-xs text-muted-foreground" role="status">
+              Resumed at {formatTime(resumedFrom)} - progress saves
+              automatically
+            </p>
+          )}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -105,14 +120,16 @@ const AudioPlayer = ({
               )}
               {isDownloading ? "Downloading..." : "Download"}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={deleteAudio}
-              className="text-red-600 focus:text-red-600"
-              disabled={isDeleting}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete
-            </DropdownMenuItem>
+            {allowDelete && (
+              <DropdownMenuItem
+                onClick={deleteAudio}
+                className="text-red-600 focus:text-red-600"
+                disabled={isDeleting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -157,6 +174,7 @@ const AudioPlayer = ({
           onValueChange={handleSeek}
           className="w-full"
           disabled={loading || !!audioError}
+          aria-label={`${title} playback position`}
         />
         <div className="flex justify-between text-xs text-gray-500">
           <span>{formatTime(currentTime)}</span>
@@ -172,6 +190,7 @@ const AudioPlayer = ({
             size="sm"
             onClick={restart}
             disabled={loading || !!audioError}
+            aria-label="Restart from the beginning"
           >
             <RotateCcw className="h-4 w-4" />
           </Button>
@@ -182,6 +201,7 @@ const AudioPlayer = ({
             onClick={togglePlayPause}
             disabled={loading || !!audioError}
             className="w-12"
+            aria-label={isPlaying ? "Pause" : "Play"}
           >
             {loading ? (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
@@ -191,17 +211,21 @@ const AudioPlayer = ({
               <Play className="h-4 w-4" />
             )}
           </Button>
-          
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="w-16 px-1 text-xs font-mono">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-16 px-1 text-xs font-mono"
+              >
                 {playbackRate}x
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-20">
               {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                <DropdownMenuItem 
-                  key={rate} 
+                <DropdownMenuItem
+                  key={rate}
                   onClick={() => handlePlaybackRateChange(rate)}
                   className={playbackRate === rate ? "bg-accent" : ""}
                 >
@@ -221,6 +245,7 @@ const AudioPlayer = ({
             step={0.1}
             onValueChange={handleVolumeChange}
             className="flex-1"
+            aria-label="Volume"
           />
         </div>
       </div>

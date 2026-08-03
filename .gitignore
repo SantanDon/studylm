@@ -15,6 +15,11 @@ dist
 dist-ssr
 dist-codex-check/
 
+# Python-generated artifacts
+__pycache__/
+*.pyc
+*.pyo
+
 # Editor directories
 .vscode/*
 !.vscode/extensions.json

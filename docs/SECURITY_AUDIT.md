@@ -1,92 +1,63 @@
-# StudyPodLM Security Audit
+# StudyPod Security Audit
 
-**Last updated:** 2026-07-08 (post Phase-0 hardening + Login-with-ChatGPT integration)
-**Scope:** `backend/`, `src/`, `api/`, `mcp-server/`
+**Last updated:** 2026-08-03
+**Release:** Agent Missions, MCP/OAuth, grounded study workflows, document workspace, podcast hardening, and Audiobook Studio v2
+**Scope:** `backend/`, `src/`, `api/`, `mcp-server/`, deployment configuration, and production dependencies
 
----
+## Release posture
 
-## Resolved (historical issues now fixed)
+This release passed the complete automated, browser, API, storage, and deployment gates documented below. No API keys, tokens, environment files, databases, generated uploads, audiobook media, or QA artifacts are included in the release commit or Vercel upload.
 
-The following issues from prior audit revisions have been addressed in the current codebase:
+### Resolved and hardened
 
-| Prior issue | Current state |
+| Area | Current state |
 |---|---|
-| Plaintext password storage in `localStorage` | Passwords are bcrypt-hashed server-side (`backend/src/routes/auth.js`); the frontend never stores raw passwords. Sessions are httpOnly JWT cookies, not localStorage tokens. |
-| Session token = `'local-token-' + Date.now()` | Real JWT access (7d) + refresh (30d) tokens signed with `JWT_SECRET` (`backend/src/middleware/auth.js`). |
-| No Content Security Policy | Helmet CSP is configured in `backend/src/server.js` (dynamic for `127.0.0.1`/`localhost`). |
-| No client-side encryption | `src/stores/encryptionStore.ts` holds an in-memory `CryptoKey`; `src/lib/encryption/` implements client-side AES-GCM with multi-user isolation tests. |
+| Authentication | Passwords/passphrases are bcrypt-hashed server-side. Access and refresh credentials are issued through HttpOnly cookies or scoped API-key authentication. Production refuses to boot when `JWT_SECRET` is missing or shorter than 32 characters. |
+| Account recovery | The insecure browser-local password-reset mock was removed. Recovery now uses the server-backed 24-word recovery flow and invalidates prior session state when the passphrase changes. |
+| Removed attack surface | The obsolete admin migration route, legacy ChatGPT proxy/provider route, key-check scripts, debug research service, forensic PDF script, and obsolete video-key pool were removed. |
+| Agent access | Pairing codes expire, persistent agent keys are hashed at rest, and every agent operation enforces scopes and notebook ownership. Cross-account mission access returns `404`. |
+| Agent Missions | Goals and note counts are bounded. Mission claims are atomic, interrupted runs become recoverable, source and note text is treated as untrusted evidence, and completed reports include a verified evidence audit. |
+| ChatGPT connector | StudyPod exposes OAuth discovery, dynamic client registration, PKCE, rotating refresh credentials, explicit consent, scoped MCP tools, and notebook ownership checks. Provider credentials are not sent to the browser. |
+| External URL ingestion | Web extraction requires authentication and `sources:write`; only public HTTPS destinations are accepted. DNS and private/link-local/loopback address protections are centralized in `externalUrlSafety.js`. |
+| Request hardening | Helmet, CSP, CORS allowlisting, bounded JSON/form bodies, cookie parsing, normalized request keys, route-level authentication, and production rate limiting are enabled. |
+| Database access | User-facing data operations use parameterized Drizzle/libSQL queries. Notebook, source, note, mission, task, document, and audio metadata operations verify ownership. |
+| Audiobook media | Source filenames and generated media filenames are kept distinct; media paths require safe basenames and ownership. Render manifests, chapter media, progress, and bookmarks are isolated per owner. |
+| Serverless audio behavior | Vercel returns a clear local-beta capability response rather than starting non-durable local render workers or exposing broken generation controls. |
+| Secret hygiene | `.env*`, `.vercel`, `.ai-bridge`, uploads, databases, local model caches, and generated media are ignored. The release secret-pattern scan and Git whitespace checks passed. |
 
----
+## Current authentication surfaces
 
-## Phase 0 hardening (2026-07-08)
+- **Human accounts:** server-side signup/sign-in, bcrypt verification, access/refresh credentials, optional TOTP MFA, and 24-word recovery.
+- **Guest sessions:** explicitly identified guest tokens with restricted behavior.
+- **Agent API keys:** human-sponsored pairing or Developer Settings, hashed storage, bounded scopes, and per-notebook ownership enforcement.
+- **MCP/OAuth:** authorization-code flow with PKCE, consent records, short-lived access credentials, rotating refresh credentials, and scope checks on every tool.
 
-Five critical findings were remediated:
+## Known limitations and follow-up hardening
 
-| ID | Finding | Remediation |
+| ID | Limitation | Current mitigation / next step |
 |---|---|---|
-| **C1** | Hardcoded YouTube/Google InnerTube API key in 3 git-tracked files | Key externalized to `YOUTUBE_INNERTUBE_API_KEY` env var in `backend/src/routes/youtube.js`, `api/youtube-edge.js`, `vite-plugin-cors-proxy.ts`. **Action required:** rotate the leaked key in Google Cloud and scrub git history (`git filter-repo` / BFG). |
-| **C2** | `GET /api/admin/migrate` was unauthenticated | `backend/src/routes/admin.js` now requires `authenticateToken` + `requireScope('admin:keys')`. |
-| **C3** | MFA encryption fell back to a hardcoded key when `JWT_SECRET` unset | Fallback literal removed in `backend/src/routes/auth.js`; MFA now throws if `JWT_SECRET` is missing/short. Server boot aborts in production if `JWT_SECRET` is unset (`backend/src/server.js`). |
-| **C4** | Rate limiting skipped in production on Vercel | The `|| !!process.env.VERCEL` skip clause removed from `apiLimiter`, `authLimiter` (server.js), and the route-local `authLimiter` (auth.js). **Note:** for multi-instance/serverless deploys, back the limiter store with Vercel KV/Upstash so limits apply across instances. |
-| **C5** | JWT auto-provisioned ghost users with a hardcoded password when userId missing from DB | `backend/src/middleware/auth.js` now returns `401` ("Account no longer exists. Please sign in again.") instead of creating a shell user. |
+| **S1** | API and per-key rate-limit stores are process-local, so counters are not shared across serverless instances. | Route authentication and ownership still apply. Move production limiters to a shared Upstash/Vercel KV store before materially increasing public traffic. |
+| **S2** | The browser ML/audio stack currently needs a permissive script policy (`unsafe-inline` / `unsafe-eval`) for compatibility. | All scripts remain same-origin except explicitly listed providers. Replace broad directives with nonces plus `wasm-unsafe-eval` after confirming Kokoro/ONNX compatibility. |
+| **S3** | Locally received agent-upload files can exist as plaintext before the browser completes its encryption/import flow. | Uploads are excluded from Git and deployment. Add envelope encryption at write time for shared or multi-user server installations. |
+| **S4** | Full audiobook rendering is local-runtime only; Vercel cannot provide durable filesystem jobs. | Production clearly disables creation and labels it Local Beta. Connect object storage plus a durable queue before enabling cloud rendering. |
+| **S5** | The deployment still supports the legacy server-only `VITE_GROQ_API_KEY` alias during migration. | Frontend source has no references and the value is never bundled. Rename it to `GROQ_API_KEY` in Vercel, then remove the fallback in a later release. |
+| **S6** | npm reports React Router advisory `GHSA-qwww-vcr4-c8h2`. | StudyPod is a Vite `BrowserRouter` SPA and uses none of the affected RSC, loader, action, or server-router APIs. `scripts/audit-production.mjs` fails if any other production advisory appears or if an affected API is introduced. |
 
-Validation after Phase 0: `npm run lint` 0 errors, `npm run typecheck` baseline preserved, `npx vitest run backend/src/__tests__` 53/53 pass, production `vite build` green, live boot confirmed with LWC handler responding on `/api/chatgpt/session`.
+## Release validation evidence
 
----
-
-## Current security posture
-
-### Authentication
-- **Humans:** passphrase/email signin → bcrypt (cost 10) → httpOnly cookies (`accessToken` 7d, `refreshToken` 30d) signed with `JWT_SECRET`. Optional TOTP MFA (`otplib`), MFA secret AES-256-CBC encrypted with a key derived from `JWT_SECRET`. BIP39 recovery flow.
-- **Agents:** 6-digit pairing PIN (5-min expiry) → persistent `spm_` API key (32 random bytes, SHA-256 hashed at rest). 25 scopes enforced via `requireScope` for `authMethod === 'api_key'`; JWT (human) requests bypass scope checks. Per-key rate limiting (in-memory). `admin:keys`/`admin:all` short-circuit scope checks.
-- **Guests:** `guest_*` tokens auto-authenticated as `accountType: 'guest'` with documented limits (`docs/GUEST_MODE.md`).
-
-### Login with ChatGPT (added 2026-07-08)
-- OAuth device-code flow via the public Codex client; refresh tokens never leave the session layer.
-- Session cookie (`lwc_session`) is HttpOnly, HMAC-signed (24-char sessionId), tokens AES-GCM encrypted at rest with `LWC_SECRET`.
-- `/api/chatgpt/responses` proxy rate-limited at 30 req/min per session; `allowedOrigins` CSRF guard on non-GET routes.
-- Tokens never reach the browser; normal app code uses `auth.proxyFetch(request)` or `/responses`/`/models` without receiving bearer tokens.
-- StudyPodLM `signOut` also calls `POST /api/chatgpt/logout` to revoke the LWC session server-side.
-- **Required env:** `LWC_SECRET` (`openssl rand -hex 32`). **Production:** back `sessionStore` with a shared store (Vercel KV/Upstash); edge-limit `/login` + `/status`.
-
-### Transport / headers
-- Helmet CSP, COOP/COEP (`credentialless` for SharedArrayBuffer), CORP `cross-origin`.
-- CORS allowlist (`CORS_ORIGIN` env) + permissive localhost for dev. `credentials: true`.
-
-### Data at rest
-- SQLite/Turso via libsql (Drizzle ORM). DB URL + auth token from env.
-- Agent uploads land as **plaintext** in `uploads/agent/` until the frontend encrypts on notebook open (see N6 below).
-- Client-side encryption (AES-GCM) with in-memory `CryptoKey` (never persisted).
-
-### SQL safety
-All user-facing queries use Drizzle parameterized builders or `sql` tagged templates with bound `args`. No string-interpolated user input found in SQL. `sql.raw` usages operate on hardcoded const arrays.
-
----
-
-## Known remaining issues (non-critical)
-
-| ID | Issue | Location | Suggested fix |
-|---|---|---|---|
-| **N1** | Unauthenticated `GET /api/agent/antigravity/pulse` | `backend/src/routes/antigravity.js:46` | Add `authenticateToken` or restrict to read-only public status |
-| **N2** | Unauthed health endpoints leak env-var presence + DB health | `backend/src/server.js` (`/api/health/vault-check`, `/stability-audit`) | Gate behind `authenticateToken` or return only `status: ok` |
-| **N3** | Permissive CORS (`!origin` accepted; any `localhost:*`) | `backend/src/server.js:137-148` | Acceptable for dev; ensure `CORS_ORIGIN` is tight in prod |
-| **N4** | Email verification bypassed for all signups | `backend/src/routes/auth.js:141,179` | Enforce `isVerified` gate if email-verified features are needed |
-| **N5** | SSRF surface on authed `/api/proxy/proxy` + `/extract-web` | `backend/src/routes/proxy.js:18,56` | Add an allowlist/blocklist for internal IPs (169.254/10/127/172.16/192.168) |
-| **N6** | Agent uploads stored plaintext on disk until frontend encryption | `backend/src/routes/agent.js:62-63` | Encrypt on write (server-side envelope encryption) or restrict permissions |
-| **N7** | `docs/SECURITY_AUDIT.md` was stale (this update resolves it) | — | Keep this file current with each hardening pass |
-| **N8** | MCP SSE endpoint (`POST /rpc`) unauthenticated with `CORS *` | `mcp-server/index.js` | Add a token check or bind to loopback only |
-
-### Other code-health notes
-- 199 TypeScript errors remain (down from 316) — real type drift in `src/lib/extraction/pdfExtractor.ts` (pdfjs-dist `TextItem|TextMarkedContent` union) and `src/services/storage/LocalStorageServiceImpl.ts` (`LocalChatMessage` type drift). These need careful type design, not mechanical fixes.
-- CRDT persistence (`syncRelay.js` `onLoadDocument`/`onStoreDocument`) is a TODO stub.
-- `user.js` calls stubbed `dbHelpers` preferences/stats helpers (schema for those tables doesn't exist).
-- `backend/src/routes/auth.js:568` references `sendVerificationEmail` which is not imported — `POST /api/auth/resend-verification` will throw `ReferenceError`. (Discovered by the Phase 1.3 test suite.)
-
----
+- **Automated:** 77 test files and 591 tests passed.
+- **Static:** TypeScript passed with zero errors; ESLint passed with zero errors.
+- **Build:** production Vite build and exact Vercel Node 22 package build passed.
+- **Budgets:** initial app 446.4/600 KB, notebook 1636.9/1850 KB, Studio 439.2/500 KB.
+- **Dependencies:** backend production audit reports zero vulnerabilities; frontend production audit passes only the narrowly unreachable React Router exception above.
+- **Real-source browser regression:** eight sources (PDF, DOCX, text, pasted evidence, website, and YouTube) were ingested; eight grounded chats, citations, note/task persistence, source viewing, document revisions, version history, and DOCX/PDF exports passed.
+- **Agent Mission browser/API regression:** grounded cited report, durable note, reload persistence, 390 px mobile layout, cross-account denial, and persisted no-source failure passed with zero browser console or page errors.
+- **Long-book regression:** a 398-page PDF was structured into real chapters, progressively narrated, interrupted mid-render, resumed with cached chapters, and verified after another restart with progress and bookmarks intact.
 
 ## Maintenance protocol
 
-1. After every security-relevant change, update the **Phase 0 hardening** or **Known remaining issues** table here.
-2. New findings get a C/N ID and a remediation row.
-3. Run the validation suite after each change: `npm run lint && npm run typecheck && npx vitest run backend/src/__tests__ && npm run build`.
-4. Rotate secrets (`JWT_SECRET`, `LWC_SECRET`, provider API keys) on a schedule and after any suspected compromise.
+1. Keep this audit synchronized with every authentication, connector, ingestion, storage, or deployment change.
+2. Require automated tests, typecheck, lint, build, bundle budgets, both production audits, and at least one real browser/API journey before production promotion.
+3. Run a secret-pattern scan and `git diff --check` before every release commit.
+4. Never commit environment files, generated uploads, databases, local model caches, audio outputs, Vercel state, or QA artifacts.
+5. Rotate signing secrets and provider credentials after any suspected exposure and remove compatibility aliases once migrations are complete.

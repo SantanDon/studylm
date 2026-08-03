@@ -83,17 +83,24 @@ function parseConceptMapResponse(response: string): GeneratedConceptMap | null {
       return null;
     }
 
+    const seenNodeIds = new Set<string>();
     const validNodes = parsed.nodes.filter(
       (node: unknown): node is GeneratedConceptMap['nodes'][0] =>
         typeof node === 'object' &&
         node !== null &&
         typeof (node as Record<string, unknown>).id === 'string' &&
         typeof (node as Record<string, unknown>).label === 'string' &&
+        ((node as Record<string, unknown>).id as string).trim().length > 0 &&
+        ((node as Record<string, unknown>).label as string).trim().length > 0 &&
+        ['main', 'subtopic', 'detail', 'term'].includes((node as Record<string, unknown>).type as string) &&
+        !seenNodeIds.has((node as Record<string, unknown>).id as string) &&
+        Boolean(seenNodeIds.add((node as Record<string, unknown>).id as string)) &&
         ['main', 'subtopic', 'detail', 'term'].includes((node as Record<string, unknown>).type as string)
     );
 
     const nodeIds = new Set(validNodes.map((n: GeneratedConceptMap['nodes'][0]) => n.id));
 
+    const seenEdgeIds = new Set<string>();
     const validEdges = parsed.edges.filter(
       (edge: unknown): edge is GeneratedConceptMap['edges'][0] =>
         typeof edge === 'object' &&
@@ -101,6 +108,12 @@ function parseConceptMapResponse(response: string): GeneratedConceptMap | null {
         typeof (edge as Record<string, unknown>).id === 'string' &&
         typeof (edge as Record<string, unknown>).source === 'string' &&
         typeof (edge as Record<string, unknown>).target === 'string' &&
+        ((edge as Record<string, unknown>).id as string).trim().length > 0 &&
+        (edge as Record<string, unknown>).source !== (edge as Record<string, unknown>).target &&
+        ['related', 'explains', 'example', 'part_of'].includes(String((edge as Record<string, unknown>).type || 'related')) &&
+        !seenEdgeIds.has((edge as Record<string, unknown>).id as string) &&
+        Boolean(seenEdgeIds.add((edge as Record<string, unknown>).id as string)) &&
+        ['related', 'explains', 'example', 'part_of'].includes(String((edge as Record<string, unknown>).type || 'related')) &&
         nodeIds.has((edge as Record<string, unknown>).source as string) &&
         nodeIds.has((edge as Record<string, unknown>).target as string)
     );
@@ -124,7 +137,7 @@ function parseConceptMapResponse(response: string): GeneratedConceptMap | null {
         if (trimmed.startsWith('{') && trimmed.includes('nodes')) {
           const parsed = JSON.parse(trimmed);
           if (parsed.nodes && parsed.edges) {
-            return parsed as GeneratedConceptMap;
+            return parseConceptMapResponse(JSON.stringify(parsed));
           }
         }
       }

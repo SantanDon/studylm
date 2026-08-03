@@ -1,56 +1,64 @@
-import { Hocuspocus } from '@hocuspocus/server';
-import { db, schema } from '../db/database.js';
-import { eq, and } from 'drizzle-orm';
-import jwt from 'jsonwebtoken';
-import { logger } from '../utils/logger.js';
+import { Hocuspocus } from "@hocuspocus/server";
+import { db, schema } from "../db/database.js";
+import { eq, and } from "drizzle-orm";
+import jwt from "jsonwebtoken";
+import { logger } from "../utils/logger.js";
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error('[SyncRelay] JWT_SECRET must be set in environment');
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error("[SyncRelay] JWT_SECRET must contain at least 32 characters");
 }
 
 /**
  * StudyPod Sync Relay (Powered by Hocuspocus)
- * 
+ *
  * This server acts as a CRDT relay for team collaboration.
  * It does not "own" the state—it facilitates the merge between clients.
- * 
+ *
  * Features:
  * 1. Authentication via JWT
  * 2. Authorization per Notebook
- * 3. Persistence to Turso (LibSQL)
+ * 3. Ephemeral relay while clients are connected (durable CRDT persistence is pending)
  */
 export const hocuspocusServer = new Hocuspocus({
-  name: 'studypod-sync-relay',
-  
+  name: "studypod-sync-relay",
+
   async onAuthenticate(data) {
     const { token, documentName: notebookId } = data;
-    
+
     try {
-      if (!token) throw new Error('No token provided');
-      
-      const decoded = jwt.verify(token, JWT_SECRET);
-      const userId = decoded.userId;
+      if (!token) throw new Error("No token provided");
+
+      const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
+      const userId =
+        typeof decoded === "object" && !decoded.type
+          ? decoded.userId || decoded.id
+          : null;
+      if (!userId) throw new Error("Invalid access token");
 
       // Verify the user is a member of this notebook
       const membership = await db.query.notebookMembers.findFirst({
         where: and(
           eq(schema.notebookMembers.notebookId, notebookId),
-          eq(schema.notebookMembers.userId, userId)
-        )
+          eq(schema.notebookMembers.userId, userId),
+        ),
       });
 
       if (!membership) {
-        logger.warn(`Access DENIED: User ${userId} is not a member of notebook ${notebookId}`);
-        throw new Error('Unauthorized');
+        logger.warn(
+          `Access DENIED: User ${userId} is not a member of notebook ${notebookId}`,
+        );
+        throw new Error("Unauthorized");
       }
 
-      logger.debug(`Access GRANTED: User ${userId} authenticated for notebook ${notebookId}`);
+      logger.debug(
+        `Access GRANTED: User ${userId} authenticated for notebook ${notebookId}`,
+      );
       return {
         user: { id: userId, role: membership.role },
       };
-    } catch (error) {
-      logger.warn(`Authentication failed: ${error.message}`);
-      throw new Error('Authentication failed');
+    } catch {
+      logger.warn("Sync relay authentication failed");
+      throw new Error("Authentication failed");
     }
   },
 
@@ -58,20 +66,12 @@ export const hocuspocusServer = new Hocuspocus({
     logger.debug(`Client connected to document: ${data.documentName}`);
   },
 
-  async onLoadDocument(data) {
-    // Load the document from the database if it exists
-    // Document name is typically the notebookId
-    const notebookId = data.documentName;
-    
-    // We fetch the 'content' or specific 'notes' for this notebook
-    // and convert them back to a Yjs document if needed.
-    // For this POC, we return null to start a fresh Yjs doc if not in DB.
+  async onLoadDocument(_data) {
+    // Persistence is not enabled yet, so start with a fresh Yjs document.
     return null;
   },
 
-  async onStoreDocument(data) {
-    const notebookId = data.documentName;
-    // We could persist the entire Yjs state as a binary blob (Uint8Array)
-    // to the sync_data table for recovery.
+  async onStoreDocument(_data) {
+    // Reserved for durable collaborative-document persistence.
   },
 });

@@ -245,7 +245,7 @@ async function processSingleTweet(tweetInput, notebookId, userId) {
         logger.warn(`[DeepDive] Failed to persist signal hooks to queue: ${err.message}`);
       }
       logger.info(`[DeepDive] Signal hooks generated for tweet by ${tweetData.author}`);
-      WebhookDispatcher.recordActivityAndNotify(
+      await WebhookDispatcher.recordActivityAndNotify(
         notebookId, userId, 'system', 'bookmark.deep_dive',
         `Deep-dive complete: ${tweetData.tweetUrl.substring(0, 80)}`
       );

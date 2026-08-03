@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm install",
   "headers": [
     {
       "source": "/(.*)",
@@ -20,6 +21,22 @@
   ],
   "rewrites": [
     {
+      "source": "/.well-known/:path*",
+      "destination": "/api/[...route].js"
+    },
+    {
+      "source": "/oauth/:path*",
+      "destination": "/api/[...route].js"
+    },
+    {
+      "source": "/mcp",
+      "destination": "/api/[...route].js"
+    },
+    {
+      "source": "/mcp/:path*",
+      "destination": "/api/[...route].js"
+    },
+    {
       "source": "/api/youtube-edge",
       "destination": "/api/youtube-edge"
     },
@@ -37,8 +54,9 @@
       "maxDuration": 25
     },
     "api/**/*.js": {
-      "includeFiles": "backend/src/{routes,middleware,db,utils}/**",
-      "excludeFiles": "{node_modules/@hocuspocus,node_modules/@xenova,node_modules/better-sqlite3,node_modules/fluent-ffmpeg,node_modules/@ffmpeg,node_modules/onnxruntime-node,node_modules/sharp,node_modules/canvas}/**"
+      "maxDuration": 60,
+      "includeFiles": "backend/src/{routes,middleware,db,utils,services}/**",
+      "excludeFiles": "{node_modules/kokoro-js,node_modules/@huggingface,node_modules/onnxruntime-*,node_modules/@hocuspocus,node_modules/@ffmpeg,node_modules/sharp,node_modules/canvas}/**"
     }
   },
   "outputDirectory": "dist"

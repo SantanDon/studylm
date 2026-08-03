@@ -3,7 +3,7 @@
  * Standardizes all error responses to: { error, code }
  */
 
-import { logger } from '../utils/logger.js';
+import { logger } from "../utils/logger.js";
 
 /**
  * Custom application error with status code and error code.
@@ -28,16 +28,20 @@ export function errorHandler(err, req, res, _next) {
   }
 
   const statusCode = err.statusCode || 500;
-  const code = err.code || 'INTERNAL_ERROR';
-  const message = err.message || 'Internal Server Error';
+  const code = err.code || "INTERNAL_ERROR";
+  const isServerError = statusCode >= 500;
+  const message =
+    isServerError && process.env.NODE_ENV === "production"
+      ? "Internal Server Error"
+      : err.message || "Internal Server Error";
 
-  if (statusCode >= 500) {
+  if (isServerError) {
     logger.error(`[${code}] ${err.message}`, err.stack);
   }
 
   const body = { error: message, code };
 
-  if (statusCode >= 500 && process.env.NODE_ENV !== 'production') {
+  if (isServerError && process.env.NODE_ENV !== "production") {
     body.stack = err.stack;
   }
 

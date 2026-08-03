@@ -20,7 +20,7 @@ function loadEnv(path) {
 
 const agentEnv = loadEnv(join(__dirname, '../../.env.agent'));
 const API_KEY = agentEnv.AGENT_API_KEY || process.env.AGENT_API_KEY;
-const API_BASE = process.env.STUDYPOD_API || 'http://localhost:3001/api';
+const API_BASE = process.env.STUDYPOD_API || 'http://localhost:4000/api';
 
 if (!API_KEY) {
   console.error('No API key found. Run: node backend/scripts/kilo_pair.js <PIN>');

@@ -1,15 +1,19 @@
 import { dbHelpers } from '../db/database.js';
 import { logger } from '../utils/logger.js';
+import { assertSafeExternalHttpsUrl } from '../utils/externalUrlSafety.js';
 
 const EVENT_TYPES = [
   'note.created',
   'source.added',
   'chat.message',
   'agent.thought',
+  'mission.created',
   'mission.started',
-  'mission.ended',
+  'mission.completed',
+  'mission.failed',
+  'message.sent',
   'task.created',
-  'task.completed'
+  'task.completed',
 ];
 
 async function dispatchWebhook(notebookId, eventType, payload) {
@@ -35,16 +39,17 @@ async function dispatchWebhook(notebookId, eventType, payload) {
 
     const results = await Promise.allSettled(
       matching.map(async (wh) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
         try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 10000);
-          const res = await fetch(wh.url, {
+          const safeUrl = await assertSafeExternalHttpsUrl(wh.url);
+          const res = await fetch(safeUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'User-Agent': 'StudyPodLM-Webhook/1.0' },
             body,
-            signal: controller.signal
+            signal: controller.signal,
+            redirect: 'manual',
           });
-          clearTimeout(timeout);
           if (!res.ok) {
             logger.warn(`Webhook ${wh.id} returned ${res.status} for ${eventType}`);
           }
@@ -52,6 +57,8 @@ async function dispatchWebhook(notebookId, eventType, payload) {
         } catch (err) {
           logger.warn(`Webhook ${wh.id} failed for ${eventType}: ${err.message}`);
           return { webhookId: wh.id, error: err.message };
+        } finally {
+          clearTimeout(timeout);
         }
       })
     );
@@ -63,13 +70,16 @@ async function dispatchWebhook(notebookId, eventType, payload) {
   }
 }
 
-function recordActivityAndNotify(notebookId, userId, actor, actionType, contentPreview) {
-  dbHelpers.createActivityLog(notebookId, userId, actor, actionType, contentPreview).catch(() => {});
-  dispatchWebhook(notebookId, actionType.replace(/_/g, '.'), {
-    actor,
-    contentPreview,
-    userId
-  }).catch(() => {});
+async function recordActivityAndNotify(notebookId, userId, actor, actionType, contentPreview) {
+  const [activity, webhooks] = await Promise.allSettled([
+    dbHelpers.createActivityLog(notebookId, userId, actor, actionType, contentPreview),
+    dispatchWebhook(notebookId, actionType.replace(/_/g, '.'), {
+      actor,
+      contentPreview,
+      userId,
+    }),
+  ]);
+  return { activity, webhooks };
 }
 
 export const WebhookDispatcher = {

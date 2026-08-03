@@ -53,21 +53,22 @@ const MobileNotebookTabs = ({
           className="flex items-center space-x-2 text-sm data-[state=active]:bg-white dark:data-[state=active]:bg-background data-[state=active]:shadow-sm"
         >
           <i className="fi fi-rr-file h-4 w-4"></i>
-          <span className="hidden sm:inline">Sources</span>
+          <span className="text-[11px] sm:text-sm">Sources</span>
         </TabsTrigger>
         <TabsTrigger 
           value="chat" 
           className="flex items-center space-x-2 text-sm data-[state=active]:bg-white dark:data-[state=active]:bg-background data-[state=active]:shadow-sm"
         >
           <i className="fi fi-rr-comment h-4 w-4"></i>
-          <span className="hidden sm:inline">Chat</span>
+          <span className="text-[11px] sm:text-sm">Chat</span>
         </TabsTrigger>
         <TabsTrigger 
           value="studio" 
           className="flex items-center space-x-2 text-sm data-[state=active]:bg-white dark:data-[state=active]:bg-background data-[state=active]:shadow-sm"
+          data-testid="mobile-studio-tab"
         >
           <i className="fi fi-rr-notebook h-4 w-4"></i>
-          <span className="hidden sm:inline">Notes</span>
+          <span className="text-[11px] sm:text-sm">Studio</span>
         </TabsTrigger>
       </TabsList>
 

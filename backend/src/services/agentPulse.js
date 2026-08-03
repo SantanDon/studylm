@@ -1,63 +1,55 @@
-import { dbHelpers } from '../db/database.js';
-import { logger } from '../utils/logger.js';
+import { dbHelpers } from "../db/database.js";
+import { logger } from "../utils/logger.js";
 
 class AgentPulse {
-  constructor() {
-    this.activeMissions = new Map();
-  }
-
   async broadcastThought(userId, notebookId, thought) {
     if (!userId || !notebookId || !thought) return;
 
-    logger.debug(`[Pulse] Broadcasting thought for Notebook ${notebookId}: "${thought.slice(0, 60)}..."`);
+    logger.debug(
+      `[Pulse] Recording activity for notebook ${notebookId}: "${thought.slice(0, 60)}..."`,
+    );
 
     try {
+      const notebook = await dbHelpers.getNotebookById(notebookId, userId);
+      if (!notebook) {
+        logger.warn("[Pulse] Ignored activity for an inaccessible notebook");
+        return;
+      }
+
       await dbHelpers.createActivityLog(
         notebookId,
         userId,
-        'agent',
-        'agent_thought',
-        thought.slice(0, 200)
+        "agent",
+        "agent_thought",
+        thought.slice(0, 200),
       );
     } catch (error) {
-      logger.error('[Pulse] Failed to broadcast thought:', error.message);
+      logger.error("[Pulse] Failed to record activity:", error.message);
     }
   }
 
   async startMission(userId, notebookId, mission) {
-    const missionKey = `${userId}:${notebookId}`;
-    this.activeMissions.set(missionKey, {
-      mission,
-      startedAt: new Date(),
-      thoughtCount: 0,
-    });
-    await this.broadcastThought(userId, notebookId, `🧠 Beginning mission: ${mission}`);
+    await this.broadcastThought(
+      userId,
+      notebookId,
+      `Beginning mission: ${mission || "Agent mission"}`,
+    );
   }
 
-  async endMission(userId, notebookId) {
-    const missionKey = `${userId}:${notebookId}`;
-    const mission = this.activeMissions.get(missionKey);
-    if (mission) {
-      await this.broadcastThought(
-        userId,
-        notebookId,
-        `✅ Mission complete: "${mission.mission}" — ${mission.thoughtCount} insights shared`
-      );
-      this.activeMissions.delete(missionKey);
-    }
+  async endMission(userId, notebookId, mission) {
+    await this.broadcastThought(
+      userId,
+      notebookId,
+      `Mission complete: ${mission || "Agent mission"}`,
+    );
   }
 
-  getActiveMissions(userId) {
-    const missions = [];
-    for (const [key, value] of this.activeMissions) {
-      if (key.startsWith(`${userId}:`)) {
-        missions.push({
-          notebookId: key.split(':')[1],
-          ...value,
-        });
-      }
-    }
-    return missions;
+  async failMission(userId, notebookId, mission) {
+    await this.broadcastThought(
+      userId,
+      notebookId,
+      `Mission failed: ${mission || "Agent mission"}`,
+    );
   }
 }
 

@@ -7,7 +7,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Globe, Mail, Shield, RefreshCw } from "lucide-react";
-import { ChatGPTLoginButton } from "@/components/auth/ChatGPTLoginButton";
 
 interface CloudLoginProps {
   onSuccess?: () => void;
@@ -16,18 +15,23 @@ interface CloudLoginProps {
   initialIsSignUp?: boolean;
 }
 
-export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = false }: CloudLoginProps) => {
+export const CloudLogin = ({
+  onSuccess,
+  onCancel,
+  onRecover,
+  initialIsSignUp = false,
+}: CloudLoginProps) => {
   const [isSignUp, setIsSignUp] = useState(initialIsSignUp);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState(""); // Only used for Sign Up
   const [tosAccepted, setTosAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
-  
+
   const [loading, setLoading] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
-  
-  const { signIn, signInWithCloud, error, mfaRequired, verifyMfa } = useAuth();
+
+  const { signIn, error, mfaRequired, verifyMfa } = useAuth();
   const [mfaCode, setMfaCode] = useState("");
   const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
   const { toast } = useToast();
@@ -41,7 +45,8 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
     if (isSignUp && !tosAccepted) {
       toast({
         title: "Terms Required",
-        description: "You must agree to the Terms of Service to create an account.",
+        description:
+          "You must agree to the Terms of Service to create an account.",
         variant: "destructive",
       });
       setLoading(false);
@@ -52,25 +57,26 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
       if (isSignUp) {
         // --- SIGN UP ---
         console.log("Attempting cloud signup for:", email);
-        await ApiService.signup({ 
-          email, 
-          password, 
-          displayName, 
-          emailConsent: marketingConsent 
+        await ApiService.signup({
+          email,
+          password,
+          displayName,
+          emailConsent: marketingConsent,
         });
-        
+
         toast({
           title: "Account Created",
-          description: "Please check your email to verify your account before logging in.",
+          description:
+            "Please check your email to verify your account before logging in.",
         });
-        
+
         // Reset to sign in mode after successful signup
         setIsSignUp(false);
       } else {
         // --- SIGN IN ---
         console.log("Attempting cloud login for:", email);
         await signIn({ email, password });
-        
+
         // Success toast is handled via the context flow or success check
         if (!mfaRequired) {
           onSuccess?.();
@@ -80,7 +86,7 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
       console.error("Cloud auth error:", err);
       const error = err as { message?: string };
       const errMessage = error.message || "An unexpected error occurred";
-      
+
       toast({
         title: isSignUp ? "Sign Up Failed" : "Login Failed",
         description: errMessage,
@@ -99,11 +105,11 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
   const handleMfaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mfaCode.length !== 6) return;
-    
+
     setIsVerifyingMfa(true);
     const success = await verifyMfa(mfaCode);
     setIsVerifyingMfa(false);
-    
+
     if (success) {
       toast({
         title: "MFA Verified",
@@ -126,7 +132,8 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
     } catch (err) {
       toast({
         title: "Could Not Resend Email",
-        description: err instanceof Error ? err.message : "Please try again shortly.",
+        description:
+          err instanceof Error ? err.message : "Please try again shortly.",
         variant: "destructive",
       });
     } finally {
@@ -141,7 +148,9 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
           <div className="mx-auto w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center mb-4">
             <Shield className="w-6 h-6 text-blue-500" />
           </div>
-          <h2 className="text-2xl font-semibold tracking-tight">Two-Factor Auth</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">
+            Two-Factor Auth
+          </h2>
           <p className="text-sm text-muted-foreground">
             Enter the 6-digit code from your authenticator app
           </p>
@@ -181,7 +190,7 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
               {error}
             </p>
           )}
-          
+
           <Button
             type="button"
             variant="ghost"
@@ -207,30 +216,10 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
           {isSignUp ? "Create Cloud Account" : "Sign In to Cloud"}
         </h2>
         <p className="text-sm text-muted-foreground">
-          {isSignUp 
-            ? "Create an account to sync your notebooks and agents instantly." 
+          {isSignUp
+            ? "Create an account to sync your notebooks and agents instantly."
             : "Use your Cloud Credentials to access shared intelligence."}
         </p>
-      </div>
-
-      <div className="space-y-4">
-        <ChatGPTLoginButton
-          onSuccess={(user) => {
-            signInWithCloud(user);
-            onSuccess?.();
-          }}
-        />
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-zinc-200 dark:border-zinc-800" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">
-              or with email
-            </span>
-          </div>
-        </div>
       </div>
 
       <form onSubmit={handleCloudLogin} className="space-y-4">
@@ -271,7 +260,7 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
             placeholder="Enter your password"
             disabled={loading}
             required
-            minLength={6}
+            minLength={isSignUp ? 8 : 6}
           />
           {!isSignUp && (
             <div className="flex justify-end mt-1">
@@ -290,25 +279,38 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
         {isSignUp && (
           <div className="space-y-4 py-2">
             <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="tosAccepted" 
-                checked={tosAccepted} 
-                onCheckedChange={(checked) => setTosAccepted(checked as boolean)}
+              <Checkbox
+                id="tosAccepted"
+                checked={tosAccepted}
+                onCheckedChange={(checked) =>
+                  setTosAccepted(checked as boolean)
+                }
                 disabled={loading}
               />
               <label
                 htmlFor="tosAccepted"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
               >
-                I agree to the <a href="/terms" target="_blank" rel="noreferrer" className="underline">Terms of Service</a> (required)
+                I agree to the{" "}
+                <a
+                  href="/terms"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  Terms of Service
+                </a>{" "}
+                (required)
               </label>
             </div>
-            
+
             <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="marketingConsent" 
-                checked={marketingConsent} 
-                onCheckedChange={(checked) => setMarketingConsent(checked as boolean)}
+              <Checkbox
+                id="marketingConsent"
+                checked={marketingConsent}
+                onCheckedChange={(checked) =>
+                  setMarketingConsent(checked as boolean)
+                }
                 disabled={loading}
               />
               <label
@@ -328,8 +330,10 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 {isSignUp ? "Creating Account..." : "Authenticating..."}
               </>
+            ) : isSignUp ? (
+              "Create Account"
             ) : (
-              isSignUp ? "Create Account" : "Login to Cloud"
+              "Login to Cloud"
             )}
           </Button>
 
@@ -345,7 +349,7 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
               Resend Verification Email
             </Button>
           )}
-          
+
           <Button
             type="button"
             variant="ghost"
@@ -355,9 +359,11 @@ export const CloudLogin = ({ onSuccess, onCancel, onRecover, initialIsSignUp = f
             }}
             disabled={loading}
           >
-            {isSignUp ? "Already have an account? Sign In" : "Need an account? Sign Up"}
+            {isSignUp
+              ? "Already have an account? Sign In"
+              : "Need an account? Sign Up"}
           </Button>
-          
+
           {onCancel && !isSignUp && (
             <Button
               type="button"

@@ -52,6 +52,7 @@ export function formatDisplayTitle(value: unknown, fallback = 'Untitled'): strin
     .map((line) => line.trim())
     .find(Boolean);
   title = firstUsefulLine || '';
+  const isFileNameTitle = /\.(?:pdf|epub|docx?|txt|md|markdown|mobi|azw3)[\s'“”"]*$/i.test(title);
 
   title = title
     .replace(/^[\s'“”"]+|[\s'“”"]+$/g, '')
@@ -62,6 +63,8 @@ export function formatDisplayTitle(value: unknown, fallback = 'Untitled'): strin
     .replace(/\s{2,}/g, ' ')
     .replace(/^[\s:;,.|/\\-]+|[\s:;,.|/\\-]+$/g, '')
     .trim();
+
+  if (isFileNameTitle) title = title.replace(/-+/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
   if (GENERIC_TITLES.has(title.toLowerCase())) return fallback;
   if (!title) return fallback;

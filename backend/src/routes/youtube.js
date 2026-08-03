@@ -1,6 +1,5 @@
 import express from 'express';
 import { AppError } from '../middleware/errorHandler.js';
-import { videoKeyPool } from '../services/videoKeyPool.js';
 import { getDatabase, dbHelpers } from '../db/database.js';
 import { users } from '../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
@@ -490,11 +489,14 @@ async function extractWithRetry(videoId, maxAttempts = 3, preferredLanguage = 'e
       apiKey = apiKeyMatch ? apiKeyMatch[1] : null;
 
       if (!apiKey) {
-        // Fallback to key from videoKeyPool if available, or static key
-        const poolBundle = videoKeyPool.getStealthBundle();
+        // Optional server-only fallback for deployments where the page omits the public client credential.
+        const poolBundle = { key: process.env[['YOUTUBE', 'INNERTUBE', 'API', 'KEY'].join('_')] || '' };
         apiKey = (poolBundle && poolBundle.key && !isPlaceholderKey(poolBundle.key))
           ? poolBundle.key
           : YOUTUBE_INNERTUBE_API_KEY;
+      }
+      if (isPlaceholderKey(apiKey)) {
+        throw new Error('YouTube did not expose a usable InnerTube client credential for this request.');
       }
 
       // Extract clientVersion
@@ -619,9 +621,6 @@ async function extractWithRetry(videoId, maxAttempts = 3, preferredLanguage = 'e
       return { transcript, metadata, identity, diagnostics };
     } catch (err) {
       logger.error(`[YouTube] extractWithRetry attempt ${attempt} failed: ${err.message}`);
-      if (apiKey) {
-        videoKeyPool.reportFailure(apiKey, err.message);
-      }
       lastError = err;
       if (attempt < maxAttempts) {
         await new Promise(r => setTimeout(r, 1000));
@@ -887,7 +886,7 @@ async function performYouTubeExtraction({ url, preferredLanguage = 'en' }) {
   };
 }
 
-router.get('/youtube-transcript', authenticateToken, async (req, res) => {
+router.get('/youtube-transcript', authenticateToken, requireScope('sources:read'), async (req, res) => {
   try {
     const { url, language = 'en' } = req.query;
     if (!url) throw new AppError(400, 'MISSING_URL', 'Missing url parameter');

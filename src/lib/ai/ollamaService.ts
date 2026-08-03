@@ -14,7 +14,7 @@ import { generateTextToString, listModels } from "./ollamaClient";
 import { DOCUMENT_PROMPTS, formatPrompt } from "@/config/prompts";
 import { getModelForTask } from "@/config/ollamaModels";
 import { isOllamaEnabled } from "@/config/ollamaConfig";
-import { generateGroqResponse } from "./cloudClient";
+import { generateServerAiResponse } from "./serverAiClient";
 
 const OLLAMA_BASE_URL = import.meta.env.VITE_OLLAMA_URL || "http://localhost:11434";
 
@@ -248,10 +248,9 @@ export async function chatCompletion(params: {
   temperature?: number;
   onChunk?: (chunk: string) => void;
 }): Promise<string> {
-  // If Ollama is disabled, strictly use Groq fallback
+  // When local inference is disabled, use the authenticated server provider chain.
   if (!isOllamaEnabled()) {
-    console.log("☁️  Ollama disabled, routing to Groq fallback...");
-    return await generateGroqResponse(params.messages, "llama-3.1-8b-instant", params.temperature || 0.7);
+    return generateServerAiResponse(params.messages, params.temperature ?? 0.7);
   }
 
   const requestedModel = params.model || FAST_MODELS.chat;

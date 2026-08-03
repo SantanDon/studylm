@@ -1,12 +1,21 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { localStorageService } from "@/services/localStorageService";
 import { getStreamingTTSGenerator } from "@/lib/tts/streamingTTSGenerator";
+import {
+  clearPlaybackCheckpoint,
+  getResumableTime,
+  loadPlaybackCheckpoint,
+  savePlaybackCheckpoint,
+  type PlaybackMediaKind,
+} from "@/lib/audio/playbackProgress";
 
 interface UseAudioPlayerProps {
   audioUrl: string;
   title?: string;
   notebookId?: string;
+  mediaId?: string;
+  mediaKind?: PlaybackMediaKind;
   expiresAt?: string | null;
   onError?: () => void;
   onDeleted?: () => void;
@@ -17,6 +26,8 @@ interface UseAudioPlayerProps {
 export function useAudioPlayer({
   audioUrl,
   title = "Deep Dive Conversation",
+  mediaId,
+  mediaKind = "podcast",
   notebookId,
   expiresAt,
   onError,
@@ -34,11 +45,62 @@ export function useAudioPlayer({
   const [retryCount, setRetryCount] = useState(0);
   const [autoRetryInProgress, setAutoRetryInProgress] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [resumedFrom, setResumedFrom] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  const playbackRateRef = useRef(1);
+  const restoredMediaRef = useRef<string | null>(null);
   const { toast } = useToast();
 
   const isExpired = expiresAt ? new Date(expiresAt) <= new Date() : false;
   const isWebSpeech = audioUrl === "webspeech_fallback";
+  const resolvedMediaId =
+    mediaId || (notebookId ? `podcast:${notebookId}:${title}` : "");
+
+  const persistPlayback = useCallback(
+    (time = currentTimeRef.current) => {
+      if (!resolvedMediaId || time <= 0) return;
+      savePlaybackCheckpoint({
+        mediaId: resolvedMediaId,
+        kind: mediaKind,
+        currentTime: time,
+        duration: durationRef.current,
+        playbackRate: playbackRateRef.current,
+      });
+    },
+    [resolvedMediaId, mediaKind],
+  );
+
+  const completePlayback = useCallback(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setResumedFrom(0);
+    currentTimeRef.current = 0;
+    if (resolvedMediaId) clearPlaybackCheckpoint(resolvedMediaId);
+  }, [resolvedMediaId]);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+  useEffect(() => {
+    playbackRateRef.current = playbackRate;
+  }, [playbackRate]);
+
+  useEffect(() => {
+    restoredMediaRef.current = null;
+    currentTimeRef.current = 0;
+    durationRef.current = 0;
+    playbackRateRef.current = 1;
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setPlaybackRate(1);
+    setResumedFrom(0);
+  }, [resolvedMediaId, audioUrl]);
 
   useEffect(() => {
     if (isWebSpeech) {
@@ -50,14 +112,15 @@ export function useAudioPlayer({
       const computedDuration = totalDur || 180;
       setDuration(computedDuration);
 
-      if (notebookId) {
-        const savedTime = localStorage.getItem(`podcast_pos_${notebookId}`);
-        if (savedTime) {
-          const time = parseFloat(savedTime);
-          if (time > 0 && time < computedDuration - 5) {
-            setCurrentTime(time);
-            console.log(`🎙️ Resumed Web Speech podcast for ${notebookId} at ${time}s`);
-          }
+      if (resolvedMediaId) {
+        const checkpoint = loadPlaybackCheckpoint(resolvedMediaId);
+        const time = getResumableTime(checkpoint, computedDuration);
+        if (time > 0) {
+          currentTimeRef.current = time;
+          playbackRateRef.current = checkpoint?.playbackRate || 1;
+          setCurrentTime(time);
+          setPlaybackRate(checkpoint?.playbackRate || 1);
+          setResumedFrom(time);
         }
       }
       return;
@@ -66,14 +129,18 @@ export function useAudioPlayer({
     const audio = audioRef.current;
     if (!audio) return;
 
-    const updateTime = () => setCurrentTime(audio.currentTime);
+    const updateTime = () => {
+      currentTimeRef.current = audio.currentTime;
+      setCurrentTime(audio.currentTime);
+    };
     const updateDuration = () => {
+      durationRef.current = audio.duration;
       setDuration(audio.duration);
       setLoading(false);
       setAudioError(null);
       setRetryCount(0);
     };
-    const handleEnded = () => setIsPlaying(false);
+    const handleEnded = completePlayback;
     const handleError = async (e: Event) => {
       console.error("Audio error:", e);
       setLoading(false);
@@ -117,20 +184,24 @@ export function useAudioPlayer({
       setAudioError(null);
       setRetryCount(0);
       setAutoRetryInProgress(false);
-      
-      // Persistence: Restore position on first load
-      if (notebookId && audio.currentTime === 0) {
-        const savedTime = localStorage.getItem(`podcast_pos_${notebookId}`);
-        if (savedTime) {
-          const time = parseFloat(savedTime);
-          if (time > 0 && time < audio.duration - 5) {
-            audio.currentTime = time;
-            setCurrentTime(time);
-            console.log(`🎙️ Resumed podcast for ${notebookId} at ${time}s`);
-          }
+
+      if (resolvedMediaId && restoredMediaRef.current !== resolvedMediaId) {
+        restoredMediaRef.current = resolvedMediaId;
+        const checkpoint = loadPlaybackCheckpoint(resolvedMediaId);
+        const time = getResumableTime(checkpoint, audio.duration);
+        if (time > 0) {
+          audio.currentTime = time;
+          audio.playbackRate = checkpoint?.playbackRate || 1;
+          currentTimeRef.current = time;
+          playbackRateRef.current = checkpoint?.playbackRate || 1;
+          setCurrentTime(time);
+          setPlaybackRate(checkpoint?.playbackRate || 1);
+          setResumedFrom(time);
         }
       }
     };
+
+    const handlePause = () => persistPlayback(audio.currentTime);
 
     const handleLoadStart = () => {
       if (autoRetryInProgress) {
@@ -138,11 +209,9 @@ export function useAudioPlayer({
       }
     };
 
-    // Persistence: Save position every 5 seconds
+    // Save while listening; pause and page-exit handlers cover the final interval.
     const persistenceInterval = setInterval(() => {
-        if (notebookId && audio.currentTime > 0) {
-            localStorage.setItem(`podcast_pos_${notebookId}`, audio.currentTime.toString());
-        }
+      persistPlayback(audio.currentTime);
     }, 5000);
 
     audio.addEventListener("timeupdate", updateTime);
@@ -150,27 +219,57 @@ export function useAudioPlayer({
     audio.addEventListener("canplay", handleCanPlay);
     audio.addEventListener("loadstart", handleLoadStart);
     audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("pause", handlePause);
     audio.addEventListener("error", handleError);
 
     return () => {
       clearInterval(persistenceInterval);
+      persistPlayback(audio.currentTime);
       audio.removeEventListener("timeupdate", updateTime);
       audio.removeEventListener("loadedmetadata", updateDuration);
       audio.removeEventListener("canplay", handleCanPlay);
       audio.removeEventListener("loadstart", handleLoadStart);
       audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("pause", handlePause);
       audio.removeEventListener("error", handleError);
     };
   }, [
     onError,
+    completePlayback,
     isExpired,
     retryCount,
     notebookId,
+    resolvedMediaId,
+    mediaKind,
+    persistPlayback,
     onUrlRefresh,
     audioError,
     autoRetryInProgress,
     isWebSpeech,
   ]);
+
+  useEffect(() => {
+    if (!isWebSpeech) return;
+    const interval = window.setInterval(() => persistPlayback(), 5000);
+    return () => {
+      window.clearInterval(interval);
+      persistPlayback();
+    };
+  }, [isWebSpeech, persistPlayback]);
+
+  useEffect(() => {
+    const saveBeforeLeaving = () => persistPlayback();
+    const saveWhenHidden = () => {
+      if (document.visibilityState === "hidden") persistPlayback();
+    };
+    window.addEventListener("pagehide", saveBeforeLeaving);
+    document.addEventListener("visibilitychange", saveWhenHidden);
+    return () => {
+      saveBeforeLeaving();
+      window.removeEventListener("pagehide", saveBeforeLeaving);
+      document.removeEventListener("visibilitychange", saveWhenHidden);
+    };
+  }, [persistPlayback]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -189,7 +288,7 @@ export function useAudioPlayer({
       } else {
         setIsPlaying(true);
         const segments = generator.getGeneratedSegments();
-        
+
         let accumulated = 0;
         let startIndex = 0;
         for (let i = 0; i < segments.length; i++) {
@@ -203,13 +302,14 @@ export function useAudioPlayer({
         generator.playAll(
           startIndex,
           (index) => {
-            const prevDuration = segments.slice(0, index).reduce((sum, s) => sum + s.duration, 0);
+            const prevDuration = segments
+              .slice(0, index)
+              .reduce((sum, s) => sum + s.duration, 0);
             setCurrentTime(prevDuration);
           },
           () => {
-            setIsPlaying(false);
-            setCurrentTime(0);
-          }
+            completePlayback();
+          },
         );
       }
       return;
@@ -220,6 +320,7 @@ export function useAudioPlayer({
 
     if (isPlaying) {
       audio.pause();
+      persistPlayback(audio.currentTime);
     } else {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
@@ -234,14 +335,16 @@ export function useAudioPlayer({
 
   const handleSeek = (value: number[]) => {
     const time = value[0];
+    currentTimeRef.current = time;
     setCurrentTime(time);
+    persistPlayback(time);
 
     if (isWebSpeech) {
       if (isPlaying) {
         const generator = getStreamingTTSGenerator();
         generator.stopPlayback();
         const segments = generator.getGeneratedSegments();
-        
+
         let accumulated = 0;
         let startIndex = 0;
         for (let i = 0; i < segments.length; i++) {
@@ -255,13 +358,14 @@ export function useAudioPlayer({
         generator.playAll(
           startIndex,
           (index) => {
-            const prevDuration = segments.slice(0, index).reduce((sum, s) => sum + s.duration, 0);
+            const prevDuration = segments
+              .slice(0, index)
+              .reduce((sum, s) => sum + s.duration, 0);
             setCurrentTime(prevDuration);
           },
           () => {
-            setIsPlaying(false);
-            setCurrentTime(0);
-          }
+            completePlayback();
+          },
         );
       }
       return;
@@ -284,9 +388,9 @@ export function useAudioPlayer({
 
   const restart = () => {
     setCurrentTime(0);
-    if (notebookId) {
-        localStorage.removeItem(`podcast_pos_${notebookId}`);
-    }
+    currentTimeRef.current = 0;
+    setResumedFrom(0);
+    if (resolvedMediaId) clearPlaybackCheckpoint(resolvedMediaId);
 
     if (isWebSpeech) {
       const generator = getStreamingTTSGenerator();
@@ -296,13 +400,14 @@ export function useAudioPlayer({
         generator.playAll(
           0,
           (index) => {
-            const prevDuration = segments.slice(0, index).reduce((sum, s) => sum + s.duration, 0);
+            const prevDuration = segments
+              .slice(0, index)
+              .reduce((sum, s) => sum + s.duration, 0);
             setCurrentTime(prevDuration);
           },
           () => {
-            setIsPlaying(false);
-            setCurrentTime(0);
-          }
+            completePlayback();
+          },
         );
       }
       return;
@@ -318,7 +423,9 @@ export function useAudioPlayer({
     const audio = audioRef.current;
     if (!audio) return;
     audio.playbackRate = rate;
+    playbackRateRef.current = rate;
     setPlaybackRate(rate);
+    persistPlayback(audio.currentTime);
   };
 
   const retryLoad = () => {
@@ -342,7 +449,8 @@ export function useAudioPlayer({
     if (isWebSpeech) {
       toast({
         title: "Download Unavailable",
-        description: "Browser Speech audio cannot be downloaded as it is synthesized in real time.",
+        description:
+          "Browser Speech audio cannot be downloaded as it is synthesized in real time.",
         variant: "destructive",
       });
       return;
@@ -437,7 +545,8 @@ export function useAudioPlayer({
       isDownloading,
       audioError,
       autoRetryInProgress,
-      playbackRate
+      playbackRate,
+      resumedFrom,
     },
     refs: { audioRef },
     handlers: {
@@ -449,7 +558,7 @@ export function useAudioPlayer({
       retryLoad,
       downloadAudio,
       deleteAudio,
-      formatTime
-    }
+      formatTime,
+    },
   };
 }

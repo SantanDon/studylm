@@ -1,0 +1,8 @@
+# Install in a dedicated Python 3.11 virtual environment.
+# Chatterbox pulls its compatible torch/torchaudio runtime.
+chatterbox-tts==0.1.7
+# resemble-perth 1.0.1 still imports pkg_resources during initialization.
+setuptools>=70,<81
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+pydantic>=2.10,<3

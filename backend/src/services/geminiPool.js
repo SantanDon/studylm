@@ -1,133 +1,144 @@
-import { GoogleGenAI } from '@google/genai';
-import { logger } from '../utils/logger.js';
+import { GoogleGenAI } from "@google/genai";
+import { logger } from "../utils/logger.js";
 
-// STABILITY PATCH v4: user-agents PURGED.
-const UA_LIST = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-];
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const MIN_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_REQUEST_TIMEOUT_MS = 300_000;
 
-/**
- * GeminiKeyPool — STEALTH EDITION
- */
-class GeminiKeyPool {
-  constructor() {
+const getRequestTimeoutMs = () => {
+  const configured = Number.parseInt(
+    process.env.GEMINI_PDF_TIMEOUT_MS || "",
+    10,
+  );
+  if (!Number.isFinite(configured)) return DEFAULT_REQUEST_TIMEOUT_MS;
+  return Math.min(
+    MAX_REQUEST_TIMEOUT_MS,
+    Math.max(MIN_REQUEST_TIMEOUT_MS, configured),
+  );
+};
+
+export class GeminiKeyPool {
+  constructor(configuredCredentials = null) {
     this.keys = [];
-    this.keyHealth = new Map(); // Key -> { failures, lastUsed, isExhausted }
-    this.loadKeys();
+    this.keyHealth = new Map();
+    this.loadKeys(configuredCredentials);
   }
 
-  loadKeys() {
-    const envKeys = process.env.GEMINI_API_KEYS;
-    if (!envKeys) {
-      logger.warn('[GeminiStealth] No GEMINI_API_KEYS found. Reasoning disabled.');
+  loadKeys(configuredCredentials = null) {
+    const configured =
+      configuredCredentials ??
+      (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "");
+    this.keys = [
+      ...new Set(
+        configured
+          .split(/[,;]/)
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    if (this.keys.length === 0) {
+      logger.info("[Gemini] No server-side credential configured.");
       return;
     }
-    
-    this.keys = envKeys.split(/[,;]/).map(k => k.trim()).filter(k => k.length > 0);
-    logger.info(`[GeminiStealth] Loaded ${this.keys.length} keys. Fingerprint evasion ACTIVE.`);
-    
+
+    logger.info(`[Gemini] Configured ${this.keys.length} credential(s).`);
     for (const key of this.keys) {
-      this.keyHealth.set(key, { failures: 0, lastUsed: 0, isExhausted: false });
+      this.keyHealth.set(key, {
+        failures: 0,
+        lastUsed: 0,
+        blockedUntil: 0,
+        disabled: false,
+      });
     }
   }
 
-  /**
-   * Stealth Selection Strategy:
-   * Instead of Key 1 -> Key 2 -> Key 3 (Bot pattern), 
-   * we use weighted random selection from the pool of healthy keys
-   * to simulate organic, erratic traffic.
-   */
-  getStealthKey() {
-    const healthyKeys = this.keys.filter(k => !this.keyHealth.get(k).isExhausted);
-    
-    if (healthyKeys.length === 0) {
-      // Periodic "Recovery" Check: Try to revive a key if it's been over 10 minutes
-      const now = Date.now();
-      for (const [key, stats] of this.keyHealth.entries()) {
-        if (now - stats.lastUsed > 600000) { // 10 minutes for fast rotation
-          logger.info(`[GeminiStealth] Attempting recovery for key: ${key.substring(0, 8)}...`);
-          stats.isExhausted = false;
-          stats.failures = 0;
-          return key;
-        }
-      }
-      throw new Error('Gemini Farm Exhausted: All keys hit 429 limits or are blocked. Check logs for details.');
+  getAvailableCredential() {
+    const now = Date.now();
+    const selectedKey =
+      this.keys
+        .filter((key) => {
+          const health = this.keyHealth.get(key);
+          return !health.disabled && health.blockedUntil <= now;
+        })
+        .sort(
+          (left, right) =>
+            this.keyHealth.get(left).lastUsed -
+            this.keyHealth.get(right).lastUsed,
+        )[0] || null;
+
+    if (!selectedKey) {
+      throw new Error("Gemini credentials are temporarily unavailable.");
     }
 
-    // Jittered Random Selection (Algorithm Fingerprinting Mitigation)
-    const randomIndex = Math.floor(Math.random() * healthyKeys.length);
-    const selectedKey = healthyKeys[randomIndex];
-    
-    const stats = this.keyHealth.get(selectedKey);
-    stats.lastUsed = Date.now();
+    this.keyHealth.get(selectedKey).lastUsed = now;
     return selectedKey;
   }
 
   async generateContent(model, prompt, systemInstruction = null) {
+    if (this.keys.length === 0) {
+      throw new Error("Gemini document extraction is not configured.");
+    }
+
     let attempts = 0;
     const maxRetries = Math.min(this.keys.length, 5);
-    const errors = [];
 
     while (attempts < maxRetries) {
-      const apiKey = this.getStealthKey();
-      
+      const credential = this.getAvailableCredential();
+
       try {
-        // Anti-Detection Header: Randomized User-Agent from stable pool
-        const customUA = UA_LIST[Math.floor(Math.random() * UA_LIST.length)];
-        
-        const client = new GoogleGenAI(apiKey);
-        // Note: systemInstruction in latest Gemini SDK should be passed during model initialization
-        // but we'll stick to contents based instructions if the current env is older
-        const genModel = client.getGenerativeModel({ model });
-
-        // Add "Organic Delay" (Jitter) to simulate human pacing
-        const jitterMs = Math.floor(Math.random() * 800) + 200; 
-        await new Promise(resolve => setTimeout(resolve, jitterMs));
-
-        const result = await genModel.generateContent({
+        const client = new GoogleGenAI({ apiKey: credential });
+        const response = await client.models.generateContent({
+          model,
           contents: prompt,
-          // If systemInstruction is provided, prepend it to the first prompt text for robust extraction
-          // This fixes the 500 when passing systemInstruction via generateContent in older SDKs
-          systemInstruction: systemInstruction ? { role: 'system', parts: [{ text: systemInstruction }] } : undefined,
-          generationConfig: { 
+          config: {
+            systemInstruction: systemInstruction || undefined,
             temperature: 0.4,
-            maxOutputTokens: 2048 // Cap for safety, but large enough for dense materials
-          }
+            maxOutputTokens: 32768,
+            httpOptions: {
+              timeout: getRequestTimeoutMs(),
+              retryOptions: { attempts: 1 },
+            },
+          },
         });
+        const text = String(response.text ?? "").trim();
 
-        const response = await result.response;
-        const text = response.text();
-        
-        if (!text) throw new Error('EMPTY_RESPONSE_FROM_GEMINI');
+        if (!text) throw new Error("EMPTY_RESPONSE_FROM_GEMINI");
 
         return {
-          text: text,
-          usageMetadata: response.usageMetadata
+          text,
+          usageMetadata: response.usageMetadata,
         };
-
       } catch (error) {
-        const stats = this.keyHealth.get(apiKey);
-        attempts++;
-        
-        const errorStatus = error.status || (error.message.includes('429') ? 429 : 500);
-        logger.error(`[GeminiStealth] Request Error (Key: ${apiKey.substring(0, 8)}... Status: ${errorStatus}):`, error.message);
+        const stats = this.keyHealth.get(credential);
+        attempts += 1;
+        stats.failures += 1;
 
-        if (errorStatus === 429 || error.message.includes('quota')) {
-          stats.isExhausted = true;
-          // Continue to next attempt
-        } else if (errorStatus === 403 || errorStatus === 401) {
-          logger.warn(`[GeminiStealth] Key Revoked or Invalid Permission. Purging.`);
-          stats.isExhausted = true; // Mark as exhausted permanently for this session
-        } else {
-          errors.push(error.message);
-          // For 500 or other errors, maybe we can try one more key
+        const message = String(error?.message || "");
+        const errorStatus = Number.isFinite(error?.status)
+          ? Number(error.status)
+          : /\b429\b/.test(message)
+            ? 429
+            : 500;
+
+        if (errorStatus === 401 || errorStatus === 403) {
+          stats.disabled = true;
+        } else if (
+          errorStatus === 429 ||
+          message.toLowerCase().includes("quota")
+        ) {
+          stats.blockedUntil = Date.now() + 60_000;
         }
+
+        logger.warn(
+          `[Gemini] Request attempt ${attempts}/${maxRetries} failed (HTTP ${errorStatus}).`,
+        );
       }
     }
-    
-    throw new Error(`All farm keys exhausted or blocked. Last errors: ${errors.join('; ')}`);
+
+    throw new Error(
+      `Gemini document extraction is unavailable after ${attempts} attempt(s).`,
+    );
   }
 }
 

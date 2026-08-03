@@ -1,10 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { localStorageService, LocalSource } from "@/services/localStorageService";
+import {
+  localStorageService,
+  LocalSource,
+} from "@/services/localStorageService";
 import { useAuthState } from "@/hooks/useAuthState";
 import { useGuest } from "@/hooks/useGuest";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
-import { useNotebookGeneration } from "./useNotebookGeneration";
 import { useEffect } from "react";
 import type { SourceProcessingStatus } from "@/lib/sources/sourceProcessing";
 
@@ -15,23 +17,30 @@ export interface Source extends LocalSource {
 export function normalizeSourceRecord(source: Record<string, unknown>): Source {
   return {
     ...source,
-    created_at: source.createdAt || source.created_at || new Date().toISOString(),
-    updated_at: source.updatedAt || source.updated_at || new Date().toISOString(),
+    created_at:
+      source.createdAt || source.created_at || new Date().toISOString(),
+    updated_at:
+      source.updatedAt || source.updated_at || new Date().toISOString(),
     file_path: source.filePath || source.file_path,
     file_size: source.fileSize || source.file_size,
-    processing_status: source.processingStatus || source.processing_status || 'pending',
+    processing_status:
+      source.processingStatus || source.processing_status || "pending",
     notebook_id: source.notebookId || source.notebook_id,
     user_id: source.userId || source.user_id,
   } as unknown as Source;
 }
 
-export function upsertSourceCache(current: Source[], incoming: Source): Source[] {
+export function upsertSourceCache(
+  current: Source[],
+  incoming: Source,
+): Source[] {
   const found = current.some((source) => source.id === incoming.id);
   const next = found
-    ? current.map((source) => source.id === incoming.id ? incoming : source)
+    ? current.map((source) => (source.id === incoming.id ? incoming : source))
     : [incoming, ...current];
   return next.sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 }
 
@@ -41,7 +50,6 @@ export const useSources = (notebookId?: string) => {
   const { guestId } = useGuest();
   const effectiveUserId = user?.id || guestId;
   const queryClient = useQueryClient();
-  const { generateNotebookContentAsync } = useNotebookGeneration();
 
   const {
     data: sources = [],
@@ -53,15 +61,22 @@ export const useSources = (notebookId?: string) => {
       if (!notebookId) return [];
 
       let sources: Source[];
-      
+
       if (session?.access_token) {
         console.log("useSources: Fetching from cloud...");
-        const rawSources = await ApiService.fetchSources(notebookId, session.access_token);
+        const rawSources = await ApiService.fetchSources(
+          notebookId,
+          session.access_token,
+        );
         // Map Drizzle camelCase to Supabase-style snake_case the frontend expects
-        sources = rawSources.map((source: Record<string, unknown>) => normalizeSourceRecord(source));
+        sources = rawSources.map((source: Record<string, unknown>) =>
+          normalizeSourceRecord(source),
+        );
       } else {
         console.log("useSources: Fetching from local storage...");
-        sources = await localStorageService.getSources(notebookId) as Source[];
+        sources = (await localStorageService.getSources(
+          notebookId,
+        )) as Source[];
       }
 
       // Sort by creation date (newest first)
@@ -88,7 +103,15 @@ export const useSources = (notebookId?: string) => {
     mutationFn: async (sourceData: {
       notebookId: string;
       title: string;
-      type: "pdf" | "doc" | "text" | "website" | "youtube" | "audio" | "image" | "ebook";
+      type:
+        | "pdf"
+        | "doc"
+        | "text"
+        | "website"
+        | "youtube"
+        | "audio"
+        | "image"
+        | "ebook";
       content?: string;
       url?: string;
       file_path?: string;
@@ -98,11 +121,18 @@ export const useSources = (notebookId?: string) => {
     }) => {
       if (!effectiveUserId) throw new Error("User not authenticated");
 
-      const title = sourceData.title && !sourceData.title.includes("extraction failed") 
-        && !sourceData.title.includes("Unable to extract text") 
-        && !sourceData.title.includes("PDF contains no extractable text")
-        ? sourceData.title
-        : (sourceData.file_path ? sourceData.file_path.split('/').pop()?.replace(/\.[^/.]+$/, "") || "Document" : "New Source");
+      const title =
+        sourceData.title &&
+        !sourceData.title.includes("extraction failed") &&
+        !sourceData.title.includes("Unable to extract text") &&
+        !sourceData.title.includes("PDF contains no extractable text")
+          ? sourceData.title
+          : sourceData.file_path
+            ? sourceData.file_path
+                .split("/")
+                .pop()
+                ?.replace(/\.[^/.]+$/, "") || "Document"
+            : "New Source";
 
       let newSource: Source;
 
@@ -112,7 +142,8 @@ export const useSources = (notebookId?: string) => {
         const apiPayload = {
           id: newId,
           title,
-          type: sourceData.type as "pdf" | "text" | "website" | "youtube" | "audio" | "image",
+          type: sourceData.type as
+            "pdf" | "text" | "website" | "youtube" | "audio" | "image",
           content: sourceData.content,
           url: sourceData.url,
           file_path: sourceData.file_path,
@@ -120,10 +151,14 @@ export const useSources = (notebookId?: string) => {
           processing_status: sourceData.processing_status,
           metadata: sourceData.metadata || {},
         };
-        newSource = await ApiService.createSource(sourceData.notebookId, apiPayload, session.access_token) as Source;
+        newSource = (await ApiService.createSource(
+          sourceData.notebookId,
+          apiPayload,
+          session.access_token,
+        )) as Source;
       } else {
         // Create source in local storage
-        newSource = await localStorageService.createSource({
+        newSource = (await localStorageService.createSource({
           notebook_id: sourceData.notebookId,
           title,
           type: sourceData.type,
@@ -133,87 +168,31 @@ export const useSources = (notebookId?: string) => {
           file_size: sourceData.file_size,
           processing_status: sourceData.processing_status,
           metadata: (sourceData.metadata as Record<string, unknown>) || {},
-        }) as Source;
+        })) as Source;
       }
 
       return newSource;
     },
-    onSuccess: async (newSource) => {
+    onSuccess: (newSource) => {
       console.log("Source added successfully:", newSource);
 
-      const sourceQueryKey = ["sources", notebookId, !!session?.access_token] as const;
-      const existingSources = (queryClient.getQueryData(sourceQueryKey) as Source[]) || [];
-      const normalizedNewSource = normalizeSourceRecord(newSource as unknown as Record<string, unknown>);
-      const isFirstSource = existingSources.length === 0;
-
-      console.log(`📊 Existing sources count: ${existingSources.length}, isFirstSource: ${isFirstSource}`);
+      const sourceQueryKey = [
+        "sources",
+        notebookId,
+        !!session?.access_token,
+      ] as const;
+      const normalizedNewSource = normalizeSourceRecord(
+        newSource as unknown as Record<string, unknown>,
+      );
 
       // Surface newly created sources immediately, then reconcile with the server.
       if (notebookId) {
         queryClient.setQueryData<Source[]>(sourceQueryKey, (current = []) =>
           upsertSourceCache(current, normalizedNewSource),
         );
-        void queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
-      }
-
-      // Check for first source to trigger generation
-      if (isFirstSource && notebookId) {
-        console.log(
-          "This is the first source, checking notebook generation status...",
-        );
-
-        // Check notebook generation status
-        const notebook = localStorageService.getNotebook(notebookId);
-
-        // Treat anything not 'completed' as eligible for generation
-        const isAlreadyCompleted = notebook?.generation_status === "completed";
-
-        if (!isAlreadyCompleted) {
-          console.log("Triggering notebook content generation...");
-
-          // Determine if we can trigger generation based on source type and available data
-          const canGenerate =
-            (newSource.type === "pdf" && newSource.file_path) ||
-            (newSource.type === "text" && newSource.content) ||
-            (newSource.type === "website" && (newSource.url || newSource.content)) ||
-            (newSource.type === "youtube" && (newSource.url || newSource.content)) ||
-            (newSource.type === "audio" && newSource.file_path);
-
-          if (canGenerate) {
-            try {
-              // Mark as generating so UI shows spinner
-              if (session?.access_token) {
-                await ApiService.updateNotebook(notebookId, { generation_status: "processing" }, session.access_token);
-              } else {
-                localStorageService.updateNotebook(notebookId, {
-                  generation_status: "processing",
-                });
-              }
-              // Invalidate notebook query to show generating state
-              queryClient.invalidateQueries({ queryKey: ["notebooks"] });
-
-              await generateNotebookContentAsync({
-                notebookId,
-                filePath: newSource.file_path || newSource.url,
-                sourceType: newSource.type,
-              });
-            } catch (error) {
-              console.error("Failed to generate notebook content:", error);
-              // Still mark as completed on error so UI isn't stuck
-              if (session?.access_token) {
-                await ApiService.updateNotebook(notebookId, { generation_status: "completed" }, session.access_token).catch(() => {});
-              } else {
-                localStorageService.updateNotebook(notebookId, {
-                  generation_status: "completed",
-                });
-              }
-            }
-          } else {
-            console.log(
-              "Source not ready for generation yet - missing required data",
-            );
-          }
-        }
+        void queryClient.invalidateQueries({
+          queryKey: ["sources", notebookId],
+        });
       }
     },
   });
@@ -236,14 +215,19 @@ export const useSources = (notebookId?: string) => {
 
       if (session?.access_token) {
         if (!notebookId) throw new Error("notebookId required for API updates");
-        const res = await ApiService.updateSource(notebookId, sourceId, updates as Record<string, unknown>, session.access_token);
+        const res = await ApiService.updateSource(
+          notebookId,
+          sourceId,
+          updates as Record<string, unknown>,
+          session.access_token,
+        );
         updatedSource = res as Source;
       } else {
         // Update source in local storage
-        updatedSource = await localStorageService.updateSource(
+        updatedSource = (await localStorageService.updateSource(
           sourceId,
           updates as Partial<LocalSource>,
-        ) as Source | null;
+        )) as Source | null;
       }
 
       if (!updatedSource) {
@@ -252,60 +236,24 @@ export const useSources = (notebookId?: string) => {
 
       return updatedSource;
     },
-    onSuccess: async (updatedSource) => {
-      const sourceQueryKey = ["sources", notebookId, !!session?.access_token] as const;
-      const existingSources = (queryClient.getQueryData(sourceQueryKey) as Source[]) || [];
-      const normalizedUpdatedSource = normalizeSourceRecord(updatedSource as unknown as Record<string, unknown>);
-      const isFirstSource = existingSources.length === 1;
+    onSuccess: (updatedSource) => {
+      const sourceQueryKey = [
+        "sources",
+        notebookId,
+        !!session?.access_token,
+      ] as const;
+      const normalizedUpdatedSource = normalizeSourceRecord(
+        updatedSource as unknown as Record<string, unknown>,
+      );
 
       // Reflect processing transitions immediately, then reconcile with the server.
       if (notebookId) {
         queryClient.setQueryData<Source[]>(sourceQueryKey, (current = []) =>
           upsertSourceCache(current, normalizedUpdatedSource),
         );
-        void queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
-      }
-
-      // If file_path was added and this is the first source, trigger generation
-      if (updatedSource.file_path && notebookId && isFirstSource) {
-        const notebook = localStorageService.getNotebook(notebookId);
-
-        // Treat anything not 'completed' as eligible for generation
-        const isAlreadyCompleted = notebook?.generation_status === "completed";
-
-        if (!isAlreadyCompleted) {
-          console.log(
-            "File path updated, triggering notebook content generation...",
-          );
-
-          try {
-            // Mark as generating so UI shows spinner
-            if (session?.access_token) {
-              await ApiService.updateNotebook(notebookId, { generation_status: "processing" }, session.access_token);
-            } else {
-              localStorageService.updateNotebook(notebookId, {
-                generation_status: "processing",
-              });
-            }
-            queryClient.invalidateQueries({ queryKey: ["notebooks"] });
-
-            await generateNotebookContentAsync({
-              notebookId,
-              filePath: updatedSource.file_path,
-              sourceType: updatedSource.type,
-            });
-          } catch (error) {
-            console.error("Failed to generate notebook content:", error);
-            // Still mark as completed on error so UI isn't stuck
-            if (session?.access_token) {
-              await ApiService.updateNotebook(notebookId, { generation_status: "completed" }, session.access_token).catch(() => {});
-            } else {
-              localStorageService.updateNotebook(notebookId, {
-                generation_status: "completed",
-              });
-            }
-          }
-        }
+        void queryClient.invalidateQueries({
+          queryKey: ["sources", notebookId],
+        });
       }
     },
   });

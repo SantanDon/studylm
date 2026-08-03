@@ -122,10 +122,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       console.log("AuthContext: Starting logout process...");
 
-      // Revoke any active Login-with-ChatGPT session server-side (best-effort)
-      await fetch('/api/chatgpt/logout', { method: 'POST', credentials: 'include' })
-        .catch(err => console.warn("LWC logout request failed, continuing", err));
-
       // Call backend to clear cookies
       await ApiService.signout().catch(err => console.warn("Signout request failed, continuing local clear", err));
 

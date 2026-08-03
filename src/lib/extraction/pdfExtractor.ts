@@ -428,14 +428,16 @@ function chunkText(text: string, maxChunkSize: number = 1000): string[] {
  * Enhanced PDF extraction with improved error handling and fallbacks
  */
 export async function enhancedPDFExtraction(file: File): Promise<PDFExtractionResult> {
-  console.log(`ðŸ” Starting enhanced PDF extraction for: ${file.name}`);
+  console.log(`Starting enhanced PDF extraction for: ${file.name}`);
 
   const result = await extractPDFWithFallbacks(file);
 
   if (result.success) {
-    console.log(`âœ… Enhanced PDF extraction successful: ${result.metadata.extractedPages}/${result.metadata.totalPages} pages, ${result.metadata.charCount} chars`);
+    console.log(
+      `Enhanced PDF extraction successful: ${result.metadata.extractedPages}/${result.metadata.totalPages} pages, ${result.metadata.charCount} chars`,
+    );
   } else {
-    console.warn(`âŒ Enhanced PDF extraction failed:`, result.error);
+    console.warn("Enhanced PDF extraction failed:", result.error);
   }
 
   return result;

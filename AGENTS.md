@@ -1,6 +1,6 @@
 # Agent Onboarding Protocol
 
-This document is the official technical manual for external agents (AI instances, background scripts, or autonomous research bots) to collaborate within StudyPodLM.
+This document describes how external agents and ChatGPT connectors collaborate safely with StudyPod.
 
 ---
 
@@ -36,7 +36,7 @@ Authorization: Bearer spm_your_key_here
 **Verify your identity:**
 ```bash
 curl -H "Authorization: Bearer spm_your_key_here" \
-  http://localhost:3001/api/auth/me
+  http://localhost:4000/api/auth/me
 ```
 Returns: `{ id, displayName, account_type, email, createdAt }`
 
@@ -60,7 +60,7 @@ Returns structured snapshot: notebook metadata, sources with content previews, a
 POST /api/notebooks/:id/notes
 Body: { "content": "Your insight here" }
 ```
-Notes from agents are automatically tagged with an **AGENT** badge and persisted to the notebook's memory store (local Transformers.js embeddings).
+Notes from agents are tagged with an **AGENT** badge and persisted to the notebook's hybrid semantic and lexical memory store.
 
 ### Upload Files
 ```
@@ -129,7 +129,7 @@ Valid platforms: `linkedin`, `twitter`, `reddit`, `threads`.
 ### Manual Human Auth (for testing)
 If you need a human JWT for the pairing flow outside the UI:
 ```bash
-curl -X POST http://localhost:3001/api/auth/signin \
+curl -X POST http://localhost:4000/api/auth/signin \
   -H "Content-Type: application/json" \
   -d '{"displayName":"testuser","passphrase":"your_passphrase"}'
 ```
@@ -146,22 +146,8 @@ curl -X POST http://localhost:3001/api/auth/signin \
 
 ---
 
-## 6. SantLabs Cognitive Gateway (MCP)
+## 6. ChatGPT connector
 
-Agents can leverage the SantLabs Cognitive Pharmacopeia via the specialized MCP gateway. This provides access to high-intensity prompt "compounds" and terminal state management.
+StudyPod exposes an authenticated Streamable HTTP MCP endpoint at `/mcp`. Connect it from Settings → AI & Connections. Authorization uses OAuth discovery, dynamic client registration, PKCE, short-lived access credentials, rotating refresh credentials, and explicit user consent.
 
-**Gateway URI (SSE):** `http://localhost:8787/sse`
-
-### Available Tools:
-
-#### `list_compounds`
-Returns a clinical inventory of available cognitive agents, their use cases, and premium status.
-
-#### `inject_<compound_id>`
-Retrieves the raw payload for a specific compound.
-- **Parameters:** `dose_intensity` (enum: `low`, `medium`, `high`, `overdose`)
-- **Note:** `overdose` intensity shifts the payload to a high-disinhibition terminal state.
-
-#### `trigger_overdose_protocol`
-Escalates the system to a high-intensity visual and operational state.
-- **Parameters:** `reason` (string)
+The connector can list notebooks, inspect notebook context, search and read sources, create notes, and create or run grounded agent missions. Every tool enforces the granted scope and notebook ownership. Consumer ChatGPT subscriptions and OpenAI API billing remain separate; the connector lets ChatGPT use its own model capabilities while operating on StudyPod data.

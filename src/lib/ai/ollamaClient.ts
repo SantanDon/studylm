@@ -11,9 +11,9 @@
  *  - Tries multiple common model-listing endpoints and generate endpoint under a configurable base URL.
  *  - Base URL is resolved from Vite env (`import.meta.env.VITE_OLLAMA_BASE_URL`), then process.env.OLLAMA_BASE_URL,
  *    and finally falls back to `http://localhost:11434`.
- *  - Supports optional API key via `Authorization: Bearer <key>` when `OLLAMA_API_KEY` / `VITE_OLLAMA_API_KEY` set.
  *
  * Notes:
+ *  - Browser bundles never contain provider credentials. This client is for unauthenticated local Ollama only.
  *  - This file is intentionally dependency-free and uses the global `fetch`. In Node environments
  *    you may need a fetch polyfill or Node 18+.
  */
@@ -32,8 +32,6 @@ interface OllamaListResponse {
   [key: string]: unknown;
 }
 
-type Nullable<T> = T | null | undefined;
-
 const FALLBACK_BASE = "http://localhost:11434";
 
 /**
@@ -49,21 +47,6 @@ function getBaseUrl(): string {
       ? process.env?.OLLAMA_BASE_URL || process.env?.VITE_OLLAMA_BASE_URL
       : undefined;
   return (viteBase || nodeEnv || FALLBACK_BASE).replace(/\/+$/, ""); // trim trailing slashes
-}
-
-/**
- * Resolve API key from environment if provided.
- */
-function getApiKey(): Nullable<string> {
-  const viteEnv =
-    typeof import.meta !== "undefined" ? (import.meta as unknown as Record<string, unknown>).env as Record<string, string> : undefined;
-  return (
-    viteEnv?.VITE_OLLAMA_API_KEY ||
-    (typeof process !== "undefined"
-      ? process.env?.OLLAMA_API_KEY
-      : undefined) ||
-    null
-  );
 }
 
 /**
@@ -171,13 +154,11 @@ async function parseModelsResponse(res: Response): Promise<string[]> {
  */
 export async function listModels(timeoutMs: number = TIMEOUTS.OLLAMA_MODEL_LIST): Promise<string[]> {
   const base = getBaseUrl();
-  const apiKey = getApiKey();
 
   // Use the standard /api/tags endpoint for Ollama model listing
   const url = `${base}/api/tags`;
   try {
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
     const res = await fetchWithTimeout(
       url,
@@ -239,7 +220,6 @@ export async function generateText(
   opts: GenerateOptions,
 ): Promise<GenerateResponse | Response> {
   const base = getBaseUrl();
-  const apiKey = getApiKey();
   const timeoutMs = typeof opts.timeoutMs === "number" ? opts.timeoutMs : TIMEOUTS.OLLAMA_API_DEFAULT; // 2 minutes default
 
   // Try to get available models first
@@ -274,7 +254,6 @@ export async function generateText(
     "Content-Type": "application/json",
     Accept: "application/json, text/plain, */*",
   };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
   // If streaming requested, return Response for caller to handle streaming body
   const res = await fetchWithTimeout(
@@ -371,7 +350,6 @@ export async function generateTextToString(
  */
 export default {
   getBaseUrl,
-  getApiKey,
   listModels,
   generateText,
   generateTextToString,
