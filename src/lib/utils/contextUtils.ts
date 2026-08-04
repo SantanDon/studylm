@@ -28,11 +28,11 @@ export const safeParseJSON = <T>(data: string | null): T | null => {
 // Guest Mode Constants and Helpers
 export const GUEST_LIMITS = {
   notebooks: 3,
-  sourcesPerNotebook: 20,
-  messagesPerNotebook: 200,
-  podcastsPerNotebook: 5,
-  flashcardsPerNotebook: 5,
-  quizzesPerNotebook: 5,
+  sourcesPerNotebook: 5,
+  messagesPerNotebook: 20,
+  podcastsPerNotebook: 1,
+  flashcardsPerNotebook: 10,
+  quizzesPerNotebook: 2,
 } as const;
 
 export function generateGuestId(): string {

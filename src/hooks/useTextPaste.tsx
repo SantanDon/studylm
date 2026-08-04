@@ -7,6 +7,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiService } from "@/services/apiService";
 import { normalizeSourceRecord, upsertSourceCache, type Source } from "@/hooks/useSources";
+import { useGuest } from "@/hooks/useGuest";
+import { GUEST_LIMITS } from "@/lib/utils/contextUtils";
 
 export const useTextPaste = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -14,6 +16,7 @@ export const useTextPaste = () => {
   const { generateNotebookContentAsync } = useNotebookGeneration();
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const { isGuest, getNotebookUsage, incrementUsage, showAuthPrompt } = useGuest();
 
   const pasteTextAsSource = async (
     text: string,
@@ -26,6 +29,14 @@ export const useTextPaste = () => {
 
       if (!text || text.trim().length === 0) {
         throw new Error("Pasted text is empty");
+      }
+
+      if (
+        isGuest &&
+        getNotebookUsage(notebookId).sources >= GUEST_LIMITS.sourcesPerNotebook
+      ) {
+        showAuthPrompt("add more sources");
+        return false;
       }
 
       // Validate the pasted text content
@@ -92,6 +103,7 @@ export const useTextPaste = () => {
       queryClient.setQueryData<Source[]>(sourceQueryKey, (current = []) =>
         upsertSourceCache(current, normalizedSource),
       );
+      if (isGuest) incrementUsage("sources", notebookId);
       onPersisted?.(savedSource);
       void queryClient.invalidateQueries({ queryKey: ["sources", notebookId] });
 
