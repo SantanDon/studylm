@@ -602,7 +602,7 @@ async function searchSources(
 
         console.log(`✅ Semantic search found ${results.length} result(s)`);
       } else {
-        console.error(`❌ Query embedding is empty!`);
+        console.warn("Semantic embedding was unavailable; using keyword search fallback.");
       }
     } catch (error) {
       console.warn("⚠️ Semantic search failed, using keyword fallback", error);
