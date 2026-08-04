@@ -1,4 +1,5 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm install",
   "headers": [
     {
@@ -53,10 +54,10 @@
     "api/youtube-edge.js": {
       "maxDuration": 25
     },
-    "api/**/*.js": {
+    "api/**": {
       "maxDuration": 60,
       "includeFiles": "backend/src/{routes,middleware,db,utils,services}/**",
-      "excludeFiles": "{node_modules/kokoro-js,node_modules/@huggingface,node_modules/onnxruntime-*,node_modules/@hocuspocus,node_modules/@ffmpeg,node_modules/sharp,node_modules/canvas}/**"
+      "excludeFiles": "{uploads,.cache,dist,public,backend/python,node_modules/{kokoro-js,@huggingface,onnxruntime-*,@img,sharp,canvas,@ffmpeg,@hocuspocus}}/**"
     }
   },
   "outputDirectory": "dist"
