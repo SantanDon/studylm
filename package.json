@@ -18,7 +18,7 @@
         "test": "vitest",
         "test:ui": "vitest --ui",
         "test:coverage": "vitest --coverage",
-        "vercel-build": "npm run build",
+        "vercel-build": "node scripts/validate-production-env.mjs && npm run build",
         "audit:production": "node scripts/audit-production.mjs"
     },
     "dependencies": {

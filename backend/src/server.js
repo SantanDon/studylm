@@ -86,9 +86,9 @@ if (!jwtSecret || jwtSecret.length < 32) {
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Trust Vercel's (and any reverse proxy's) X-Forwarded-For headers
-// Required for express-rate-limit to correctly identify client IPs behind the load balancer
-app.set("trust proxy", true);
+// Trust exactly one platform proxy hop. Using `true` lets clients spoof
+// X-Forwarded-For and bypass IP-based rate limits.
+app.set("trust proxy", 1);
 
 // Global Security Hardening — dynamic CSP allows both 127.0.0.1 and localhost
 const selfUrl = `http://127.0.0.1:${PORT}`;
