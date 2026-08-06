@@ -10,7 +10,7 @@ import { QuizConfig } from '../QuizSelector';
 export function useStudioSidebar(notebookId?: string) {
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
-  const [isQuizSectionOpen, setIsQuizSectionOpen] = useState(true);
+  const [isQuizSectionOpen, setIsQuizSectionOpen] = useState(false);
   const [isFlashcardSectionOpen, setIsFlashcardSectionOpen] = useState(false);
   const [isConceptMapSectionOpen, setIsConceptMapSectionOpen] = useState(false);
   const [isComparisonOpen, setIsComparisonOpen] = useState(false);

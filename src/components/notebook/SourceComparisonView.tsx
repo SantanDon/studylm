@@ -71,8 +71,8 @@ const SourceComparisonView: React.FC<SourceComparisonViewProps> = ({
           <i className="fi fi-rr-git-compare h-5 w-5 text-primary"></i>
           <h2 className="text-lg font-semibold">Compare Sources</h2>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <i className="fi fi-rr-cross h-4 w-4"></i>
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close comparison">
+          <i className="fi fi-rr-cross h-4 w-4" aria-hidden="true"></i>
         </Button>
       </div>
 
