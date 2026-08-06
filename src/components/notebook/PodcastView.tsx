@@ -60,6 +60,7 @@ import {
   loadPlaybackCheckpoint,
 } from "@/lib/audio/playbackProgress";
 import { indexedDBService } from "@/services/indexedDBService";
+import { isSourceUsableForGroundedWork } from "@/lib/sources/sourceProcessing";
 
 interface PodcastViewProps {
   notebookId?: string;
@@ -68,6 +69,7 @@ interface PodcastViewProps {
 const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
   const safeNotebookId = notebookId || "";
   const { sources } = useSources(safeNotebookId);
+  const usableSources = (sources || []).filter(isSourceUsableForGroundedWork);
   const { notes } = useNotes(safeNotebookId);
   const { toast } = useToast();
 
@@ -375,10 +377,10 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
 
   // Generate podcast
   const handleGenerate = async () => {
-    if (!sources || sources.length === 0) {
+    if (usableSources.length === 0) {
       toast({
-        title: "No sources",
-        description: "Please add sources to your notebook first.",
+        title: "No ready sources",
+        description: "Add a source or wait for processing to finish before generating audio.",
         variant: "destructive",
       });
       return;
@@ -401,7 +403,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
         return (voice?.gender as "male" | "female") || "female";
       };
 
-      const combinedContent = sources
+      const combinedContent = usableSources
         .map((s) => s.content || "")
         .filter((c) => c.length > 0)
         .join("\n\n")
@@ -758,7 +760,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
             <button
               className={`podcast-generate-btn ${isStarting ? "loading" : ""}`}
               onClick={handleGenerate}
-              disabled={!sources || sources.length === 0 || isStarting}
+              disabled={usableSources.length === 0 || isStarting}
               data-testid="btn-start-production"
             >
               {isStarting ? (
@@ -778,7 +780,7 @@ const PodcastView: React.FC<PodcastViewProps> = ({ notebookId }) => {
           <button
             className="podcast-generate-btn"
             onClick={() => setShowAudioLab(true)}
-            disabled={!sources || sources.length === 0}
+            disabled={usableSources.length === 0}
             data-testid="btn-generate-podcast"
           >
             <FontAwesomeIcon icon={faPlay} />

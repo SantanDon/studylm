@@ -46,6 +46,16 @@ vi.mock('@/hooks/useSources', () => ({
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
+      {
+        id: 'source-3',
+        notebook_id: 'notebook-1',
+        title: 'Processing source',
+        type: 'text',
+        content: 'This source must not power grounded outputs yet',
+        processing_status: 'processing',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
     ],
   }),
 }));
@@ -95,7 +105,9 @@ vi.mock('@/components/notebook/SourceComparisonView', () => ({
     return <div>Source comparison view</div>;
   },
 }));
-vi.mock('@/components/notebook/QuizSelector', () => ({ default: () => <div>Quiz settings panel</div> }));
+vi.mock('@/components/notebook/QuizSelector', () => ({
+  default: ({ sourcesCount }: { sourcesCount: number }) => <div>Quiz settings panel ({sourcesCount})</div>,
+}));
 vi.mock('@/components/notebook/QuizView', () => ({ default: () => <div>Quiz view</div> }));
 vi.mock('@/components/notebook/QuizResults', () => ({ default: () => <div>Quiz results</div> }));
 vi.mock('@/components/notebook/SignalQueuePanel', () => ({ default: () => <div>Signal queue</div> }));
@@ -108,15 +120,15 @@ describe('StudioSidebar', () => {
     const user = userEvent.setup();
     render(<StudioSidebar notebookId="notebook-1" />);
 
-    expect(screen.getByText('2 sources available for grounded work.')).toBeInTheDocument();
+    expect(screen.getByText('2 of 3 sources ready for grounded work.')).toBeInTheDocument();
     expect(screen.getByText('Create from sources')).toBeInTheDocument();
     expect(screen.getByText('Research workflows')).toBeInTheDocument();
     expect(screen.getByText('Study and review')).toBeInTheDocument();
     expect(screen.getAllByText('Audiobook')).toHaveLength(1);
-    expect(screen.queryByText('Quiz settings panel')).not.toBeInTheDocument();
+    expect(screen.queryByText('Quiz settings panel (2)')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Quiz/i }));
-    expect(screen.getByText('Quiz settings panel')).toBeInTheDocument();
+    expect(screen.getByText('Quiz settings panel (2)')).toBeInTheDocument();
   });
 
   it('opens the comparison controls before entering the comparison workspace', async () => {

@@ -79,7 +79,7 @@ export function hasUsableSourceContent(source: ProcessableSourceLike): boolean {
   return typeof source.content === 'string' && source.content.trim().length > 0;
 }
 
-export function isSourceUsableForGroundedChat(source: ProcessableSourceLike): boolean {
+export function isSourceUsableForGroundedWork(source: ProcessableSourceLike): boolean {
   const status = getSourceProcessingStatus(source);
   const metadata = parseSourceProcessingMetadata(source.metadata);
   const isMetadataOnlyYoutube = source.type === 'youtube' && metadata.transcriptStatus === 'metadata_only';
@@ -87,6 +87,8 @@ export function isSourceUsableForGroundedChat(source: ProcessableSourceLike): bo
 
   return readyStatus && hasUsableSourceContent(source) && !isMetadataOnlyYoutube;
 }
+
+export const isSourceUsableForGroundedChat = isSourceUsableForGroundedWork;
 
 export function shouldSkipClientSemanticIndexing(
   contentLength: number,

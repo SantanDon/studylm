@@ -6,6 +6,7 @@ import { useQuiz } from '@/hooks/useQuiz';
 import { useOllamaModels } from '@/hooks/useOllamaModels';
 import { useConceptMap } from '@/hooks/useConceptMap';
 import { QuizConfig } from '../QuizSelector';
+import { isSourceUsableForGroundedWork } from '@/lib/sources/sourceProcessing';
 
 export function useStudioSidebar(notebookId?: string) {
   const [editingNote, setEditingNote] = useState<Note | null>(null);
@@ -29,6 +30,7 @@ export function useStudioSidebar(notebookId?: string) {
 
   const { notebooks } = useNotebooks();
   const { sources } = useSources(notebookId);
+  const usableSources = (sources || []).filter(isSourceUsableForGroundedWork);
 
   const {
     currentSession,
@@ -58,9 +60,9 @@ export function useStudioSidebar(notebookId?: string) {
   const notebook = notebooks?.find((n: { id: string }) => n.id === notebookId);
 
   const handleGenerateConceptMap = () => {
-    if (!notebookId || !sources || sources.length === 0) return;
+    if (!notebookId || usableSources.length === 0) return;
     
-    const combinedContent = sources
+    const combinedContent = usableSources
       .map(s => `${s.title}:\n${s.content || s.summary || ''}`)
       .join('\n\n');
     
@@ -114,10 +116,10 @@ export function useStudioSidebar(notebookId?: string) {
   };
 
   const handleStartQuiz = (config: QuizConfig) => {
-    if (!sources || sources.length === 0) return;
+    if (usableSources.length === 0) return;
     
     generateQuiz({
-      sources,
+      sources: usableSources,
       numQuestions: config.numQuestions,
       difficulty: config.difficulty,
       questionType: config.questionType,
@@ -173,7 +175,7 @@ export function useStudioSidebar(notebookId?: string) {
       showQuizResults, setShowQuizResults
     },
     data: {
-      notes, sources, installedModels, conceptMaps, currentSession
+      notes, sources, usableSources, installedModels, conceptMaps, currentSession
     },
     flags: {
       isLoading, isCreating, isUpdating, isDeleting,

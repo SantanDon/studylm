@@ -165,18 +165,16 @@ const StudioSidebar = ({
   const [isComparisonSectionOpen, setIsComparisonSectionOpen] = React.useState(false);
   const [activeWorkspace, setActiveWorkspace] = React.useState<'studio' | 'audiobook'>('studio');
 
-  const { notes, sources, installedModels, conceptMaps, currentSession } = data;
+  const { notes, sources, usableSources, installedModels, conceptMaps, currentSession } = data;
   const sourceCount = sources?.length ?? 0;
-  const readySourceCount = sources?.filter((source) =>
-    source.processing_status === 'completed' || source.processing_status === 'ready'
-  ).length ?? 0;
+  const usableSourceCount = usableSources.length;
   const sourceSummary = sourceCount === 0
     ? 'Add sources to create grounded outputs and study tools.'
-    : readySourceCount === 0
-      ? `${sourceCount} ${sourceCount === 1 ? 'source is' : 'sources are'} still processing.`
-      : readySourceCount < sourceCount
-        ? `${readySourceCount} of ${sourceCount} sources ready for grounded work.`
-        : `${readySourceCount} ${readySourceCount === 1 ? 'source' : 'sources'} available for grounded work.`;
+    : usableSourceCount === 0
+      ? 'No sources are ready for grounded work yet.'
+      : usableSourceCount < sourceCount
+        ? `${usableSourceCount} of ${sourceCount} sources ready for grounded work.`
+        : `${usableSourceCount} ${usableSourceCount === 1 ? 'source' : 'sources'} available for grounded work.`;
   const hasOnlyTweets = sources && sources.length > 0 && sources.every(s => s.type === 'tweet');
   const { isLoading, isCreating, isUpdating, isDeleting, isGenerating, isGeneratingMap, isDeletingMap, isEditingMode, isQuizActive, isQuizCompleted } = flags;
   const { generationError, generatingProgress } = misc;
@@ -241,7 +239,7 @@ const StudioSidebar = ({
     return (
       <div className="w-full bg-gray-50 dark:bg-background border-l border-gray-200 dark:border-border flex flex-col h-full overflow-hidden">
         <SourceComparisonView
-          sources={sources || []}
+          sources={usableSources}
           notebookId={notebookId || ''}
           onClose={() => setIsComparisonOpen(false)}
         />
@@ -427,14 +425,14 @@ const StudioSidebar = ({
                       size="sm"
                       className="w-full"
                       onClick={() => setIsComparisonOpen(true)}
-                      disabled={sourceCount < 2}
+                      disabled={usableSourceCount < 2}
                     >
                       <GitCompare className="mr-2 h-4 w-4" />
                       Open comparison
                     </Button>
-                    {sourceCount < 2 && (
+                    {usableSourceCount < 2 && (
                       <p className="mt-2 text-center text-[10px] text-muted-foreground">
-                        Add at least two sources to compare evidence.
+                        Add or finish processing at least two sources to compare evidence.
                       </p>
                     )}
                   </div>
@@ -458,17 +456,17 @@ const StudioSidebar = ({
                   open={isQuizSectionOpen}
                 />
                 <CollapsibleContent className="pt-2">
-                  {notebookId && sourceCount > 0 ? (
+                  {notebookId && usableSourceCount > 0 ? (
                     <QuizSelector
                       onStart={handleStartQuiz}
                       isGenerating={isGenerating}
                       error={generationError}
-                      sourcesCount={sourceCount}
+                      sourcesCount={usableSourceCount}
                       availableModels={installedModels || []}
                     />
                   ) : (
                     <div className="rounded-xl border border-dashed border-border bg-card/60 p-6 text-center">
-                      <p className="text-xs text-muted-foreground">Add sources to generate a quiz.</p>
+                      <p className="text-xs text-muted-foreground">Add a source or wait for processing to finish before generating a quiz.</p>
                     </div>
                   )}
                 </CollapsibleContent>
@@ -504,7 +502,7 @@ const StudioSidebar = ({
                       size="sm"
                       className="w-full"
                       onClick={handleGenerateConceptMap}
-                      disabled={isGeneratingMap || sourceCount === 0}
+                      disabled={isGeneratingMap || usableSourceCount === 0}
                     >
                       {isGeneratingMap ? (
                         <>

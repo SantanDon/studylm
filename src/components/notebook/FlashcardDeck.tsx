@@ -21,6 +21,7 @@ import {
 import { useFlashcards } from '@/hooks/useFlashcards';
 import { useSources } from '@/hooks/useSources';
 import FlashcardView from './FlashcardView';
+import { isSourceUsableForGroundedWork } from '@/lib/sources/sourceProcessing';
 
 interface FlashcardDeckProps {
   notebookId: string;
@@ -72,6 +73,7 @@ const FlashcardDeckComponent: React.FC<FlashcardDeckProps> = ({ notebookId }) =>
   } = useFlashcards(notebookId);
 
   const { sources } = useSources(notebookId);
+  const usableSources = sources.filter(isSourceUsableForGroundedWork);
 
   const handleCreateDeck = () => {
     if (!newDeckName.trim()) return;
@@ -90,7 +92,7 @@ const FlashcardDeckComponent: React.FC<FlashcardDeckProps> = ({ notebookId }) =>
   const handleGenerateCards = async () => {
     if (!selectedDeckId || !selectedSourceId) return;
     
-    const source = sources.find(s => s.id === selectedSourceId);
+    const source = usableSources.find(s => s.id === selectedSourceId);
     if (!source || !source.content) {
       setGenerateError('Selected source has no content');
       return;
@@ -200,7 +202,7 @@ const FlashcardDeckComponent: React.FC<FlashcardDeckProps> = ({ notebookId }) =>
 
           <Dialog open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="flex-1" disabled={decks.length === 0}>
+              <Button variant="outline" size="sm" className="flex-1" disabled={decks.length === 0 || usableSources.length === 0}>
                 <i className="fi fi-rr-sparkles h-4 w-4 mr-1"></i>
                 Generate
               </Button>
@@ -233,7 +235,7 @@ const FlashcardDeckComponent: React.FC<FlashcardDeckProps> = ({ notebookId }) =>
                       <SelectValue placeholder="Choose a source..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {sources.filter(s => s.content).map(source => (
+                      {usableSources.map(source => (
                         <SelectItem key={source.id} value={source.id}>
                           {source.title}
                         </SelectItem>
