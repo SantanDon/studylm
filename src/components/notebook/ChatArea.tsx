@@ -10,6 +10,7 @@ import MarkdownRenderer from '@/components/chat/MarkdownRenderer';
 import ChatInput from '@/components/chat/ChatInput';
 import SovereignChatIntro from '@/components/chat/SovereignChatIntro';
 import CaptureButtons from './CaptureButtons';
+import ChatEvidenceScope, { ChatEvidenceScopeValue } from './ChatEvidenceScope';
 import { Citation, EnhancedChatMessage } from '@/types/message';
 import { IMMERSIVE_PROMPTS, BOOKMARK_PROMPTS } from '@/config/prompts';
 import { useToast } from '@/hooks/use-toast';
@@ -66,7 +67,7 @@ const ChatArea = ({
 }: ChatAreaProps) => {
   const [message, setMessage] = useState('');
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
-  const [chatScope, setChatScope] = useState<'all' | 'active'>('all');
+  const [chatScope, setChatScope] = useState<ChatEvidenceScopeValue>('all');
   const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
   const [showAiLoading, setShowAiLoading] = useState(false);
@@ -327,7 +328,8 @@ const ChatArea = ({
       {hasSource ? <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Chat Header */}
           <div className="p-4 border-b border-gray-200 dark:border-border flex-shrink-0 bg-white dark:bg-background">
-            <div className="max-w-4xl mx-auto flex items-center justify-between">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center justify-between gap-3">
               <div className="flex items-center space-x-4">
                 <h2 className="text-lg font-medium text-gray-900 dark:text-foreground">
                   {chatMode === 'agent' ? 'Agent Collaboration' : 'Study Chat'}
@@ -350,22 +352,14 @@ const ChatArea = ({
               </div>
               
               <div className="flex items-center space-x-4">
-                <label className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>Evidence</span>
-                  <select
-                    aria-label="Chat evidence scope"
+               <div className="hidden md:block">
+                  <ChatEvidenceScope
                     value={chatScope}
-                    onChange={(event) => setChatScope(event.target.value as 'all' | 'active')}
-                    className="h-8 max-w-44 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-                  >
-                    <option value="all">All ready sources</option>
-                    <option value="active" disabled={!activeSourceUsable}>
-                      {activeSourceUsable && activeSource
-                        ? `Current: ${formatDisplayTitle(activeSource.title, 'Current source')}`
-                        : 'Open a ready source first'}
-                    </option>
-                  </select>
-                </label>
+                    onChange={setChatScope}
+                    activeSourceTitle={activeSource?.title}
+                    activeSourceUsable={activeSourceUsable}
+                  />
+                </div>
 
                 {/* Response Style Toggle */}
                 <div className="flex bg-muted p-1 rounded-md">
@@ -397,10 +391,19 @@ const ChatArea = ({
                     <span>Share</span>
                   </Button>
                 )}
-                <Button variant="outline" size="sm" onClick={() => setShowResearchDialog(true)} className="hidden sm:flex items-center space-x-2">
+               <Button variant="outline" size="sm" onClick={() => setShowResearchDialog(true)} className="hidden sm:flex items-center space-x-2">
                   <i className="fi fi-rr-search h-4 w-4"></i>
                   <span>Research Further</span>
                 </Button>
+              </div>
+              </div>
+              <div className="mt-3 md:hidden">
+                <ChatEvidenceScope
+                  value={chatScope}
+                  onChange={setChatScope}
+                  activeSourceTitle={activeSource?.title}
+                  activeSourceUsable={activeSourceUsable}
+                />
               </div>
             </div>
           </div>

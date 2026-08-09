@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  alignCitationExcerptsWithClaims,
   buildNotebookContext,
+  buildQuestionEvidenceDirective,
   buildSystemPrompt,
   chatWithNotebook,
   ensureExplicitMultiSourceGrounding,
+  ensureNamedSourceGrounding,
   ensurePrimaryGrounding,
+  finalizeSourceAwareAnswer,
   inferCitationsFromMarkers,
   parseCitationExcerpts,
+  selectCitationExcerpt,
   selectRelevantContent,
   shouldUseConversationHistory,
 } from "../services/aiChatService.js";
@@ -38,6 +43,88 @@ describe("AI chat grounding", () => {
     expect(result.answer).toBe("Use explicit boundaries.[1]");
     expect(result.citations).toHaveLength(1);
     expect(result.citations[0].source_id).toBe("source-1");
+  });
+
+  it("selects a literal excerpt that covers adjacent facts in the cited claim", () => {
+    const content = [
+      "The retrieval group answered short questions without notes, then checked immediate corrective feedback.",
+      "Their average delayed-test score was 78%, compared with 61% for the rereading group.",
+      "The trial coordinator was Dr. Amina Khumalo.",
+      "The groups were not randomly assigned.",
+    ].join("\n");
+
+    const excerpt = selectCitationExcerpt(
+      content,
+      "Who coordinated the classroom trial, and what were the delayed-test scores?",
+      "The trial coordinator was Dr. Amina Khumalo, and the delayed-test scores were 78% and 61%.",
+    );
+
+    expect(excerpt).toContain("78%");
+    expect(excerpt).toContain("61%");
+    expect(excerpt).toContain("Dr. Amina Khumalo");
+    expect(content.replace(/\s+/g, " ")).toContain(excerpt);
+  });
+
+  it("prefers a coherent full-sentence citation over a higher-overlap fragment", () => {
+    const content = [
+      "The review recommends spreading successful recall attempts across increasing intervals rather than massing them into one session.",
+      "It describes adjustable intervals as a practical scheduling approach and says the reviewed evidence does not establish one universally optimal spacing interval.",
+      "The review does not claim that neurons or synapses are strengthened by a specific schedule.",
+    ].join(" ");
+    const claimContext = [
+      "The Spacing Schedule Review recommends adjustable intervals as a practical scheduling approach.",
+      "It does not establish one universally optimal spacing interval or a biological mechanism involving neurons or synapses.",
+      "The sources do not directly study active recall and spacing as a combined intervention.",
+    ].join(" ");
+
+    const excerpt = selectCitationExcerpt(
+      content,
+      "Explain in depth why active recall and spacing work together, including the mechanism.",
+      claimContext,
+    );
+
+    expect(excerpt).toMatch(/^It describes/);
+    expect(excerpt.endsWith(".")).toBe(true);
+    expect(excerpt).toContain("universally optimal spacing interval");
+  });
+
+  it("replaces a verbatim but weak citation with evidence that supports the claim", () => {
+    const directSources = [
+      {
+        id: "trial-source",
+        type: "text",
+        content: [
+          "Active recall is the act of retrieving an answer from memory before reviewing notes.",
+          "In a six-week classroom trial at Meridian College, 84 first-year students were assigned to rereading or retrieval practice.",
+          "The retrieval group answered short questions without notes, then checked immediate corrective feedback.",
+          "Their average delayed-test score was 78%, compared with 61% for the rereading group.",
+          "The trial coordinator was Dr. Amina Khumalo.",
+          "The report cautions that the groups were not randomly assigned and that motivation was self-reported.",
+        ].join("\n"),
+      },
+    ];
+    const answer =
+      "The trial coordinator was Dr. Amina Khumalo. The retrieval group had an average delayed-test score of 78%, while the rereading group had an average delayed-test score of 61%.";
+    const weakCitation = {
+      citation_id: 1,
+      source_id: "trial-source",
+      source_title: "Active Recall Field Study",
+      source_type: "text",
+      excerpt:
+        "In a six-week classroom trial at Meridian College, 84 first-year students were assigned to rereading or retrieval practice. The retrieval group answered short questions without notes, then checked immediate corrective feedback.",
+    };
+    const result = alignCitationExcerptsWithClaims(
+      answer,
+      [weakCitation, { ...weakCitation }],
+      directSources,
+      "Who coordinated the classroom trial, and what were the delayed-test scores? Answer directly.",
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].excerpt).toContain("78%");
+    expect(result[0].excerpt).toContain("61%");
+    expect(result[0].excerpt).toContain("Dr. Amina Khumalo");
+    expect(result[0].excerpt).not.toContain("84 first-year students");
   });
 
   it("preserves opening metadata for publication and document-status questions", () => {
@@ -243,6 +330,69 @@ describe("AI chat grounding", () => {
     });
   });
 
+  it("grounds a missing citation when the answer explicitly names the supporting source", () => {
+    const refs = [
+      { index: 1, id: "trial", title: "Active Recall Field Study", type: "text" },
+      { index: 2, id: "commentary", title: "Study Methods Commentary", type: "text" },
+      { index: 3, id: "spacing", title: "Spacing Schedule Review", type: "text" },
+    ];
+    const namedSources = [
+      {
+        id: "trial",
+        type: "text",
+        content:
+          "Their average delayed-test score was 78%, compared with 61% for the rereading group.",
+      },
+      {
+        id: "commentary",
+        type: "text",
+        content:
+          "The author claims a 30% improvement but provides no dataset or method, so the number cannot be verified.",
+      },
+      {
+        id: "spacing",
+        type: "text",
+        content:
+          "It summarizes three small studies, but only one directly measured university exam performance. That study reported a 9 percentage-point improvement over massed practice.",
+      },
+    ];
+    const answer = [
+      'The "Active Recall Field Study" reports 78% versus 61%. [1]',
+      'The "Study Methods Commentary" makes an unsupported 30% claim. [2]',
+      '### Uncertainties\nThe "Spacing Schedule Review" reports a 9 percentage-point improvement over massed practice.',
+    ].join("\n\n");
+    const result = ensureNamedSourceGrounding(
+      answer,
+      [
+        {
+          citation_id: 1,
+          source_id: "trial",
+          source_title: "Active Recall Field Study",
+          source_type: "text",
+          excerpt: namedSources[0].content,
+        },
+        {
+          citation_id: 2,
+          source_id: "commentary",
+          source_title: "Study Methods Commentary",
+          source_type: "text",
+          excerpt: namedSources[1].content,
+        },
+      ],
+      refs,
+      namedSources,
+      "Do these sources prove that active recall always beats rereading by 30%?",
+    );
+
+    expect(result.answer).toMatch(/Spacing Schedule Review[^\n]*\[3\]/);
+    expect(result.citations).toHaveLength(3);
+    expect(result.citations[2]).toMatchObject({
+      citation_id: 3,
+      source_id: "spacing",
+    });
+    expect(result.citations[2].excerpt).toContain("9 percentage-point improvement");
+  });
+
   it("does not attach every source without an explicit all-source citation request", () => {
     const result = ensureExplicitMultiSourceGrounding(
       "Explicit boundaries improve reliability. [1]",
@@ -316,9 +466,105 @@ describe("AI chat grounding", () => {
 
     expect(prompt).toContain("untrusted reference material");
     expect(prompt).toContain("Do not invent bibliographic details");
+    expect(prompt).toContain("use them as the sole factual basis");
+    expect(prompt).toContain("Do not manufacture contradictions");
+    expect(prompt).toContain("Explore next:");
     expect(prompt).not.toContain("Llama 3.1");
     expect(prompt).not.toContain("dark tone");
     expect(prompt).not.toContain("Cold Librarian");
+  });
+
+  it("adds question-specific constraints for source-limited mechanism questions", () => {
+    const directive = buildQuestionEvidenceDirective(
+      "Explain in depth why active recall and spacing work together, including the mechanism.",
+      [
+        { index: 1, title: "Active Recall Field Study" },
+        { index: 2, title: "Spacing Schedule Review" },
+      ],
+    );
+
+    expect(directive).toContain("do not establish a deeper mechanism");
+    expect(directive).toContain("neurons");
+    expect(directive).toContain("combined intervention");
+    expect(directive).toContain('"Active Recall Field Study"');
+    expect(directive).toContain("Explore next:");
+  });
+
+  it("keeps direct factual questions brief and continuation-free", () => {
+    const directive = buildQuestionEvidenceDirective(
+      "Who coordinated the trial, and what were the exact scores? Answer directly.",
+      [{ index: 1, title: "Active Recall Field Study" }],
+    );
+
+    expect(directive).toContain("one to three sentences");
+    expect(directive).toContain("omit an Explore next line");
+  });
+
+  it("does not guess through an ambiguous source-grounded question", () => {
+    const directive = buildQuestionEvidenceDirective(
+      "What should I do first?",
+      [
+        { index: 1, title: "Active Recall Field Study" },
+        { index: 2, title: "Beginner Orientation Commentary" },
+      ],
+    );
+
+    expect(directive).toContain("user state unspecified");
+    expect(directive).toContain("Do not silently choose one interpretation");
+    expect(directive).toContain("as an inference");
+  });
+
+  it("separates evidence strength from genuine conflicts and universal claims", () => {
+    const comparisonDirective = buildQuestionEvidenceDirective(
+      "Compare all three sources. Do they conflict on whether a beginner should retrieve immediately?",
+      [
+        { index: 1, title: "Active Recall Field Study" },
+        { index: 2, title: "Beginner Orientation Commentary" },
+      ],
+    );
+    const incompleteDirective = buildQuestionEvidenceDirective(
+      "Do these sources prove that active recall always improves exam scores by at least 30%?",
+      [{ index: 1, title: "Active Recall Field Study" }],
+    );
+
+    expect(comparisonDirective).toContain("nuances, not conflicts");
+    expect(incompleteDirective).toContain("Separate supported findings");
+    expect(incompleteDirective).toContain("universal rule");
+    expect(incompleteDirective).toContain("percentage-point difference");
+  });
+
+  it("removes generic framing and adds a source-aware continuation for substantive answers", () => {
+    const answer = [
+      "## Introduction to the evidence",
+      "The notebook links retrieval practice with immediate feedback and describes spacing as creating desirable difficulty. The field study reports delayed-test scores and limitations, while the review proposes adjustable intervals. The commentary adds a beginner-orientation condition without directly contradicting the trial.",
+      "## Conclusion",
+      "The practical implication is to orient first when needed, retrieve without notes, check feedback, and adapt intervals after successful or failed recall.",
+    ].join("\n\n");
+
+    const finalized = finalizeSourceAwareAnswer(
+      answer,
+      "Explain in depth why active recall and spacing work together.",
+      [
+        { index: 1, title: "Active Recall Field Study" },
+        { index: 2, title: "Spacing Schedule Review" },
+      ],
+    );
+
+    expect(finalized).not.toMatch(/## Introduction/i);
+    expect(finalized).not.toMatch(/## Conclusion/i);
+    expect(finalized).toContain(
+      'Explore next: Which limitation in "Active Recall Field Study" should we examine next against "Spacing Schedule Review"?',
+    );
+  });
+
+  it("does not append a continuation to a direct factual answer", () => {
+    const finalized = finalizeSourceAwareAnswer(
+      "Dr. Amina Khumalo coordinated the trial. The scores were 78% and 61%. [1]",
+      "Who coordinated the trial, and what were the exact scores? Answer directly.",
+      [{ index: 1, title: "Active Recall Field Study" }],
+    );
+
+    expect(finalized).not.toContain("Explore next:");
   });
 
   it("ranks an explicitly named short source ahead of a huge generic document", () => {
