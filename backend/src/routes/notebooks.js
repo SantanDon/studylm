@@ -1302,7 +1302,7 @@ router.post("/:id/chat", requireScope("chat:all"), async (req, res) => {
             sourceIds,
           );
           if (brokerResult) {
-            interceptedResponse = `🎯 **Goal Broker Synthesis Executed Successfully**\n\nI've matched your bookmark sources against your active Research Goals:\n\n1. **Research Synthesis & Recommendations Note**: Updated/created in your notebook memory.\n2. **Autonomous Agent Tasks**: Stage populated with **${brokerResult.tasksCount}** new action items assigned to agents.\n3. **Outreach Channels**: **${brokerResult.signalsCount}** viral outreach drafts generated and staged in your **Signal Queue**.\n\nThis completes the closed loop from crawled bookmarks to actionable workspace intelligence.`;
+            interceptedResponse = `🎯 **Goal Broker Synthesis Executed Successfully**\n\nI've matched your bookmark sources against your active Research Goals:\n\n1. **Research Synthesis & Recommendations Note**: Updated/created in your notebook memory.\n2. **Autonomous Agent Tasks**: Stage populated with **${brokerResult.tasksCount}** new action items assigned to agents.\n3. **Outreach Hooks**: **${brokerResult.outreachDrafts}** drafts generated and saved in the synthesis note. The **Signal Queue is currently dormant**, so these drafts were not staged for publishing.\n\nThis completes the closed loop from crawled bookmarks to actionable workspace intelligence.`;
           } else {
             interceptedResponse = `⚠️ **Synthesis Synthesis Interrupted**\n\nSomething went wrong while running the Goal Broker synthesis. Check the server logs for details.`;
           }

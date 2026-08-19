@@ -377,7 +377,7 @@ export async function deepDiveBookmarks(tweetUrls, notebookId, userId) {
         brokerResearchGoals(notebookId, userId, newlyCreatedSourceIds)
           .then(brokerResult => {
             if (brokerResult) {
-              logger.info(`[DeepDive] Goal broker synthesis complete: noteId=${brokerResult.noteId}, tasks=${brokerResult.tasksCount}, signals=${brokerResult.signalsCount}`);
+              logger.info(`[DeepDive] Goal broker synthesis complete: noteId=${brokerResult.noteId}, tasks=${brokerResult.tasksCount}, outreachDrafts=${brokerResult.outreachDrafts}`);
             }
           })
           .catch(err => logger.error(`[DeepDive] Goal broker synthesis failed: ${err.message}`));
